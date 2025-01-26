@@ -1,0 +1,26 @@
+# Development environment files
+.env
+.envrc
+.justfile
+
+# Intermediary C code and libraries
+*.c
+*.h
+*.o
+*.so
+*.dll
+*.exe
+
+# Cython annotations
+*.html
+
+
+# Python cache files
+__pycache__/
+*.pyc
+
+
+# Python environment files
+.venv/
+venv/
+

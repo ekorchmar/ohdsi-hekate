@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools", "Cython"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ohdsi-hekate"
+dynamic = ["version"]
+description = "A pipeline to ingest source drug data into OMOP CDM"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["omop-cdm", "ohdsi", "medical-data"]
+authors = [
+  { name = "Eduard Korchmar", email = "korchmar@ohdsi.org" },
+]
+maintainers = [
+  { name = "Eduard Korchmar", email = "korchmar@ohdsi.org" },
+]
+
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Production/Stable",
+
+  "Topic :: Scientific/Engineering",
+
+  "Typing :: Typed",
+
+  "Programming Language :: Cython",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+dependencies = [
+  "cython",
+]
+
+[project.optional-dependencies]
+database = ["sqlalchemy", "pandas"]
+
+
+[project.urls]
+"Homepage" = "https://github.com/OHDSI/Vocabulary-v5.0/wiki/International-Drug-Vocabulary-Implementation-Process"
+"Bug Reports" = "https://github.com/OHDSI/hekate/issues"
+"Source" = "https://github.com/OHDSI/hekate"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {file = "src/__version__"}
