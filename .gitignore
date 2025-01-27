@@ -24,3 +24,11 @@ __pycache__/
 .venv/
 venv/
 
+
+# Package installation files
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
