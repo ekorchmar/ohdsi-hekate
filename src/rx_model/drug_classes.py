@@ -45,15 +45,11 @@ class LiquidConcentration:
 
 
 @dataclass(frozen=True, slots=True)
-class LiquidQuantity:
-    numerator_value: float
-    numerator_unit: Unit
+class LiquidQuantity(LiquidConcentration):
     denominator_value: float
-    denominator_unit: Unit
 
 
 type UnquantifiedStrength = SolidStrength | LiquidConcentration
-type QuantifiedStrength = SolidStrength | LiquidQuantity
 
 
 # Derived concepts
@@ -79,8 +75,9 @@ class ClinicalDrugComponent:
 
 @dataclass(frozen=True, slots=True)
 class BrandedDrugComponent:
+    """NB: Contains multiple components in one!"""
     concept_id: int
-    clinical_drug_component: ClinicalDrugComponent
+    clinical_drug_components: tuple[ClinicalDrugComponent]
     brand_name: BrandName
 
 
@@ -88,7 +85,7 @@ class BrandedDrugComponent:
 class ClinicalDrugForm:
     concept_id: int
     dose_form: DoseForm
-    ingredients: list[Ingredient]
+    ingredients: tuple[Ingredient]
 
     def __post_init__(self):
         if len(self.ingredients) == 0:
@@ -117,16 +114,16 @@ class BoundUnquantifiedStrength:
 @dataclass(frozen=True, slots=True)
 class BoundQuantifiedStrength:
     ingredient: Ingredient
-    strength: QuantifiedStrength
-    corresponding_component: ClinicalDrugComponent
+    strength: LiquidQuantity
 
 
 # # Unquantified drugs
 @dataclass(frozen=True, slots=True)
+# TODO: Split in solid and liquid forms?
 class ClinicalDrug:
     concept_id: int
     form: ClinicalDrugForm
-    contents: list[BoundUnquantifiedStrength]
+    contents: tuple[BoundUnquantifiedStrength]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,3 +131,21 @@ class BrandedDrug:
     concept_id: int
     clinical_drug: ClinicalDrug
     brand_name: BrandName
+    # Redundant fields
+    form: BrandedDrugForm
+    content: BrandedDrugComponent  # TODO: Check if strength is consistent
+
+
+# # Quantified forms
+@dataclass(frozen=True, slots=True)
+class QuantifiedClinicalDrug:
+    concept_id: int
+    contents: tuple[BoundQuantifiedStrength]
+    unquantified_equivalent: ClinicalDrug
+
+
+@dataclass(frozen=True, slots=True)
+class QuantifiedBrandedDrug:
+    concept_id: int
+    clinical_drug: QuantifiedClinicalDrug
+    unquantified_equivalent: BrandedDrug
