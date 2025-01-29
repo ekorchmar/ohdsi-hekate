@@ -1,11 +1,10 @@
-import cython
-
-
-@cython.cfunc
 def main():
-    print('Hello, World')
-    code: cython.int = 0
-    return code
+    print("""\
+With tail of newt and eye of toad,
+Avoiding legacy code bloat,
+With leaf of fern and QA checks,
+Hekate starts another hex!
+""")
 
 
 if __name__ == '__main__':
