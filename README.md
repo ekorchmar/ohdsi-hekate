@@ -6,10 +6,27 @@ CSV format, ready to be processed by the [`GenericUpdate()`](https://github.com/
 
 ## Technology
 
-Hekate is implemented in Python, requiring version at least `3.10`. Although it is possible to run the script by the
-Python interpreter, it is intended to be compiled into binary using [Cython](https://cython.org/). To compile Hekate for
-your platform, run the following command:
+Hekate is implemented in Python, requiring version at least `3.10`. Parts of the code will eventually be rewritten to
+support Cython for performance reasons.
+
+## Installation
+Hekate can be installed using `pip`. Virtual environment is recommended. The package is not yet available on PyPI, so
+it must be installed from the repository.
 
 ```shell
-# TODO: Add the command to compile the script
+git clone https://github.com/OHDSI/Hekate.git
+cd Hekate
+python -m venv venv
+source venv/bin/activate # On Windows: venv\Scripts\activate
+pip install -e .
 ```
+
+## Usage
+Hekate is (or will be) a command line tool. Eventually, support for a web interface will be added. Even more eventually,
+Hekate will be available as a PostgreSQL extension.
+
+
+## License
+Source code is available under MIT License.
+
+
