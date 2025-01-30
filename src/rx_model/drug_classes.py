@@ -6,9 +6,41 @@ from typing import Self
 from rxmodel import exception  # For custom exceptions
 from src.utils import utils  # For utility functions in integrity checks
 
+
+# Helper classes
+class _MulticomponentMixin:
+    """Mixin for classes to implement checks with multiple components."""
+
+    def check_multiple_components(
+            self, container: tuple["ClinicalDrugComponent"]
+    ) -> None:
+        if len(container) == 0:
+            raise exception.RxConceptCreationError(
+                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} must "
+                f"have at least one component."
+            )
+
+        # Check for duplicate ingredients
+        I, PI, CDC = Ingredient, PreciseIngredient, ClinicalDrugComponent
+        duplicate_ingredients: dict[CDC, I | PI] = utils.keep_multiple_values({
+            cdc: cdc.precise_ingredient or cdc.ingredient
+            for cdc in container
+        })
+
+        if duplicate_ingredients:
+            msg = (
+                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} "
+                f"contains duplicate ingredients:"
+            )
+            for ing, cdcs in utils.invert_dict(duplicate_ingredients).items():
+                msg += f" {ing.concept_id} {ing.concept_name}"
+                msg += f" ({ing.__class__.__name__}), coming from: "
+                msg += " and ".join(str(cdc.concept_id) for cdc in cdcs)
+                msg += ";"
+            raise exception.RxConceptCreationError(msg)
+
+
 # Atomic named concepts
-
-
 @dataclass(frozen=True, slots=True)
 class __RxAtom:
     """A single atomic concept in the RxNorm vocabulary."""
@@ -176,9 +208,13 @@ Single component containing (precise) ingredient and unquantified strength.\
                     f"ingredient {i.concept_id} {i.concept_name}."
                 )
 
+    def similar_phase(self, other: Self) -> bool:
+        """Check if two components have the same strength type."""
+        return isinstance(self.strength, type(other.strength))
+
 
 @dataclass(frozen=True, slots=True)
-class BrandedDrugComponent:
+class BrandedDrugComponent(_MulticomponentMixin):
     """\
 Combination of clinical drug components with a stated brand name.
 
@@ -189,30 +225,7 @@ NB: Contains multiple components in one!\
     brand_name: BrandName
 
     def __post_init__(self):
-        if len(self.clinical_drug_components) == 0:
-            raise exception.RxConceptCreationError(
-                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} must "
-                f"have at least one component."
-            )
-
-        # Check for duplicate ingredients
-        I, PI, CDC = Ingredient, PreciseIngredient, ClinicalDrugComponent
-        duplicate_ingredients: dict[CDC, I | PI] = utils.keep_multiple_values({
-            cdc: cdc.precise_ingredient or cdc.ingredient
-            for cdc in self.clinical_drug_components
-        })
-
-        if duplicate_ingredients:
-            msg = (
-                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} "
-                f"contains duplicate ingredients:"
-            )
-            for ing, cdcs in utils.invert_dict(duplicate_ingredients).items():
-                msg += f" {ing.concept_id} {ing.concept_name}"
-                msg += f" ({ing.__class__.__name__}), coming from: "
-                msg += " and ".join(str(cdc.concept_id) for cdc in cdcs)
-                msg += ";"
-            raise exception.RxConceptCreationError(msg)
+        self.check_multiple_components(self.clinical_drug_components)
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,34 +345,56 @@ class BoundQuantifiedStrength:
 
 # # Unquantified drugs
 @dataclass(frozen=True, slots=True)
-# TODO: Split in solid and liquid forms?
-class ClinicalDrug:
+class ClinicalDrug(_MulticomponentMixin):
     concept_id: int
     form: ClinicalDrugForm
     contents: tuple[BoundUnquantifiedStrength]
 
-    # TODO: Check if strength is consistent between contents
+    def __post_init__(self):
+        self.check_multiple_components(
+            tuple(comp.corresponding_component for comp in self.contents)
+        )
+
+        first_comp, other_comps = self.contents[0], self.contents[1:]
+        if not all(first_comp.similar_phase(comp) for comp in other_comps):
+            raise exception.RxConceptCreationError(
+                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} must "
+                f"have components of the same phase (solid/liquid)."
+            )
 
 
-@ dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class BrandedDrug:
     concept_id: int
     clinical_drug: ClinicalDrug
     brand_name: BrandName
     # Redundant fields
-    form: BrandedDrugForm
+    branded_form: BrandedDrugForm
     content: BrandedDrugComponent  # TODO: Check if strength is consistent
+
+    def __post_init__(self):
+        if self.clinical_drug.form != self.branded_form.clinical_drug_form:
+            raise exception.RxConceptCreationError(
+                f"Error creating {self.__class__.__name__} with CONCEPT_ID "
+                f"{self.concept_id}: Parent clinical drug form contributes "
+                f"form {self.clinical_drug.form.concept_id}, but parent "
+                f"branded drug contributes form "
+                f"{self.branded_form.clinical_drug_form.concept_id}."
+            )
+
+        # TODO: strength consistency check between explicit contents and
+        # branded form. Need to check Vocabularies to determine source of truth
 
 
 # # Quantified forms
-@ dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class QuantifiedClinicalDrug:
     concept_id: int
     contents: tuple[BoundQuantifiedStrength]
     unquantified_equivalent: ClinicalDrug
 
 
-@ dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class QuantifiedBrandedDrug:
     concept_id: int
     clinical_drug: QuantifiedClinicalDrug
