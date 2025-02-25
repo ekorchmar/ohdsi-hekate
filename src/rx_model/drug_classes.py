@@ -18,7 +18,7 @@ class _MulticomponentMixin:
     ) -> None:
         if len(container) == 0:
             raise exception.RxConceptCreationError(
-                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} must "
+                f"{self.__class__.__name__} {self.identifier} must "
                 f"have at least one component."
             )
 
@@ -31,29 +31,49 @@ class _MulticomponentMixin:
 
         if duplicate_ingredients:
             msg = (
-                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} "
+                f"{self.__class__.__name__} {self.identifier} "
                 f"contains duplicate ingredients:"
             )
             for ing, cdcs in utils.invert_dict(duplicate_ingredients).items():
-                msg += f" {ing.concept_id} {ing.concept_name}"
+                msg += f" {ing.identifier} {ing.concept_name}"
                 msg += f" ({ing.__class__.__name__}), coming from: "
-                msg += " and ".join(str(cdc.concept_id) for cdc in cdcs)
+                msg += " and ".join(str(cdc.identifier) for cdc in cdcs)
                 msg += ";"
             raise exception.RxConceptCreationError(msg)
+
+
+# Identifiers
+class ConceptId(int):
+    """Unique identifier for a concept in the OMOP vocabulary."""
+
+
+@elementary_dataclass
+class ConceptCodeVocab:
+    """\
+Vocabulary and code pair for a concept in the OMOP vocabulary.\
+"""
+    vocabulary_id: str
+    concept_code: str
+
+    def __str__(self):
+        return f"{self.vocabulary_id}:{self.concept_code}"
+
+
+type ConceptIdentifier = ConceptId | ConceptCodeVocab
 
 
 # Atomic named concepts
 @elementary_dataclass
 class __RxAtom:
     """A single atomic concept in the RxNorm vocabulary."""
-    concept_id: int
+    identifier: ConceptIdentifier
     concept_name: str
 
     def __post_init__(self):
         if not self.concept_name:
             raise exception.RxConceptCreationError(
-                f"{self.__class__.__name__} CONCEPT_ID {
-                    self.concept_id}: name must not be empty."
+                f"{self.__class__.__name__} "
+                f"{self.identifier}: name must not be empty."
             )
 
 
@@ -118,9 +138,9 @@ class SolidStrength:
         if self.amount_unit != other.amount_unit:
             raise exception.StrengthUnitMismatchError(
                 f"Solid strength units do not match: "
-                f"{self.amount_unit.concept_id} "
+                f"{self.amount_unit.identifier} "
                 f"{self.amount_unit.concept_name} and "
-                f"{other.amount_unit.concept_id} "
+                f"{other.amount_unit.identifier} "
                 f"{other.amount_unit.concept_name}.",
                 self.amount_unit,
                 other.amount_unit,
@@ -153,9 +173,9 @@ class LiquidConcentration:
         if self.numerator_unit != other.numerator_unit:
             raise exception.StrengthUnitMismatchError(
                 f"Liquid quantity numerator units do not match: "
-                f"{self.numerator_unit.concept_id} "
+                f"{self.numerator_unit.identifier} "
                 f"{self.numerator_unit.concept_name} and "
-                f"{other.numerator_unit.concept_id} "
+                f"{other.numerator_unit.identifier} "
                 f"{other.numerator_unit.concept_name}.",
                 self.numerator_unit,
                 other.numerator_unit,
@@ -164,9 +184,9 @@ class LiquidConcentration:
         if self.denominator_unit != other.denominator_unit:
             raise exception.StrengthUnitMismatchError(
                 f"Liquid quantity denominator units do not match: "
-                f"{self.denominator_unit.concept_id} "
+                f"{self.denominator_unit.identifier} "
                 f"{self.denominator_unit.concept_name} and "
-                f"{other.denominator_unit.concept_id} "
+                f"{other.denominator_unit.identifier} "
                 f"{other.denominator_unit.concept_name}.",
                 self.denominator_unit,
                 other.denominator_unit,
@@ -215,7 +235,7 @@ class ClinicalDrugComponent:
     """\
 Single component containing (precise) ingredient and unquantified strength.\
 """
-    concept_id: int
+    identifier: ConceptIdentifier
     ingredient: Ingredient
     precise_ingredient: Optional[PreciseIngredient]
     strength: UnquantifiedStrength
@@ -226,9 +246,9 @@ Single component containing (precise) ingredient and unquantified strength.\
             if pi.invariant != i:
                 raise exception.RxConceptCreationError(
                     f"Error creating {self.__class__.__name__} with "
-                    f"CONCEPT_ID {self.concept_id}: stated precise ingredient "
-                    f"{pi.concept_id} {pi.concept_name} is not a variant of "
-                    f"ingredient {i.concept_id} {i.concept_name}."
+                    f"identifier {self.identifier}: stated precise ingredient "
+                    f"{pi.identifier} {pi.concept_name} is not a variant of "
+                    f"ingredient {i.identifier} {i.concept_name}."
                 )
 
     def similar_phase(self, other: Self) -> bool:
@@ -243,7 +263,7 @@ Combination of clinical drug components with a stated brand name.
 
 NB: Contains multiple components in one!\
 """
-    concept_id: int
+    identifier: ConceptIdentifier
     clinical_drug_components: tuple[ClinicalDrugComponent]
     brand_name: BrandName
 
@@ -253,7 +273,7 @@ NB: Contains multiple components in one!\
 
 @complex_dataclass
 class ClinicalDrugForm:
-    concept_id: int
+    identifier: ConceptIdentifier
     dose_form: DoseForm
     ingredients: SortedTuple[Ingredient]
 
@@ -269,20 +289,19 @@ class ClinicalDrugForm:
         }
         if any(count > 1 for count in counts.values()):
             msg = (
-                f"{self.__class__.__name__} CONCEPT_ID {
-                    self.concept_id} contains "
+                f"{self.__class__.__name__} {self.identifier} contains "
                 f"duplicate ingredients:"
             )
             for ing, cnt in counts.items():
                 if cnt > 1:
-                    msg += f" {ing.concept_id} {ing.concept_name}"
+                    msg += f" {ing.identifier} {ing.concept_name}"
                     msg += f"({cnt});"
             raise exception.RxConceptCreationError(msg)
 
 
 @complex_dataclass
 class BrandedDrugForm:
-    concept_id: int
+    identifier: ConceptIdentifier
     clinical_drug_form: ClinicalDrugForm
     brand_name: BrandName
 
@@ -301,10 +320,10 @@ class BoundUnquantifiedStrength:
         if self.ingredient != comp.ingredient:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__} with "
-                f"stated ingredient {self.ingredient.concept_id} "
+                f"stated ingredient {self.ingredient.identifier} "
                 f"{self.ingredient.concept_name}: referenced component "
-                f"{comp.concept_id} uses ingredient "
-                f"{comp.ingredient.concept_id} "
+                f"{comp.identifier} uses ingredient "
+                f"{comp.ingredient.identifier} "
                 f"{comp.ingredient.concept_name}."
             )
 
@@ -314,7 +333,7 @@ class BoundUnquantifiedStrength:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__}: stated strength "
                 f"is of type {type(self.strength).__name__}, but referenced "
-                f"component {comp.concept_id} uses "
+                f"component {comp.identifier} uses "
                 f"{comp.strength.__class__.__name__}."
             )
 
@@ -324,7 +343,7 @@ class BoundUnquantifiedStrength:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__}: unit mismatch "
                 f"between stated strength and referenced component "
-                f"{comp.concept_id}. {e.args[0]}"
+                f"{comp.identifier}. {e.args[0]}"
             )
 
 
@@ -339,10 +358,10 @@ class BoundQuantifiedStrength:
         if self.ingredient != comp.ingredient:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__} with "
-                f"stated ingredient {self.ingredient.concept_id} "
+                f"stated ingredient {self.ingredient.identifier} "
                 f"{self.ingredient.concept_name}: referenced component "
-                f"{comp.concept_id} uses ingredient "
-                f"{comp.ingredient.concept_id} "
+                f"{comp.identifier} uses ingredient "
+                f"{comp.ingredient.identifier} "
                 f"{comp.ingredient.concept_name}."
             )
 
@@ -352,7 +371,7 @@ class BoundQuantifiedStrength:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__}: stated strength "
                 f"is of type {type(self.strength).__name__}, but referenced "
-                f"component {comp.concept_id} uses "
+                f"component {comp.identifier} uses "
                 f"{comp.strength.__class__.__name__}."
             )
 
@@ -362,14 +381,14 @@ class BoundQuantifiedStrength:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__}: unit mismatch "
                 f"between stated strength and referenced component "
-                f"{comp.concept_id}. {e.args[0]}"
+                f"{comp.identifier}. {e.args[0]}"
             )
 
 
 # # Unquantified drugs
 @elementary_dataclass
 class ClinicalDrug(_MulticomponentMixin):
-    concept_id: int
+    identifier: ConceptIdentifier
     form: ClinicalDrugForm
     contents: tuple[BoundUnquantifiedStrength]
 
@@ -381,14 +400,14 @@ class ClinicalDrug(_MulticomponentMixin):
         first_comp, other_comps = self.contents[0], self.contents[1:]
         if not all(first_comp.similar_phase(comp) for comp in other_comps):
             raise exception.RxConceptCreationError(
-                f"{self.__class__.__name__} CONCEPT_ID {self.concept_id} must "
+                f"{self.__class__.__name__} {self.identifier} must "
                 f"have components of the same phase (solid/liquid)."
             )
 
 
 @elementary_dataclass
 class BrandedDrug:
-    concept_id: int
+    identifier: ConceptIdentifier
     clinical_drug: ClinicalDrug
     brand_name: BrandName
     # Redundant fields
@@ -398,11 +417,11 @@ class BrandedDrug:
     def __post_init__(self):
         if self.clinical_drug.form != self.branded_form.clinical_drug_form:
             raise exception.RxConceptCreationError(
-                f"Error creating {self.__class__.__name__} with CONCEPT_ID "
-                f"{self.concept_id}: Parent clinical drug form contributes "
-                f"form {self.clinical_drug.form.concept_id}, but parent "
+                f"Error creating {self.__class__.__name__} with "
+                f"{self.identifier}: Parent clinical drug form contributes "
+                f"form {self.clinical_drug.form.identifier}, but parent "
                 f"branded drug contributes form "
-                f"{self.branded_form.clinical_drug_form.concept_id}."
+                f"{self.branded_form.clinical_drug_form.identifier}."
             )
 
         # TODO: strength consistency check between explicit contents and
@@ -412,13 +431,13 @@ class BrandedDrug:
 # # Quantified liquid forms
 @elementary_dataclass
 class QuantifiedClinicalDrug:
-    concept_id: int
+    identifier: ConceptIdentifier
     contents: SortedTuple[BoundQuantifiedStrength]
     unquantified_equivalent: ClinicalDrug
 
 
 @elementary_dataclass
 class QuantifiedBrandedDrug:
-    concept_id: int
+    identifier: ConceptIdentifier
     clinical_drug: QuantifiedClinicalDrug
     unquantified_equivalent: BrandedDrug
