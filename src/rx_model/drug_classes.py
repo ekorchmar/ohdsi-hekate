@@ -1,11 +1,12 @@
 """Contains the individual RxNorm and RxNorm Extension drug classes."""
-from dataclasses import dataclass  # For dataclass definitions
 import math  # For NaN checks
 from typing import Optional  # For optional fields in dataclasses
 from typing import Self
 from rxmodel import exception  # For custom exceptions
 from src.utils import utils  # For utility functions in integrity checks
 from src.utils.classes import SortedTuple
+from src.utils.classes import elementary_dataclass
+from src.utils.classes import complex_dataclass
 
 
 # Helper classes
@@ -42,7 +43,7 @@ class _MulticomponentMixin:
 
 
 # Atomic named concepts
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class __RxAtom:
     """A single atomic concept in the RxNorm vocabulary."""
     concept_id: int
@@ -82,17 +83,20 @@ class Unit(__RxAtom):
 """
 
 
-@dataclass(frozen=True, slots=True)
+@complex_dataclass
 class PreciseIngredient(__RxAtom):
     invariant: Ingredient
 
 
 # # RxNorm Extension
-Supplier = __RxAtom
+class Supplier(__RxAtom):
+    """\
+    RxNorm Extension supplier concept.\
+"""
 
 
 # # Strength/dosage information
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class SolidStrength:
     """Single value/unit combination for dosage information."""
     amount_value: float
@@ -123,7 +127,7 @@ class SolidStrength:
             )
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class LiquidConcentration:
     """Dosage given as unquantified concentration."""
     numerator_value: float
@@ -169,7 +173,7 @@ class LiquidConcentration:
             )
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class LiquidQuantity(LiquidConcentration):
     """Quantified liquid dosage with both total content and volume."""
     denominator_value: float
@@ -206,8 +210,8 @@ type UnquantifiedStrength = SolidStrength | LiquidConcentration
 
 # Derived concepts
 # # RxNorm
+@elementary_dataclass
 class ClinicalDrugComponent:
-@dataclass(frozen=True, slots=True, order=True)
     """\
 Single component containing (precise) ingredient and unquantified strength.\
 """
@@ -232,7 +236,7 @@ Single component containing (precise) ingredient and unquantified strength.\
         return isinstance(self.strength, type(other.strength))
 
 
-@dataclass(frozen=True, slots=True)
+@complex_dataclass
 class BrandedDrugComponent(_MulticomponentMixin):
     """\
 Combination of clinical drug components with a stated brand name.
@@ -247,7 +251,7 @@ NB: Contains multiple components in one!\
         self.check_multiple_components(self.clinical_drug_components)
 
 
-@dataclass(frozen=True, slots=True)
+@complex_dataclass
 class ClinicalDrugForm:
     concept_id: int
     dose_form: DoseForm
@@ -276,7 +280,7 @@ class ClinicalDrugForm:
             raise exception.RxConceptCreationError(msg)
 
 
-@dataclass(frozen=True, slots=True)
+@complex_dataclass
 class BrandedDrugForm:
     concept_id: int
     clinical_drug_form: ClinicalDrugForm
@@ -286,8 +290,8 @@ class BrandedDrugForm:
 # Prescriptable drug classes
 # # Clinical drugs have explicit dosage information, that may differ from the
 # # components in about 5% window
+@elementary_dataclass
 class BoundUnquantifiedStrength:
-@dataclass(frozen=True, slots=True, order=True)
     ingredient: Ingredient
     strength: UnquantifiedStrength
     corresponding_component: ClinicalDrugComponent
@@ -324,7 +328,7 @@ class BoundUnquantifiedStrength:
             )
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class BoundQuantifiedStrength:
     ingredient: Ingredient
     strength: LiquidQuantity
@@ -363,7 +367,7 @@ class BoundQuantifiedStrength:
 
 
 # # Unquantified drugs
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class ClinicalDrug(_MulticomponentMixin):
     concept_id: int
     form: ClinicalDrugForm
@@ -382,7 +386,7 @@ class ClinicalDrug(_MulticomponentMixin):
             )
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class BrandedDrug:
     concept_id: int
     clinical_drug: ClinicalDrug
@@ -405,15 +409,15 @@ class BrandedDrug:
         # branded form. Need to check Vocabularies to determine source of truth
 
 
-class QuantifiedClinicalDrug:
 # # Quantified liquid forms
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
+class QuantifiedClinicalDrug:
     concept_id: int
     contents: SortedTuple[BoundQuantifiedStrength]
     unquantified_equivalent: ClinicalDrug
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@elementary_dataclass
 class QuantifiedBrandedDrug:
     concept_id: int
     clinical_drug: QuantifiedClinicalDrug

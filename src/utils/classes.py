@@ -1,4 +1,5 @@
 """Helper classes"""
+from dataclasses import dataclass
 
 
 class SortedTuple(tuple):
@@ -10,3 +11,7 @@ class SortedTuple(tuple):
 
     def __repr__(self):
         return f"SortedTuple({super().__repr__()})"
+
+
+elementary_dataclass = dataclass(frozen=True, order=True, eq=True, slots=True)
+complex_dataclass = dataclass(frozen=True, eq=True, slots=True)
