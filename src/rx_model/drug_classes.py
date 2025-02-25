@@ -5,6 +5,7 @@ from typing import Optional  # For optional fields in dataclasses
 from typing import Self
 from rxmodel import exception  # For custom exceptions
 from src.utils import utils  # For utility functions in integrity checks
+from src.utils.classes import SortedTuple
 
 
 # Helper classes
@@ -12,7 +13,7 @@ class _MulticomponentMixin:
     """Mixin for classes to implement checks with multiple components."""
 
     def check_multiple_components(
-            self, container: tuple["ClinicalDrugComponent"]
+            self, container: SortedTuple["ClinicalDrugComponent"]
     ) -> None:
         if len(container) == 0:
             raise exception.RxConceptCreationError(
@@ -41,7 +42,7 @@ class _MulticomponentMixin:
 
 
 # Atomic named concepts
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class __RxAtom:
     """A single atomic concept in the RxNorm vocabulary."""
     concept_id: int
@@ -56,11 +57,29 @@ class __RxAtom:
 
 
 # # RxNorm
-Ingredient = __RxAtom
-BrandName = __RxAtom
-DoseForm = __RxAtom
+class Ingredient(__RxAtom):
+    """\
+    RxNorm or RxNorm Extension ingredient concept.\
+"""
+
+
+class BrandName(__RxAtom):
+    """\
+    RxNorm or RxNorm Extension brand name concept.\
+"""
+
+
+class DoseForm(__RxAtom):
+    """\
+    RxNorm or RxNorm Extension dose form concept.\
+"""
+
+
 # # UCUM
-Unit = __RxAtom
+class Unit(__RxAtom):
+    """\
+    UCUM unit concept used in drug dosage information.\
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +92,7 @@ Supplier = __RxAtom
 
 
 # # Strength/dosage information
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class SolidStrength:
     """Single value/unit combination for dosage information."""
     amount_value: float
@@ -104,7 +123,7 @@ class SolidStrength:
             )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class LiquidConcentration:
     """Dosage given as unquantified concentration."""
     numerator_value: float
@@ -150,7 +169,7 @@ class LiquidConcentration:
             )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class LiquidQuantity(LiquidConcentration):
     """Quantified liquid dosage with both total content and volume."""
     denominator_value: float
@@ -187,8 +206,8 @@ type UnquantifiedStrength = SolidStrength | LiquidConcentration
 
 # Derived concepts
 # # RxNorm
-@dataclass(frozen=True, slots=True)
 class ClinicalDrugComponent:
+@dataclass(frozen=True, slots=True, order=True)
     """\
 Single component containing (precise) ingredient and unquantified strength.\
 """
@@ -232,7 +251,7 @@ NB: Contains multiple components in one!\
 class ClinicalDrugForm:
     concept_id: int
     dose_form: DoseForm
-    ingredients: tuple[Ingredient]
+    ingredients: SortedTuple[Ingredient]
 
     def __post_init__(self):
         if len(self.ingredients) == 0:
@@ -267,8 +286,8 @@ class BrandedDrugForm:
 # Prescriptable drug classes
 # # Clinical drugs have explicit dosage information, that may differ from the
 # # components in about 5% window
-@dataclass(frozen=True, slots=True)
 class BoundUnquantifiedStrength:
+@dataclass(frozen=True, slots=True, order=True)
     ingredient: Ingredient
     strength: UnquantifiedStrength
     corresponding_component: ClinicalDrugComponent
@@ -305,7 +324,7 @@ class BoundUnquantifiedStrength:
             )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class BoundQuantifiedStrength:
     ingredient: Ingredient
     strength: LiquidQuantity
@@ -344,7 +363,7 @@ class BoundQuantifiedStrength:
 
 
 # # Unquantified drugs
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class ClinicalDrug(_MulticomponentMixin):
     concept_id: int
     form: ClinicalDrugForm
@@ -352,7 +371,7 @@ class ClinicalDrug(_MulticomponentMixin):
 
     def __post_init__(self):
         self.check_multiple_components(
-            tuple(comp.corresponding_component for comp in self.contents)
+            SortedTuple(comp.corresponding_component for comp in self.contents)
         )
 
         first_comp, other_comps = self.contents[0], self.contents[1:]
@@ -363,7 +382,7 @@ class ClinicalDrug(_MulticomponentMixin):
             )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class BrandedDrug:
     concept_id: int
     clinical_drug: ClinicalDrug
@@ -386,15 +405,15 @@ class BrandedDrug:
         # branded form. Need to check Vocabularies to determine source of truth
 
 
-# # Quantified forms
-@dataclass(frozen=True, slots=True)
 class QuantifiedClinicalDrug:
+# # Quantified liquid forms
+@dataclass(frozen=True, slots=True, order=True)
     concept_id: int
-    contents: tuple[BoundQuantifiedStrength]
+    contents: SortedTuple[BoundQuantifiedStrength]
     unquantified_equivalent: ClinicalDrug
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class QuantifiedBrandedDrug:
     concept_id: int
     clinical_drug: QuantifiedClinicalDrug
