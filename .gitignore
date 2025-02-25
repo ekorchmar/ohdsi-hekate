@@ -1,34 +1,11 @@
-# Development environment files
-.env
-.envrc
-.justfile
-
-# Intermediary C code and libraries
-*.c
-*.h
-*.o
-*.so
-*.dll
-*.exe
-
-# Cython annotations
-*.html
-
-
-# Python cache files
+# CPython bytecode
 __pycache__/
 *.pyc
 
+# Environment
+.env
+.envrc
 
-# Python environment files
-.venv/
+# Python virtual environment
 venv/
-
-
-# Package installation files
-*.egg-info/
-dist/
-build/
-*.egg
-*.whl
 
