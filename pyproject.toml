@@ -57,3 +57,11 @@ include = ["src"]
 
 reportImplicitStringConcatenation = false
 reportUninitializedInstanceVariable = false
+
+[tool.ruff]
+line-length = 80
+target-version = "py313"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"**/{tests,docs,tools}/*" = ["E402"]
