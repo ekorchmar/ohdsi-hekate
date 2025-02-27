@@ -1,4 +1,6 @@
-"""Contains the individual RxNorm and RxNorm Extension drug classes."""
+"""
+Contains the individual RxNorm and RxNorm Extension drug classes.
+"""
 import math  # For NaN checks
 from typing import Optional  # For optional fields in dataclasses
 from typing import Self
@@ -198,6 +200,13 @@ class LiquidQuantity(LiquidConcentration):
     """Quantified liquid dosage with both total content and volume."""
     denominator_value: float
 
+    def get_unquantified(self) -> LiquidConcentration:
+        return LiquidConcentration(
+            numerator_value=self.numerator_value / self.denominator_value,
+            numerator_unit=self.numerator_unit,
+            denominator_unit=self.denominator_unit,
+        )
+
     def __post_init__(self):
         # Inherit checks from LiquidConcentration
         super().__post_init__()
@@ -310,7 +319,7 @@ class BrandedDrugForm:
 # # Clinical drugs have explicit dosage information, that may differ from the
 # # components in about 5% window
 @elementary_dataclass
-class BoundUnquantifiedStrength:
+class BoundStrength:
     ingredient: Ingredient
     strength: UnquantifiedStrength
     corresponding_component: ClinicalDrugComponent
@@ -348,7 +357,7 @@ class BoundUnquantifiedStrength:
 
 
 @elementary_dataclass
-class BoundQuantifiedStrength:
+class BoundQuanty:
     ingredient: Ingredient
     strength: LiquidQuantity
     corresponding_component: ClinicalDrugComponent
@@ -390,7 +399,7 @@ class BoundQuantifiedStrength:
 class ClinicalDrug(_MulticomponentMixin):
     identifier: ConceptIdentifier
     form: ClinicalDrugForm
-    contents: tuple[BoundUnquantifiedStrength]
+    contents: tuple[BoundStrength]
 
     def __post_init__(self):
         self.check_multiple_components(
@@ -428,11 +437,12 @@ class BrandedDrug:
         # branded form. Need to check Vocabularies to determine source of truth
 
 
+# TODO: implement checks
 # # Quantified liquid forms
 @elementary_dataclass
 class QuantifiedClinicalDrug:
     identifier: ConceptIdentifier
-    contents: SortedTuple[BoundQuantifiedStrength]
+    contents: SortedTuple[BoundQuanty]
     unquantified_equivalent: ClinicalDrug
 
 
