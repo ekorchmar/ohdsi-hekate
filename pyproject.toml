@@ -7,7 +7,7 @@ name = "ohdsi-hekate"
 dynamic = ["version"]
 description = "A pipeline to ingest source drug data into OMOP CDM"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 keywords = ["omop-cdm", "ohdsi", "medical-data"]
 authors = [
@@ -35,6 +35,7 @@ classifiers = [
 
 dependencies = [
   "polars",
+  "rustworkx",
 ]
 
 [project.optional-dependencies]

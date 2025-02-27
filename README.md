@@ -6,7 +6,7 @@ CSV format, ready to be processed by the [`GenericUpdate()`](https://github.com/
 
 ## Technology
 
-Hekate is implemented in Python, requiring version at least `3.10`. Parts of the code will eventually be rewritten to
+Hekate is implemented in Python, requiring version at least `3.13`. Parts of the code will eventually be rewritten to
 support Cython for performance reasons.
 
 ## Installation
@@ -27,6 +27,6 @@ Hekate will be available as a PostgreSQL extension.
 
 
 ## License
-Source code is available under MIT License.
-
+Source code is available under MIT License. This means that you can use it for any purpose, including commercial
+purposes.
 
