@@ -2,11 +2,11 @@
 import math  # For NaN checks
 from typing import Optional  # For optional fields in dataclasses
 from typing import Self
-from rxmodel import exception  # For custom exceptions
-from src.utils import utils  # For utility functions in integrity checks
-from src.utils.classes import SortedTuple
-from src.utils.classes import elementary_dataclass
-from src.utils.classes import complex_dataclass
+from rx_model import exception  # For custom exceptions
+from utils import utils  # For utility functions in integrity checks
+from utils.classes import SortedTuple
+from utils.classes import elementary_dataclass
+from utils.classes import complex_dataclass
 
 
 # Helper classes
