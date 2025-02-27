@@ -1,22 +1,26 @@
 """
 Contains the individual RxNorm and RxNorm Extension drug classes.
 """
-import math  # For NaN checks
-from typing import Optional  # For optional fields in dataclasses
-from typing import Self
-from rx_model import exception  # For custom exceptions
-from utils import utils  # For utility functions in integrity checks
-from utils.classes import SortedTuple
-from utils.classes import elementary_dataclass
-from utils.classes import complex_dataclass
 
+import math  # For NaN checks
+from typing import override
+from ..rx_model import exception  # For custom exceptions
+from ..utils.utils import keep_multiple_values
+from ..utils.utils import invert_merge_dict
+from ..utils.classes import SortedTuple  # To ensure consistent layout
+
+from dataclasses import dataclass
 
 # Helper classes
-class _MulticomponentMixin:
+
+
+class _MulticomponentMixin[Id: "ConceptIdentifier", S: "UnquantifiedStrength"]:
     """Mixin for classes to implement checks with multiple components."""
 
+    identifier: Id
+
     def check_multiple_components(
-            self, container: SortedTuple["ClinicalDrugComponent"]
+        self, container: SortedTuple["ClinicalDrugComponent[Id, S]"]
     ) -> None:
         if len(container) == 0:
             raise exception.RxConceptCreationError(
@@ -25,10 +29,10 @@ class _MulticomponentMixin:
             )
 
         # Check for duplicate ingredients
-        I, PI, CDC = Ingredient, PreciseIngredient, ClinicalDrugComponent
-        duplicate_ingredients: dict[CDC, I | PI] = utils.keep_multiple_values({
-            cdc: cdc.precise_ingredient or cdc.ingredient
-            for cdc in container
+        duplicate_ingredients: dict[
+            ClinicalDrugComponent[Id, S], Ingredient[Id] | PreciseIngredient
+        ] = keep_multiple_values({
+            cdc: cdc.precise_ingredient or cdc.ingredient for cdc in container
         })
 
         if duplicate_ingredients:
@@ -36,7 +40,7 @@ class _MulticomponentMixin:
                 f"{self.__class__.__name__} {self.identifier} "
                 f"contains duplicate ingredients:"
             )
-            for ing, cdcs in utils.invert_dict(duplicate_ingredients).items():
+            for ing, cdcs in invert_merge_dict(duplicate_ingredients).items():
                 msg += f" {ing.identifier} {ing.concept_name}"
                 msg += f" ({ing.__class__.__name__}), coming from: "
                 msg += " and ".join(str(cdc.identifier) for cdc in cdcs)
@@ -46,17 +50,23 @@ class _MulticomponentMixin:
 
 # Identifiers
 class ConceptId(int):
-    """Unique identifier for a concept in the OMOP vocabulary."""
+    """
+    Unique identifier for a concept in the OMOP vocabulary.
+
+    This is just a subclass of int, meaning CPython will treat it as an int.
+    """
 
 
-@elementary_dataclass
+@dataclass(frozen=True, order=True, eq=True, slots=True)
 class ConceptCodeVocab:
-    """\
-Vocabulary and code pair for a concept in the OMOP vocabulary.\
-"""
+    """
+    Vocabulary and code pair for a concept in the OMOP vocabulary.
+    """
+
     vocabulary_id: str
     concept_code: str
 
+    @override
     def __str__(self):
         return f"{self.vocabulary_id}:{self.concept_code}"
 
@@ -65,62 +75,66 @@ type ConceptIdentifier = ConceptId | ConceptCodeVocab
 
 
 # Atomic named concepts
-@elementary_dataclass
-class __RxAtom:
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class __RxAtom[Id: ConceptIdentifier]:
     """A single atomic concept in the RxNorm vocabulary."""
-    identifier: ConceptIdentifier
+
+    identifier: Id
     concept_name: str
 
     def __post_init__(self):
         if not self.concept_name:
             raise exception.RxConceptCreationError(
-                f"{self.__class__.__name__} "
-                f"{self.identifier}: name must not be empty."
+                f"{self.__class__.__name__} {self.identifier}: name must not "
+                f"be empty."
             )
 
 
 # # RxNorm
-class Ingredient(__RxAtom):
-    """\
-    RxNorm or RxNorm Extension ingredient concept.\
-"""
+class Ingredient[Id: ConceptIdentifier](__RxAtom[Id]):
+    """
+    RxNorm or RxNorm Extension ingredient concept.
+    """
 
 
-class BrandName(__RxAtom):
-    """\
-    RxNorm or RxNorm Extension brand name concept.\
-"""
+class BrandName[Id: ConceptIdentifier](__RxAtom[Id]):
+    """
+    RxNorm or RxNorm Extension brand name concept.
+    """
 
 
-class DoseForm(__RxAtom):
-    """\
-    RxNorm or RxNorm Extension dose form concept.\
-"""
+class DoseForm[Id: ConceptIdentifier](__RxAtom[Id]):
+    """
+    RxNorm or RxNorm Extension dose form concept.
+    """
 
 
 # # UCUM
-class Unit(__RxAtom):
-    """\
-    UCUM unit concept used in drug dosage information.\
-"""
+class Unit(__RxAtom[ConceptId]):
+    """
+    UCUM unit concept used in drug dosage information.
+    """
 
 
-@complex_dataclass
-class PreciseIngredient(__RxAtom):
-    invariant: Ingredient
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class PreciseIngredient(__RxAtom[ConceptId]):
+    invariant: Ingredient[ConceptId]
 
 
 # # RxNorm Extension
-class Supplier(__RxAtom):
-    """\
-    RxNorm Extension supplier concept.\
-"""
+class Supplier[Id: ConceptIdentifier](__RxAtom[Id]):
+    """
+    RxNorm Extension supplier concept.
+    """
 
 
 # # Strength/dosage information
-@elementary_dataclass
+@dataclass(frozen=True, order=True, eq=True, slots=True)
 class SolidStrength:
-    """Single value/unit combination for dosage information."""
+    """
+    Single value/unit combination for dosage information.
+    """
+
     amount_value: float
     amount_unit: Unit
 
@@ -128,7 +142,8 @@ class SolidStrength:
         if self.amount_value < 0:
             raise exception.RxConceptCreationError(
                 f"Solid strength must have a non-negative value, not {
-                    self.amount_value}."
+                    self.amount_value
+                }."
             )
 
         if math.isnan(self.amount_value):
@@ -149,9 +164,12 @@ class SolidStrength:
             )
 
 
-@elementary_dataclass
+@dataclass(frozen=True, order=True, eq=True, slots=True)
 class LiquidConcentration:
-    """Dosage given as unquantified concentration."""
+    """
+    Dosage given as unquantified concentration.
+    """
+
     numerator_value: float
     numerator_unit: Unit
     # Null for denominator value
@@ -166,12 +184,14 @@ class LiquidConcentration:
 
         if math.isnan(self.numerator_value):
             raise exception.RxConceptCreationError(
-                "Liquid concentration must have a numeric numerator value, "
-                "not NaN."
+                f"Liquid concentration must have a numeric numerator value, "
+                f"not {self.numerator_value}."
             )
 
     # TODO: Concisely check for both numerator and denominator units
-    def unit_matches(self, other: Self) -> None:
+    def unit_matches(
+        self, other: "LiquidConcentration | LiquidQuantity"
+    ) -> None:
         if self.numerator_unit != other.numerator_unit:
             raise exception.StrengthUnitMismatchError(
                 f"Liquid quantity numerator units do not match: "
@@ -195,9 +215,12 @@ class LiquidConcentration:
             )
 
 
-@elementary_dataclass
+@dataclass(frozen=True, order=True, eq=True, slots=True)
 class LiquidQuantity(LiquidConcentration):
-    """Quantified liquid dosage with both total content and volume."""
+    """
+    Quantified liquid dosage with both total content and volume.
+    """
+
     denominator_value: float
 
     def get_unquantified(self) -> LiquidConcentration:
@@ -219,13 +242,13 @@ class LiquidQuantity(LiquidConcentration):
 
         if math.isnan(self.denominator_value):
             raise exception.RxConceptCreationError(
-                "Liquid quantity must have a numeric denominator value, not "
-                "NaN."
+                f"Liquid quantity must have a numeric denominator value, not "
+                f"{self.denominator_value}."
             )
 
         if (
-                self.numerator_unit == self.denominator_unit and
-                self.numerator_value >= self.denominator_value
+            self.numerator_unit == self.denominator_unit
+            and self.numerator_value >= self.denominator_value
         ):
             raise exception.RxConceptCreationError(
                 f"Liquid quantity must have a numerator value less than the "
@@ -239,15 +262,16 @@ type UnquantifiedStrength = SolidStrength | LiquidConcentration
 
 # Derived concepts
 # # RxNorm
-@elementary_dataclass
-class ClinicalDrugComponent:
-    """\
-Single component containing (precise) ingredient and unquantified strength.\
-"""
-    identifier: ConceptIdentifier
-    ingredient: Ingredient
-    precise_ingredient: Optional[PreciseIngredient]
-    strength: UnquantifiedStrength
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class ClinicalDrugComponent[Id: ConceptIdentifier, S: UnquantifiedStrength]:
+    """
+    Single component containing (precise) ingredient and unquantified strength.
+    """
+
+    identifier: Id
+    ingredient: Ingredient[Id]
+    precise_ingredient: PreciseIngredient | None
+    strength: S
 
     def __post_init__(self):
         if self.precise_ingredient is not None:
@@ -260,31 +284,37 @@ Single component containing (precise) ingredient and unquantified strength.\
                     f"ingredient {i.identifier} {i.concept_name}."
                 )
 
-    def similar_phase(self, other: Self) -> bool:
+    def similar_phase(
+        self,
+        cdc: "ClinicalDrugComponent[ConceptIdentifier, UnquantifiedStrength]",
+    ) -> bool:
         """Check if two components have the same strength type."""
-        return isinstance(self.strength, type(other.strength))
+        return isinstance(self.strength, type(cdc.strength))
 
 
-@complex_dataclass
-class BrandedDrugComponent(_MulticomponentMixin):
+@dataclass(frozen=True, eq=True, slots=True)
+class BrandedDrugComponent[Id: ConceptIdentifier, S: UnquantifiedStrength](
+    _MulticomponentMixin[Id, S]
+):
     """\
 Combination of clinical drug components with a stated brand name.
 
 NB: Contains multiple components in one!\
 """
-    identifier: ConceptIdentifier
-    clinical_drug_components: tuple[ClinicalDrugComponent]
-    brand_name: BrandName
+
+    identifier: Id
+    clinical_drug_components: SortedTuple[ClinicalDrugComponent[Id, S]]
+    brand_name: BrandName[Id]
 
     def __post_init__(self):
         self.check_multiple_components(self.clinical_drug_components)
 
 
-@complex_dataclass
-class ClinicalDrugForm:
-    identifier: ConceptIdentifier
-    dose_form: DoseForm
-    ingredients: SortedTuple[Ingredient]
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class ClinicalDrugForm[Id: ConceptIdentifier]:
+    identifier: Id
+    dose_form: DoseForm[Id]
+    ingredients: SortedTuple[Ingredient[Id]]
 
     def __post_init__(self):
         if len(self.ingredients) == 0:
@@ -308,21 +338,21 @@ class ClinicalDrugForm:
             raise exception.RxConceptCreationError(msg)
 
 
-@complex_dataclass
-class BrandedDrugForm:
-    identifier: ConceptIdentifier
-    clinical_drug_form: ClinicalDrugForm
-    brand_name: BrandName
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BrandedDrugForm[Id: ConceptIdentifier]:
+    identifier: Id
+    clinical_drug_form: ClinicalDrugForm[Id]
+    brand_name: BrandName[Id]
 
 
 # Prescriptable drug classes
 # # Clinical drugs have explicit dosage information, that may differ from the
 # # components in about 5% window
-@elementary_dataclass
-class BoundStrength:
-    ingredient: Ingredient
-    strength: UnquantifiedStrength
-    corresponding_component: ClinicalDrugComponent
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BoundStrength[Id: ConceptIdentifier, S: UnquantifiedStrength]:
+    ingredient: Ingredient[Id]
+    strength: S
+    corresponding_component: ClinicalDrugComponent[Id, S]
 
     def __post_init__(self):
         comp = self.corresponding_component
@@ -347,7 +377,7 @@ class BoundStrength:
             )
 
         try:
-            self.strength.unit_matches(comp.strength)
+            self.strength.unit_matches(comp.strength)  # pyright: ignore[reportArgumentType]  # noqa: E501
         except exception.StrengthUnitMismatchError as e:
             raise exception.RxConceptCreationError(
                 f"Error creating {self.__class__.__name__}: unit mismatch "
@@ -355,12 +385,19 @@ class BoundStrength:
                 f"{comp.identifier}. {e.args[0]}"
             )
 
+    def similar_phase(
+        self,
+        cdc: "BoundStrength[ConceptIdentifier, UnquantifiedStrength]",
+    ) -> bool:
+        """Check if two components have the same strength type."""
+        return isinstance(self.strength, type(cdc.strength))
 
-@elementary_dataclass
-class BoundQuanty:
-    ingredient: Ingredient
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BoundQuantity[Id: ConceptIdentifier]:
+    ingredient: Ingredient[Id]
     strength: LiquidQuantity
-    corresponding_component: ClinicalDrugComponent
+    corresponding_component: ClinicalDrugComponent[Id, LiquidConcentration]
 
     def __post_init__(self):
         comp = self.corresponding_component
@@ -395,11 +432,13 @@ class BoundQuanty:
 
 
 # # Unquantified drugs
-@elementary_dataclass
-class ClinicalDrug(_MulticomponentMixin):
-    identifier: ConceptIdentifier
-    form: ClinicalDrugForm
-    contents: tuple[BoundStrength]
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class ClinicalDrug[Id: ConceptIdentifier, S: UnquantifiedStrength](
+    _MulticomponentMixin[Id, S]
+):
+    identifier: Id
+    form: ClinicalDrugForm[Id]
+    contents: SortedTuple[BoundStrength[Id, S]]
 
     def __post_init__(self):
         self.check_multiple_components(
@@ -414,14 +453,15 @@ class ClinicalDrug(_MulticomponentMixin):
             )
 
 
-@elementary_dataclass
-class BrandedDrug:
-    identifier: ConceptIdentifier
-    clinical_drug: ClinicalDrug
-    brand_name: BrandName
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BrandedDrug[Id: ConceptIdentifier, S: UnquantifiedStrength]:
+    identifier: Id
+    clinical_drug: ClinicalDrug[Id, S]
+    brand_name: BrandName[Id]
     # Redundant fields
-    branded_form: BrandedDrugForm
-    content: BrandedDrugComponent  # TODO: Check if strength is consistent
+    branded_form: BrandedDrugForm[Id]
+    # TODO: Check if strength is consistent
+    content: BrandedDrugComponent[Id, S]
 
     def __post_init__(self):
         if self.clinical_drug.form != self.branded_form.clinical_drug_form:
@@ -439,15 +479,15 @@ class BrandedDrug:
 
 # TODO: implement checks
 # # Quantified liquid forms
-@elementary_dataclass
-class QuantifiedClinicalDrug:
-    identifier: ConceptIdentifier
-    contents: SortedTuple[BoundQuanty]
-    unquantified_equivalent: ClinicalDrug
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class QuantifiedClinicalDrug[Id: ConceptIdentifier]:
+    identifier: Id
+    contents: SortedTuple[BoundQuantity[Id]]
+    unquantified_equivalent: ClinicalDrug[Id, LiquidConcentration]
 
 
-@elementary_dataclass
-class QuantifiedBrandedDrug:
-    identifier: ConceptIdentifier
-    clinical_drug: QuantifiedClinicalDrug
-    unquantified_equivalent: BrandedDrug
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class QuantifiedBrandedDrug[Id: ConceptIdentifier]:
+    identifier: Id
+    clinical_drug: QuantifiedClinicalDrug[Id]
+    unquantified_equivalent: BrandedDrug[Id, LiquidConcentration]

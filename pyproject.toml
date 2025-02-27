@@ -51,3 +51,9 @@ where = ["src"]
 
 [tool.setuptools.dynamic]
 version = {file = "src/__version__"}
+
+[tool.pyright]
+include = ["src"]
+
+reportImplicitStringConcatenation = false
+reportUninitializedInstanceVariable = false

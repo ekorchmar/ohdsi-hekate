@@ -2,29 +2,31 @@
 Contains the class that hosts the drug concept hierarchy.
 """
 
-import rx_model.drug_classes as dc
+from . import drug_classes as dc
 import rustworkx as rx
 
 
-type _AtomicConcept = (
+# Generic types
+type _AtomicConcept[Id: dc.ConceptIdentifier] = (
     # RxNorm atomic concepts
-    dc.Ingredient |
-    dc.DoseForm |
-    dc.BrandName |
-    dc.PreciseIngredient |
+    dc.Ingredient[Id]
+    | dc.DoseForm[Id]
+    | dc.BrandName[Id]
+    | dc.PreciseIngredient
+    |
     # RxNorm Extension atomic concepts
-    dc.Supplier |
+    dc.Supplier[Id]
+    |
     # UCUM atomic concepts
     dc.Unit
 )
-type _Strength = (
-    dc.SolidStrength |
-    dc.LiquidConcentration |
-    dc.LiquidQuantity |
-    dc.BoundStrength |
-    dc.BoundQuanty
+type NumDenomU = tuple[dc.Unit, dc.Unit]
+type _UnboundStrength = (
+    dc.SolidStrength | dc.LiquidConcentration | dc.LiquidQuantity
 )
-type _AtomDict[Id: dc.ConceptIdentifier, RxA: _AtomicConcept] = dict[Id, RxA]
+type _BoundStrength[Id: dc.ConceptIdentifier, S: dc.UnquantifiedStrength] = (
+    dc.BoundStrength[Id, S] | dc.BoundQuantity[Id]
+)
 
 
 class Atoms[Id: dc.ConceptIdentifier]:
@@ -34,15 +36,29 @@ class Atoms[Id: dc.ConceptIdentifier]:
     """
 
     def __init__(self):
-        self.ingredient: _AtomDict[Id, dc.Ingredient] = {}
-        self.dose_form: _AtomDict[Id, dc.DoseForm] = {}
-        self.brand_name: _AtomDict[Id, dc.BrandName] = {}
-        self.precise_ingredient: _AtomDict[Id, dc.PreciseIngredient] = {}
-        self.supplier: _AtomDict[Id, dc.Supplier] = {}
-        self.unit: _AtomDict[Id, dc.Unit] = {}
+        self.ingredient: dict[Id, dc.Ingredient[Id]] = {}
+        self.dose_form: dict[Id, dc.DoseForm[Id]] = {}
+        self.brand_name: dict[Id, dc.BrandName[Id]] = {}
+        self.supplier: dict[Id, dc.Supplier[Id]] = {}
+        self.unit: dict[Id, dc.Unit] = {}
+
+        # Precise ingredients are stored in a dict from ingredients
+        # NOTE: This is not generic, as we do not expect RxE to have precise
+        # ingredients. For now.
+        self.precise_ingredient: dict[
+            dc.Ingredient[dc.ConceptId], list[dc.PreciseIngredient]
+        ] = {}
+
+    def add_precise_ingredient(
+        self, precise_ingredient: dc.PreciseIngredient
+    ) -> None:
+        invariant = precise_ingredient.invariant
+        self.precise_ingredient.setdefault(invariant, []).append(
+            precise_ingredient
+        )
 
 
-class KnownStrength:
+class KnownStrength[Id: dc.ConceptIdentifier]:
     """
     Container to store known ingredient strengths and concentrations to avoid
     creating de-facto duplicates with minor differences.
@@ -52,18 +68,21 @@ class KnownStrength:
     """
 
     def __init__(self):
-        self._strength_graph = rx.PyDAG(
+        self.solid_stength: dict[dc.Unit, dc.SolidStrength] = {}
+        self.liquid_concentration: dict[NumDenomU, dc.LiquidConcentration] = {}
+        self.liquid_quantity: dict[dc.Unit, dc.LiquidQuantity] = {}
+        self.bound_strength_graph = rx.PyDAG(
             check_cycle=False,  # Will be really hard to create a cycle
             multigraph=False,  # Hierarchical structure
             # node_count_hint = 1000,  # TODO: Estimate the number of nodes
             # edge_count_hint = 1000,  # TODO: Estimate the number of edges
         )
 
-    def add_strength(self, strength: _Strength):
+    def add_strength(self, strength: _UnboundStrength) -> None:
         raise NotImplementedError
 
 
-class RxHierarchy:
+class RxHierarchy[Id: dc.ConceptIdentifier]:
     """
     The drug concept hierarchy that contains all the atomic and composite
     concepts.
