@@ -10,6 +10,7 @@ from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from csv_read.generic import CSVReader
 from csv_read.generic import Schema
+from utils.constants import ALL_CONCEPT_RELATIONSHIP_IDS
 
 
 class OMOPVocabulariesV5:
@@ -40,6 +41,23 @@ class OMOPVocabulariesV5:
         "concept_code",
         "valid_start_date",
         # "valid_end_date",  # Known for valid concepts
+    ]
+
+    CONCEPT_RELATIONSHIP_SCHEMA: Schema = {
+        "concept_id_1": pl.UInt32,
+        "concept_id_2": pl.UInt32,
+        "relationship_id": pl.Utf8,
+        "valid_start_date": pl.UInt32,
+        "valid_end_date": pl.UInt32,
+        "invalid_reason": pl.Utf8,
+    }
+    CONCEPT_RELATIONSHIP_COLUMNS: list[str] = [
+        "concept_id_1",
+        "concept_id_2",
+        "relationship_id",
+        "valid_start_date",
+        # "valid_end_date",  # Known for valid relationships
+        # "invalid_reason",  # Not used
     ]
 
     def concept_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
@@ -95,6 +113,67 @@ class OMOPVocabulariesV5:
             .select(self.CONCEPT_COLUMNS)
         )
 
+    def concept_relationship_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
+        concept = self.concept_reader.data
+        if concept is None:
+            raise ValueError("Concept data must be read first!")
+
+        return frame.filter(
+            pl.col("invalid_reason").is_null(),
+            pl.col("relationship_id").is_in(ALL_CONCEPT_RELATIONSHIP_IDS),
+            # TODO: Parametrize these joins; maybe it's not worth the
+            # performance hit
+            pl.col("concept_id_1").is_in(concept["concept_id"]),
+            pl.col("concept_id_2").is_in(concept["concept_id"]),
+        ).select(self.CONCEPT_RELATIONSHIP_COLUMNS)
+
+    @property
+    def concept_data(self) -> pl.DataFrame:
+        return self.concept_reader.collect()
+
+    @property
+    def relationship_data(self) -> pl.DataFrame:
+        return self.relationship_reader.collect()
+
+    @property
+    def strength_data(self) -> pl.DataFrame:
+        raise NotImplementedError("Not implemented yet")
+        return self.strength_reader.collect()
+
+    def get_class_relationships(
+        self, class_id_1: str, class_id_2: str, relationship_id: str
+    ) -> pl.DataFrame:
+        """
+        Get relationships of a defined type between concepts of two classes.
+        """
+        concept = self.concept_data
+        relationship = self.relationship_data.filter(
+            pl.col("relationship_id") == relationship_id
+        )
+
+        joined = (
+            concept.filter(pl.col("concept_class_id") == class_id_1)
+            .join(
+                other=relationship,
+                left_on="concept_id",
+                right_on="concept_id_1",
+                suffix="_relationship",
+            )
+            .join(
+                other=concept.filter(pl.col("concept_class_id") == class_id_2),
+                left_on="concept_id_2",
+                right_on="concept_id",
+                suffix="_target",
+            )
+            .rename({"concept_id_2": "concept_id_target"})
+            .select([
+                *self.CONCEPT_COLUMNS,
+                *map(lambda x: f"{x}_target", self.CONCEPT_COLUMNS),
+            ])
+        )
+
+        return joined
+
     def __init__(self, vocab_download_path: Path):
         # Initiate hierarchy containers
         self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
@@ -111,10 +190,9 @@ class OMOPVocabulariesV5:
             schema=self.CONCEPT_SCHEMA,
             line_filter=self.concept_filter,
         )
-        data = self.concept_reader.collect()
 
         # Populate atoms with known concepts
-        rxn_atoms: pl.DataFrame = data.select([
+        rxn_atoms: pl.DataFrame = self.concept_data.select([
             "concept_id",
             "concept_name",
             "concept_class_id",
@@ -128,5 +206,34 @@ class OMOPVocabulariesV5:
                 "Unit",
             ])
         )
-
         self.atoms.add_from_frame(rxn_atoms)
+
+        # Concept Relationship
+        concept_relationship_path = (
+            self.vocab_download_path / "CONCEPT_RELATIONSHIP.csv"
+        )
+
+        self.relationship_reader: CSVReader = CSVReader(
+            path=concept_relationship_path,
+            schema=self.CONCEPT_RELATIONSHIP_SCHEMA,
+            line_filter=self.concept_relationship_filter,
+        )
+
+        # We can now also process Precise Ingredients
+        ing_to_precise = self.get_class_relationships(
+            class_id_1="Precise Ingredient",
+            class_id_2="Ingredient",
+            relationship_id="Form of",  # Maps to?
+        )
+
+        for row in ing_to_precise.iter_rows(named=True):
+            ingredient = self.atoms.ingredient[row["concept_id_target"]]
+            precise_identifier: int = row["concept_id"]
+            precise_name: str = row["concept_name"]
+            self.atoms.add_precise_ingredient(
+                dc.PreciseIngredient(
+                    identifier=dc.ConceptId(precise_identifier),
+                    concept_name=precise_name,
+                    invariant=ingredient,
+                )
+            )

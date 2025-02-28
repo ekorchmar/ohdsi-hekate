@@ -15,4 +15,6 @@ if __name__ == '__main__':
     main()
     path = Path("~/Downloads/Vocab/").expanduser()
     a = OMOPVocabulariesV5(vocab_download_path=path)
+    for ing, precise in a.atoms.precise_ingredient.items():
+        print(ing, precise)
     print("Done")
