@@ -9,9 +9,12 @@ __pycache__/
 # Python virtual environment
 venv/
 
-
 # Editors and OS
 .vscode/
 .idea/
 .DS_Store
+
+# Scalene profiling artifacts
+profile.html
+profile.json
 
