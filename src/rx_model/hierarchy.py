@@ -150,3 +150,12 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     The drug concept hierarchy that contains all the atomic and composite
     concepts.
     """
+
+    def __init__(self):
+        self.graph: rx.PyDAG = rx.PyDAG(
+            check_cycle=False,  # Will be really hard to create a cycle
+            multigraph=False,  # Hierarchical structure
+            # node_count_hint = 1000,  # TODO: Estimate the number of nodes
+            # edge_count_hint = 1000,  # TODO: Estimate the number of edges
+        )
+

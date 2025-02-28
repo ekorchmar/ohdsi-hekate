@@ -2,15 +2,16 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
+import logging
 from pathlib import Path
 
 import polars as pl  # For type hinting and schema definition
 
+from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
-from csv_read.generic import CSVReader
-from csv_read.generic import Schema
 from utils.constants import ALL_CONCEPT_RELATIONSHIP_IDS
+from utils.logger import LOGGER
 
 
 class OMOPVocabulariesV5:
@@ -175,6 +176,8 @@ class OMOPVocabulariesV5:
         return joined
 
     def __init__(self, vocab_download_path: Path):
+        self.logger: logging.Logger = LOGGER.getChild("VocabV5")
+
         # Initiate hierarchy containers
         self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
         self.strengths: h.KnownStrength[dc.ConceptId] = h.KnownStrength()
@@ -183,6 +186,7 @@ class OMOPVocabulariesV5:
         self.vocab_download_path: Path = vocab_download_path
 
         # Concept
+        self.logger.info("Reading CONCEPT.csv")
         concept_path = self.vocab_download_path / "CONCEPT.csv"
 
         self.concept_reader: CSVReader = CSVReader(
@@ -192,6 +196,7 @@ class OMOPVocabulariesV5:
         )
 
         # Populate atoms with known concepts
+        self.logger.info("Processing atomic concepts (Ingredient, Dose Form, etc.)")
         rxn_atoms: pl.DataFrame = self.concept_data.select([
             "concept_id",
             "concept_name",
@@ -209,6 +214,7 @@ class OMOPVocabulariesV5:
         self.atoms.add_from_frame(rxn_atoms)
 
         # Concept Relationship
+        logging.info("Reading CONCEPT_RELATIONSHIP.csv")
         concept_relationship_path = (
             self.vocab_download_path / "CONCEPT_RELATIONSHIP.csv"
         )

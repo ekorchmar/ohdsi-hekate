@@ -4,6 +4,7 @@
 """
 
 from collections.abc import Mapping
+import logging
 from pathlib import Path
 from typing import Callable
 
@@ -11,6 +12,7 @@ import csv
 import polars as pl
 
 from utils.exceptions import SchemaError
+from utils.logger import LOGGER
 
 type Schema = Mapping[str, type[pl.DataType]]
 
@@ -61,6 +63,9 @@ class CSVReader:
         self.path: Path = path
         self.schema: Schema = schema
 
+        # Associate a logger with the pathname
+        self.logger: logging.Logger = LOGGER.getChild(path.name)
+
         # Find actual column layout
         self.infer_header_order()
 
@@ -77,6 +82,7 @@ class CSVReader:
         # Apply line filter if provided
         if line_filter:
             self._lazy_frame = line_filter(self._lazy_frame)
+        self.logger.debug(self._lazy_frame.explain())
 
         self.data: pl.DataFrame | None = None
 
@@ -99,5 +105,7 @@ class CSVReader:
         Collect the entire CSV file into a DataFrame.
         """
         if self.data is None:
+            self.logger.info("Collecting and caching data from disk")
             self.data = self._lazy_frame.collect()
+            self.logger.info(f"{len(self.data)} rows collected and cached")
         return self.data
