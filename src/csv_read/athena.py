@@ -6,10 +6,10 @@ from pathlib import Path
 
 import polars as pl  # For type hinting and schema definition
 
-from ..rx_model import drug_classes as dc
-from ..rx_model import hierarchy as h
-from ..csv_read.generic import CSVReader
-from ..csv_read.generic import Schema
+from rx_model import drug_classes as dc
+from rx_model import hierarchy as h
+from csv_read.generic import CSVReader
+from csv_read.generic import Schema
 
 
 class OMOPVocabulariesV5:
@@ -44,8 +44,10 @@ class OMOPVocabulariesV5:
 
     def concept_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
         return (
-            frame
-            .filter(
+            # TODO: test if this is faster than using the .is_in() method
+            # Use .explain():
+            # https://www.statology.org/how-to-use-explain-understand-lazyframe-query-optimization-polars/
+            frame.filter(
                 pl.col("invalid_reason").is_null(),
                 (
                     (pl.col("domain_id") == "Drug")
@@ -111,5 +113,20 @@ class OMOPVocabulariesV5:
         )
         data = self.concept_reader.collect()
 
-        for row in data.iter_rows():
-            print(row)
+        # Populate atoms with known concepts
+        rxn_atoms: pl.DataFrame = data.select([
+            "concept_id",
+            "concept_name",
+            "concept_class_id",
+        ]).filter(
+            pl.col("concept_class_id").is_in([
+                "Ingredient",
+                # "Precise Ingredient",  # Needs CONCEPT_RELATIONSHIP
+                "Brand Name",
+                "Dose Form",
+                "Supplier",
+                "Unit",
+            ])
+        )
+
+        self.atoms.add_from_frame(rxn_atoms)

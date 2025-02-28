@@ -10,7 +10,7 @@ from typing import Callable
 import csv
 import polars as pl
 
-from ..utils.exceptions import SchemaError
+from utils.exceptions import SchemaError
 
 type Schema = Mapping[str, type[pl.DataType]]
 
@@ -98,5 +98,6 @@ class CSVReader:
         """
         Collect the entire CSV file into a DataFrame.
         """
-        self.data = self._lazy_frame.collect()
+        if self.data is None:
+            self.data = self._lazy_frame.collect()
         return self.data

@@ -4,6 +4,8 @@ Contains the class that hosts the drug concept hierarchy.
 
 from . import drug_classes as dc
 import rustworkx as rx
+import polars as pl
+from typing import Annotated, Literal
 
 
 # Generic types
@@ -48,6 +50,66 @@ class Atoms[Id: dc.ConceptIdentifier]:
         self.precise_ingredient: dict[
             dc.Ingredient[dc.ConceptId], list[dc.PreciseIngredient]
         ] = {}
+
+    def add_from_frame(self, frame: pl.DataFrame) -> None:
+        """
+        Populate the atoms container from a DataFrame.
+
+        Dataframe is expected to have the following columns:
+            - concept_id OR concept_code & vocabulary_id combination
+            - concept_name
+            - concept_class_id
+        """
+        identifier_columns: list[str]
+        identifier_class: type[Id]
+        if "concept_id" in frame.columns:
+            identifier_columns = ["concept_id"]
+            identifier_class = dc.ConceptId  # pyright: ignore[reportAssignmentType] # noqa: E501
+        elif {"concept_code", "vocabulary_id"} <= set(frame.columns):
+            identifier_columns = ["concept_code", "vocabulary_id"]
+            identifier_class = dc.ConceptCodeVocab  # pyright: ignore[reportAssignmentType] # noqa: E501
+        else:
+            raise ValueError(
+                "DataFrame must have either 'concept_id' or both"
+                "'concept_code' and 'vocabulary_id' columns."
+            )
+
+        # Reorder columns to expected order
+        frame = frame.select(
+            identifier_columns + ["concept_name", "concept_class_id"]
+        )
+
+        # Extract the atoms
+        name: str
+        cls: str
+        identifier: Annotated[list[int], 1] | Annotated[list[str], 2]
+        for *identifier, name, cls in frame.iter_rows():
+            if cls == "Precise Ingredient":
+                continue
+            atom_identifier: Id = identifier_class(*identifier)  # pyright: ignore[reportArgumentType] # noqa: E501
+            match cls:
+                case "Ingredient":
+                    container = self.ingredient
+                    constructor = dc.Ingredient
+                case "Dose Form":
+                    container = self.dose_form
+                    constructor = dc.DoseForm
+                case "Brand Name":
+                    container = self.brand_name
+                    constructor = dc.BrandName
+                case "Supplier":
+                    container = self.supplier
+                    constructor = dc.Supplier
+                case "Unit":
+                    container = self.unit
+                    constructor = dc.Unit
+                case _:
+                    raise ValueError(f"Unexpected concept class: {cls}")
+
+            container[atom_identifier] = constructor(  # pyright: ignore[reportArgumentType] # noqa: E501
+                identifier=atom_identifier,  # pyright: ignore[reportArgumentType] # noqa: E501
+                concept_name=name,
+            )
 
     def add_precise_ingredient(
         self, precise_ingredient: dc.PreciseIngredient

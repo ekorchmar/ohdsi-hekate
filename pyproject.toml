@@ -56,8 +56,9 @@ version = {file = "src/__version__"}
 [tool.pyright]
 include = ["src"]
 
-reportImplicitStringConcatenation = false
-reportUninitializedInstanceVariable = false
+reportImplicitStringConcatenation = false  # Intentionally using it
+reportUninitializedInstanceVariable = false  # Pyright doesn't understand dataclasses
+reportImplicitRelativeImport = false  # Importing in python is a headache
 
 [tool.ruff]
 line-length = 80

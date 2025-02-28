@@ -4,10 +4,10 @@ Contains the individual RxNorm and RxNorm Extension drug classes.
 
 import math  # For NaN checks
 from typing import override
-from ..rx_model import exception  # For custom exceptions
-from ..utils.utils import keep_multiple_values
-from ..utils.utils import invert_merge_dict
-from ..utils.classes import SortedTuple  # To ensure consistent layout
+from rx_model import exception  # For custom exceptions
+from utils.utils import keep_multiple_values
+from utils.utils import invert_merge_dict
+from utils.classes import SortedTuple  # To ensure consistent layout
 
 from dataclasses import dataclass
 

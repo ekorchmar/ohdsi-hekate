@@ -12,6 +12,7 @@ Hekate starts another hex!
 
 
 if __name__ == '__main__':
+    main()
     path = Path("~/Downloads/Vocab/").expanduser()
     a = OMOPVocabulariesV5(vocab_download_path=path)
-    main()
+    print("Done")
