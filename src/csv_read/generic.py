@@ -6,12 +6,13 @@
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable
-from typing import Any  # For arbitrary processing functions
 
 import csv
 import polars as pl
 
-from utils.exceptions import SchemaError
+from ..utils.exceptions import SchemaError
+
+type Schema = Mapping[str, type[pl.DataType]]
 
 
 class CSVReader:
@@ -23,11 +24,10 @@ class CSVReader:
     def __init__(
         self,
         path: Path,
-        schema: Mapping[str, pl.datatypes.DataType],
+        schema: Schema,
         delimiter: str = "\t",
         quote_char: str | None = None,
         line_filter: Callable[[pl.LazyFrame], pl.LazyFrame] | None = None,
-        batch_size: int = 100_000,
     ):
         """
         Args:
@@ -52,21 +52,20 @@ class CSVReader:
 
                 Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
 
-            schema: Optional schema to use when reading the CSV file.
+            schema: Required schema to use when reading the CSV file. Provided
+                as a dictionary of column names and their respective Polars
+                data types.
 
-            batch_size: Number of rows to read at a time. Defaults to
-                100_000.
         """
-        self.batch_size = batch_size
-        self.delimiter = delimiter
-        self.path = path
-        self.schema = schema
+        self.delimiter: str = delimiter
+        self.path: Path = path
+        self.schema: Schema = schema
 
         # Find actual column layout
         self.infer_header_order()
 
         # Create a reader object
-        self._lazy_frame = pl.scan_csv(
+        self._lazy_frame: pl.LazyFrame = pl.scan_csv(
             source=self.path,
             separator=delimiter,
             quote_char=quote_char,

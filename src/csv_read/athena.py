@@ -6,8 +6,10 @@ from pathlib import Path
 
 import polars as pl  # For type hinting and schema definition
 
-import rx_model.drug_classes as rx
-from csv_read.generic import CSVReader
+from ..rx_model import drug_classes as dc
+from ..rx_model import hierarchy as h
+from ..csv_read.generic import CSVReader
+from ..csv_read.generic import Schema
 
 
 class OMOPVocabulariesV5:
@@ -15,7 +17,7 @@ class OMOPVocabulariesV5:
     Class to read Athena OMOP CDM Vocabularies
     """
 
-    CONCEPT_SCHEMA = {
+    CONCEPT_SCHEMA: Schema = {
         "concept_id": pl.UInt32,
         "concept_name": pl.Utf8,
         "domain_id": pl.Utf8,
@@ -28,7 +30,7 @@ class OMOPVocabulariesV5:
         "valid_end_date": pl.UInt32,
         "invalid_reason": pl.Utf8,
     }
-    CONCEPT_COLUMNS = [
+    CONCEPT_COLUMNS: list[str] = [
         "concept_id",
         "concept_name",
         # "domain_id", Made redundant by class
@@ -92,17 +94,22 @@ class OMOPVocabulariesV5:
         )
 
     def __init__(self, vocab_download_path: Path):
-        self.vocab_download_path = vocab_download_path
+        # Initiate hierarchy containers
+        self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
+        self.strengths: h.KnownStrength[dc.ConceptId] = h.KnownStrength()
+        self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
+
+        self.vocab_download_path: Path = vocab_download_path
 
         # Concept
-        self.concept_path = self.vocab_download_path / "CONCEPT.csv"
+        concept_path = self.vocab_download_path / "CONCEPT.csv"
 
-        self.concept_reader = CSVReader(
-            path=self.concept_path,
+        self.concept_reader: CSVReader = CSVReader(
+            path=concept_path,
             schema=self.CONCEPT_SCHEMA,
             line_filter=self.concept_filter,
         )
-        self.concept_reader.collect()
+        data = self.concept_reader.collect()
 
-        for row in self.concept_reader.data.iter_rows():
+        for row in data.iter_rows():
             print(row)

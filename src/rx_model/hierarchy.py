@@ -71,7 +71,7 @@ class KnownStrength[Id: dc.ConceptIdentifier]:
         self.solid_stength: dict[dc.Unit, dc.SolidStrength] = {}
         self.liquid_concentration: dict[NumDenomU, dc.LiquidConcentration] = {}
         self.liquid_quantity: dict[dc.Unit, dc.LiquidQuantity] = {}
-        self.bound_strength_graph = rx.PyDAG(
+        self.bound_strength_graph: rx.PyDAG = rx.PyDAG(
             check_cycle=False,  # Will be really hard to create a cycle
             multigraph=False,  # Hierarchical structure
             # node_count_hint = 1000,  # TODO: Estimate the number of nodes
@@ -79,6 +79,7 @@ class KnownStrength[Id: dc.ConceptIdentifier]:
         )
 
     def add_strength(self, strength: _UnboundStrength) -> None:
+        del strength
         raise NotImplementedError
 
 
