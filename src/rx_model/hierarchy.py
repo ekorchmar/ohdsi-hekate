@@ -149,6 +149,11 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     """
     The drug concept hierarchy that contains all the atomic and composite
     concepts.
+
+    The hierarchy is stored in a directed acyclic graph (DAG), where roots
+    are ingredient concepts and nodes are more complex drug concepts.
+    Ingredient indices are cached in a dictionary for quick access to entry
+    points.
     """
 
     def __init__(self):
@@ -176,4 +181,6 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         """
         node_idx = self.graph.add_node(clinical_drug_form)
         for ingredient in clinical_drug_form.ingredients:
-            self.graph.add_edge(self.ingredients[ingredient], node_idx, None)
+            _ = self.graph.add_edge(  # Discard edge index
+                self.ingredients[ingredient], node_idx, None
+            )

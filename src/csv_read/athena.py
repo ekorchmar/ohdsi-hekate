@@ -62,6 +62,35 @@ class OMOPVocabulariesV5:
         # "invalid_reason",  # Not used
     ]
 
+    DRUG_STRENGTH_SCHEMA: Schema = {
+        "drug_concept_id": pl.UInt32,
+        "ingredient_concept_id": pl.UInt32,
+        "amount_value": pl.Float64,
+        "amount_unit_concept_id": pl.UInt32,
+        "numerator_value": pl.Float64,
+        "numerator_unit_concept_id": pl.UInt32,
+        "denominator_value": pl.Float64,
+        "denominator_unit_concept_id": pl.UInt32,
+        "box_size": pl.UInt32,
+        "valid_start_date": pl.UInt32,
+        "valid_end_date": pl.UInt32,
+        "invalid_reason": pl.Utf8,  # But we will keep this just in case
+    }
+    DRUG_STRENGTH_COLUMNS: list[str] = [
+        "drug_concept_id",
+        "ingredient_concept_id",
+        "amount_value",
+        "amount_unit_concept_id",
+        "denominator_value",
+        "denominator_unit_concept_id",
+        # "box_size",  # Not used for now
+        # NOTE: DRUG_STRENGTH implicitly contains only valid entries
+        #
+        # "valid_start_date",
+        # "valid_end_date",
+        # "invalid_reason",
+    ]
+
     def concept_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
         return (
             # TODO: test if this is faster than using the .is_in() method
@@ -121,6 +150,7 @@ class OMOPVocabulariesV5:
             raise ValueError("Concept data must be read first!")
 
         return frame.filter(
+            # TODO: Hunt for valid relations to invalid targets
             pl.col("invalid_reason").is_null(),
             pl.col("relationship_id").is_in(ALL_CONCEPT_RELATIONSHIP_IDS),
             # TODO: Parametrize these joins; maybe it's not worth the
@@ -128,6 +158,21 @@ class OMOPVocabulariesV5:
             pl.col("concept_id_1").is_in(concept["concept_id"]),
             pl.col("concept_id_2").is_in(concept["concept_id"]),
         ).select(self.CONCEPT_RELATIONSHIP_COLUMNS)
+
+    def drug_strength_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
+        concept = self.concept_reader.data
+        if concept is None:
+            raise ValueError("Concept data must be read first!")
+        ingredients = concept.filter(
+            pl.col("concept_class_id") == "Ingredient"
+        )["concept_id"]
+
+        return frame.filter(
+            pl.col("invalid_reason").is_null(),
+            # Redundant
+            # pl.col("drug_concept_id").is_in(concept["concept_id"]),
+            pl.col("ingredient_concept_id").is_in(ingredients),
+        ).select(self.DRUG_STRENGTH_COLUMNS)
 
     @property
     def concept_data(self) -> pl.DataFrame:
@@ -139,7 +184,6 @@ class OMOPVocabulariesV5:
 
     @property
     def strength_data(self) -> pl.DataFrame:
-        raise NotImplementedError("Not implemented yet")
         return self.strength_reader.collect()
 
     def get_class_relationships(
@@ -175,6 +219,23 @@ class OMOPVocabulariesV5:
         )
 
         return joined
+
+    def get_strength_counts(self, drug_ids: pl.Series) -> dict[int, int]:
+        """
+        Get the counts of ingredients for each drug concept.
+        """
+        counts_df = (
+            self.strength_data.join(
+                other=drug_ids.to_frame(name="drug_concept_id"),
+                left_on="drug_concept_id",
+                right_on="drug_concept_id",
+            )
+            .group_by("drug_concept_id")
+            .count()
+            .rename({"count": "ingredient_count"})
+        )
+
+        return {row[0]: row[1] for row in counts_df.iter_rows()}
 
     def __init__(self, vocab_download_path: Path):
         self.logger: logging.Logger = LOGGER.getChild("VocabV5")
@@ -261,6 +322,15 @@ class OMOPVocabulariesV5:
         #  - Clinical Drug Form
         #  - Branded Drug For
 
+        # We still need to process DRUG_STRENGTH.csv for ingredient counts, so
+        self.logger.info("Reading DRUG_STRENGTH.csv")
+        drug_strength_path = self.vocab_download_path / "DRUG_STRENGTH.csv"
+        self.strength_reader: CSVReader = CSVReader(
+            path=drug_strength_path,
+            schema=self.DRUG_STRENGTH_SCHEMA,
+            line_filter=self.drug_strength_filter,
+        )
+
         self.logger.info("Processing Clinical Drug Forms")
 
         self.logger.info("Finding Dose Forms for Clinical Drug Forms")
@@ -300,25 +370,31 @@ class OMOPVocabulariesV5:
         self.logger.info("Creating Clinical Drug Forms")
         cdc_concepts = self.concept_data.filter(
             pl.col("concept_class_id") == "Clinical Drug Form"
-        ).select(["concept_id"])
+        )["concept_id"]
         valid_cdc_count = 0
 
-        for (cdc_concept_id,) in cdc_concepts.iter_rows():
+        cdc_ds_ing_count = self.get_strength_counts(cdc_concepts)
+
+        for cdc_concept_id in cdc_concepts:
             dose_form = cdc_dose_form.get(cdc_concept_id)
-            ingredients = cdc_ingredient.get(cdc_concept_id)
+            ingreds = cdc_ingredient.get(cdc_concept_id)
 
             if dose_form is None:
                 self.logger.warning(
                     f"Dose Form absent for Clinical Drug Form {cdc_concept_id}"
                 )
 
-            elif ingredients is None:
+            elif ingreds is None:
                 self.logger.warning(
                     f"Ingredients absent for Clinical Drug Form "
                     f"{cdc_concept_id}"
                 )
 
-            # TODO: add a more robust check by DRUG_STRENGTH
+            elif not cdc_ds_ing_count.get(cdc_concept_id, 0) == len(ingreds):
+                self.logger.warning(
+                    f"Ingredient count mismatch for Clinical Drug Form "
+                    f"{cdc_concept_id}"
+                )
 
             else:
                 valid_cdc_count += 1
@@ -326,7 +402,7 @@ class OMOPVocabulariesV5:
                     dc.ClinicalDrugForm(
                         identifier=dc.ConceptId(cdc_concept_id),
                         dose_form=dose_form,
-                        ingredients=SortedTuple(ingredients),
+                        ingredients=SortedTuple(ingreds),
                     )
                 )
 
