@@ -1,24 +1,4 @@
 concept_class_id_1	relationship_id	concept_class_id_2	count
-Branded Drug	Available as box	Branded Drug Box	204243
-Branded Drug	Available as box	Clinical Drug Box	5
-Branded Drug	Available as box	Quant Branded Box	1
-Branded Pack	Available as box	Branded Pack Box	614
-Clinical Drug	Available as box	Clinical Drug Box	108643
-Clinical Drug	Available as box	Quant Clinical Box	1
-Clinical Pack	Available as box	Clinical Pack Box	483
-Quant Branded Drug	Available as box	Quant Branded Box	83275
-Quant Branded Drug	Available as box	Quant Clinical Box	4
-Quant Clinical Drug	Available as box	Quant Clinical Box	70883
-Branded Drug Box	Box of	Branded Drug	204243
-Branded Pack Box	Box of	Branded Pack	614
-Clinical Drug Box	Box of	Branded Drug	5
-Clinical Drug Box	Box of	Clinical Drug	108643
-Clinical Pack Box	Box of	Clinical Pack	483
-Quant Branded Box	Box of	Branded Drug	1
-Quant Branded Box	Box of	Quant Branded Drug	83275
-Quant Clinical Box	Box of	Clinical Drug	1
-Quant Clinical Box	Box of	Quant Branded Drug	4
-Quant Clinical Box	Box of	Quant Clinical Drug	70883
 Brand Name	Brand name of	Branded Dose Group	20461
 Brand Name	Brand name of	Branded Drug	168419
 Brand Name	Brand name of	Branded Drug Box	202331
@@ -31,80 +11,123 @@ Brand Name	Brand name of	Marketed Product	308799
 Brand Name	Brand name of	Precise Ingredient	88
 Brand Name	Brand name of	Quant Branded Box	81699
 Brand Name	Brand name of	Quant Branded Drug	89029
-Clinical Drug Form	Component of	Clinical Drug	1
-Branded Drug	Consists of	Branded Drug Comp	170236
-Branded Drug Form	Consists of	Branded Drug Comp	1
-Clinical Drug	Consists of	Branded Drug	8
-Clinical Drug	Consists of	Branded Drug Comp	8
-Clinical Drug	Consists of	Clinical Drug	4
-Clinical Drug	Consists of	Clinical Drug Comp	202903
-Clinical Drug Form	Consists of	Clinical Drug Comp	1
-Quant Branded Drug	Consists of	Branded Drug Comp	5
-Quant Clinical Drug	Consists of	Clinical Drug Comp	107
-Branded Drug	Constitutes	Clinical Drug	8
-Branded Drug Comp	Constitutes	Branded Drug	170236
-Branded Drug Comp	Constitutes	Branded Drug Form	1
-Branded Drug Comp	Constitutes	Clinical Drug	8
-Branded Drug Comp	Constitutes	Quant Branded Drug	5
-Clinical Drug	Constitutes	Clinical Drug	4
-Clinical Drug Comp	Constitutes	Clinical Drug	202903
-Clinical Drug Comp	Constitutes	Clinical Drug Form	1
-Clinical Drug Comp	Constitutes	Quant Clinical Drug	107
-Branded Drug	Contained in	Branded Pack	449
-Clinical Drug	Contained in	Branded Pack	2719
-Clinical Drug	Contained in	Branded Pack Box	1037
-Clinical Drug	Contained in	Clinical Pack	2641
-Clinical Drug	Contained in	Clinical Pack Box	802
-Clinical Drug	Contained in	Marketed Product	2078
-Quant Branded Drug	Contained in	Branded Pack	120
-Quant Clinical Drug	Contained in	Branded Pack	630
-Quant Clinical Drug	Contained in	Branded Pack Box	192
-Quant Clinical Drug	Contained in	Clinical Pack	776
-Quant Clinical Drug	Contained in	Clinical Pack Box	195
-Quant Clinical Drug	Contained in	Marketed Product	683
-Branded Pack	Contains	Branded Drug	449
-Branded Pack	Contains	Clinical Drug	2719
-Branded Pack	Contains	Quant Branded Drug	120
-Branded Pack	Contains	Quant Clinical Drug	630
-Branded Pack Box	Contains	Clinical Drug	1037
-Branded Pack Box	Contains	Quant Clinical Drug	192
-Clinical Pack	Contains	Clinical Drug	2641
-Clinical Pack	Contains	Quant Clinical Drug	776
-Clinical Pack Box	Contains	Clinical Drug	802
-Clinical Pack Box	Contains	Quant Clinical Drug	195
-Marketed Product	Contains	Clinical Drug	2078
-Marketed Product	Contains	Quant Clinical Drug	683
-Dose Form Group	Dose form group of	Branded Dose Group	20461
-Dose Form Group	Dose form group of	Clinical Dose Group	15675
-Ingredient	Drug class of drug	Clinical Drug Form	2
-Clinical Drug Form	Drug has drug class	Ingredient	2
-Precise Ingredient	Form of	Ingredient	2969
+Brand Name	Has precise ing	Precise Ingredient	7215
 Branded Dose Group	Has brand name	Brand Name	20461
-Branded Drug	Has brand name	Brand Name	168419
-Branded Drug Box	Has brand name	Brand Name	202331
-Branded Drug Comp	Has brand name	Brand Name	141557
-Branded Drug Form	Has brand name	Brand Name	114452
-Branded Pack	Has brand name	Brand Name	1476
-Branded Pack Box	Has brand name	Brand Name	594
-Ingredient	Has brand name	Brand Name	129978
-Marketed Product	Has brand name	Brand Name	308799
-Precise Ingredient	Has brand name	Brand Name	88
-Quant Branded Box	Has brand name	Brand Name	81699
-Quant Branded Drug	Has brand name	Brand Name	89029
-Clinical Drug	Has component	Clinical Drug Form	1
 Branded Dose Group	Has dose form group	Dose Form Group	20461
-Clinical Dose Group	Has dose form group	Dose Form Group	15675
-Ingredient	Has form	Precise Ingredient	2969
+Branded Dose Group	RxNorm inverse is a	Branded Drug	33538
+Branded Dose Group	RxNorm inverse is a	Branded Drug Form	23064
+Branded Dose Group	RxNorm inverse is a	Quant Branded Drug	3403
+Branded Dose Group	Tradename of	Clinical Dose Group	20461
+Branded Drug	Available as box	Branded Drug Box	204243
+Branded Drug	Available as box	Clinical Drug Box	5
+Branded Drug	Available as box	Quant Branded Box	1
+Branded Drug	Consists of	Branded Drug Comp	170236
+Branded Drug	Constitutes	Clinical Drug	8
+Branded Drug	Contained in	Branded Pack	449
+Branded Drug	Has brand name	Brand Name	168419
 Branded Drug	Has marketed form	Branded Drug	2
 Branded Drug	Has marketed form	Branded Drug Box	2
 Branded Drug	Has marketed form	Marketed Product	312132
 Branded Drug	Has marketed form	Quant Branded Box	4
 Branded Drug	Has marketed form	Quant Branded Drug	5
+Branded Drug	Has quantified form	Quant Branded Drug	90718
+Branded Drug	Has quantified form	Quant Clinical Drug	8
+Branded Drug	Has supplier	Supplier	7
+Branded Drug	Has tradename	Branded Drug	66
+Branded Drug	Has tradename	Branded Drug Comp	12
+Branded Drug	Mapped from	Branded Drug	170291
+Branded Drug	Maps to	Branded Drug	170291
+Branded Drug	Marketed form of	Branded Drug	2
+Branded Drug	Marketed form of	Clinical Drug	7
+Branded Drug	RxNorm has dose form	Dose Form	170918
+Branded Drug	RxNorm is a	Branded Dose Group	33538
+Branded Drug	RxNorm is a	Branded Drug Form	170080
+Branded Drug	Tradename of	Branded Drug	66
+Branded Drug	Tradename of	Clinical Drug	170157
+Branded Drug	Tradename of	Quant Clinical Drug	6
+Branded Drug Box	Box of	Branded Drug	204243
+Branded Drug Box	Has brand name	Brand Name	202331
 Branded Drug Box	Has marketed form	Branded Drug Box	1
 Branded Drug Box	Has marketed form	Marketed Product	210277
 Branded Drug Box	Has marketed form	Quant Branded Box	5
+Branded Drug Box	Has quantified form	Quant Branded Box	83585
+Branded Drug Box	Has quantified form	Quant Clinical Box	1
+Branded Drug Box	Has supplier	Supplier	4
+Branded Drug Box	Has tradename	Branded Drug Box	20
+Branded Drug Box	Mapped from	Branded Drug Box	204358
+Branded Drug Box	Maps to	Branded Drug Box	204358
+Branded Drug Box	Marketed form of	Branded Drug	2
+Branded Drug Box	Marketed form of	Branded Drug Box	1
+Branded Drug Box	Marketed form of	Clinical Drug	4
+Branded Drug Box	Marketed form of	Clinical Drug Box	4
+Branded Drug Box	RxNorm has dose form	Dose Form	205017
+Branded Drug Box	Tradename of	Branded Drug Box	20
+Branded Drug Box	Tradename of	Clinical Drug Box	204920
+Branded Drug Comp	Constitutes	Branded Drug	170236
+Branded Drug Comp	Constitutes	Branded Drug Form	1
+Branded Drug Comp	Constitutes	Clinical Drug	8
+Branded Drug Comp	Constitutes	Quant Branded Drug	5
+Branded Drug Comp	Has brand name	Brand Name	141557
+Branded Drug Comp	Has tradename	Branded Drug Comp	29
+Branded Drug Comp	Mapped from	Branded Drug Comp	142913
+Branded Drug Comp	Maps to	Branded Drug Comp	142913
+Branded Drug Comp	Tradename of	Branded Drug	12
+Branded Drug Comp	Tradename of	Branded Drug Comp	29
+Branded Drug Comp	Tradename of	Clinical Drug	2
+Branded Drug Comp	Tradename of	Clinical Drug Comp	222685
+Branded Drug Comp	Tradename of	Marketed Product	4
+Branded Drug Form	Consists of	Branded Drug Comp	1
+Branded Drug Form	Has brand name	Brand Name	114452
 Branded Drug Form	Has marketed form	Marketed Product	1
+Branded Drug Form	Has tradename	Branded Drug Form	40
+Branded Drug Form	Mapped from	Branded Drug Form	115507
+Branded Drug Form	Maps to	Branded Drug Form	115507
+Branded Drug Form	RxNorm has dose form	Dose Form	115682
+Branded Drug Form	RxNorm inverse is a	Branded Drug	170080
+Branded Drug Form	RxNorm inverse is a	Clinical Drug	18
+Branded Drug Form	RxNorm inverse is a	Quant Branded Drug	5
+Branded Drug Form	RxNorm is a	Branded Dose Group	23064
+Branded Drug Form	Tradename of	Branded Drug Form	40
+Branded Drug Form	Tradename of	Clinical Drug Form	113566
+Branded Pack	Available as box	Branded Pack Box	614
+Branded Pack	Contains	Branded Drug	449
+Branded Pack	Contains	Clinical Drug	2719
+Branded Pack	Contains	Quant Branded Drug	120
+Branded Pack	Contains	Quant Clinical Drug	630
+Branded Pack	Has brand name	Brand Name	1476
 Branded Pack	Has marketed form	Marketed Product	1181
+Branded Pack	Mapped from	Branded Pack	1883
+Branded Pack	Maps to	Branded Pack	1883
+Branded Pack	RxNorm has dose form	Dose Form	709
+Branded Pack	Tradename of	Clinical Pack	1884
+Branded Pack Box	Box of	Branded Pack	614
+Branded Pack Box	Contains	Clinical Drug	1037
+Branded Pack Box	Contains	Quant Clinical Drug	192
+Branded Pack Box	Has brand name	Brand Name	594
+Branded Pack Box	Has tradename	Branded Pack Box	5
+Branded Pack Box	Mapped from	Branded Pack Box	615
+Branded Pack Box	Maps to	Branded Pack Box	615
+Branded Pack Box	Tradename of	Branded Pack Box	5
+Branded Pack Box	Tradename of	Clinical Pack Box	615
+Clinical Dose Group	Has dose form group	Dose Form Group	15675
+Clinical Dose Group	Has tradename	Branded Dose Group	20461
+Clinical Dose Group	RxNorm has ing	Ingredient	27003
+Clinical Dose Group	RxNorm inverse is a	Clinical Drug	54236
+Clinical Dose Group	RxNorm inverse is a	Clinical Drug Form	22862
+Clinical Dose Group	RxNorm inverse is a	Quant Clinical Drug	3930
+Clinical Drug	Available as box	Clinical Drug Box	108643
+Clinical Drug	Available as box	Quant Clinical Box	1
+Clinical Drug	Consists of	Branded Drug	8
+Clinical Drug	Consists of	Branded Drug Comp	8
+Clinical Drug	Consists of	Clinical Drug	4
+Clinical Drug	Consists of	Clinical Drug Comp	202903
+Clinical Drug	Constitutes	Clinical Drug	4
+Clinical Drug	Contained in	Branded Pack	2719
+Clinical Drug	Contained in	Branded Pack Box	1037
+Clinical Drug	Contained in	Clinical Pack	2641
+Clinical Drug	Contained in	Clinical Pack Box	802
+Clinical Drug	Contained in	Marketed Product	2078
+Clinical Drug	Has component	Clinical Drug Form	1
 Clinical Drug	Has marketed form	Branded Drug	7
 Clinical Drug	Has marketed form	Branded Drug Box	4
 Clinical Drug	Has marketed form	Clinical Drug	2
@@ -113,139 +136,65 @@ Clinical Drug	Has marketed form	Quant Branded Box	5
 Clinical Drug	Has marketed form	Quant Branded Drug	6
 Clinical Drug	Has marketed form	Quant Clinical Box	38
 Clinical Drug	Has marketed form	Quant Clinical Drug	26
+Clinical Drug	Has quantified form	Quant Clinical Drug	78312
+Clinical Drug	Has supplier	Supplier	1
+Clinical Drug	Has tradename	Branded Drug	170157
+Clinical Drug	Has tradename	Branded Drug Comp	2
+Clinical Drug	Has tradename	Quant Branded Drug	5
+Clinical Drug	Mapped from	Clinical Drug	103592
+Clinical Drug	Maps to	Clinical Drug	103592
+Clinical Drug	Marketed form of	Clinical Drug	2
+Clinical Drug	RxNorm has dose form	Dose Form	103830
+Clinical Drug	RxNorm is a	Branded Drug Form	18
+Clinical Drug	RxNorm is a	Clinical Dose Group	54236
+Clinical Drug	RxNorm is a	Clinical Drug Form	102275
+Clinical Drug Box	Box of	Branded Drug	5
+Clinical Drug Box	Box of	Clinical Drug	108643
 Clinical Drug Box	Has marketed form	Branded Drug Box	4
 Clinical Drug Box	Has marketed form	Marketed Product	283718
 Clinical Drug Box	Has marketed form	Quant Branded Box	5
 Clinical Drug Box	Has marketed form	Quant Clinical Box	38
-Clinical Drug Form	Has marketed form	Marketed Product	2
-Clinical Pack	Has marketed form	Marketed Product	1258
-Quant Branded Box	Has marketed form	Marketed Product	66063
-Quant Branded Drug	Has marketed form	Marketed Product	111785
-Quant Clinical Box	Has marketed form	Marketed Product	84251
-Quant Clinical Box	Has marketed form	Quant Branded Box	5
-Quant Clinical Drug	Has marketed form	Marketed Product	166944
-Quant Clinical Drug	Has marketed form	Quant Branded Box	5
-Quant Clinical Drug	Has marketed form	Quant Branded Drug	6
-Quant Clinical Drug	Has marketed form	Quant Clinical Box	5
-Quant Clinical Drug	Has marketed form	Quant Clinical Drug	1
-Brand Name	Has precise ing	Precise Ingredient	7215
-Clinical Drug Comp	Has precise ing	Precise Ingredient	4467
-Branded Drug	Has quantified form	Quant Branded Drug	90718
-Branded Drug	Has quantified form	Quant Clinical Drug	8
-Branded Drug Box	Has quantified form	Quant Branded Box	83585
-Branded Drug Box	Has quantified form	Quant Clinical Box	1
-Clinical Drug	Has quantified form	Quant Clinical Drug	78312
 Clinical Drug Box	Has quantified form	Quant Clinical Box	71216
-Quant Branded Drug	Has quantified form	Quant Branded Drug	5
-Quant Clinical Drug	Has quantified form	Quant Clinical Drug	21
-Branded Drug	Has supplier	Supplier	7
-Branded Drug Box	Has supplier	Supplier	4
-Clinical Drug	Has supplier	Supplier	1
-Marketed Product	Has supplier	Supplier	477829
-Quant Branded Box	Has supplier	Supplier	5
-Quant Branded Drug	Has supplier	Supplier	7
-Branded Drug	Has tradename	Branded Drug	66
-Branded Drug	Has tradename	Branded Drug Comp	12
-Branded Drug Box	Has tradename	Branded Drug Box	20
-Branded Drug Comp	Has tradename	Branded Drug Comp	29
-Branded Drug Form	Has tradename	Branded Drug Form	40
-Branded Pack Box	Has tradename	Branded Pack Box	5
-Clinical Dose Group	Has tradename	Branded Dose Group	20461
-Clinical Drug	Has tradename	Branded Drug	170157
-Clinical Drug	Has tradename	Branded Drug Comp	2
-Clinical Drug	Has tradename	Quant Branded Drug	5
 Clinical Drug Box	Has tradename	Branded Drug Box	204920
-Clinical Drug Comp	Has tradename	Branded Drug Comp	222685
-Clinical Drug Form	Has tradename	Branded Drug Form	113566
-Clinical Pack	Has tradename	Branded Pack	1884
-Clinical Pack Box	Has tradename	Branded Pack Box	615
-Marketed Product	Has tradename	Branded Drug Comp	4
-Quant Branded Box	Has tradename	Quant Branded Box	12
-Quant Branded Drug	Has tradename	Quant Branded Drug	53
-Quant Clinical Box	Has tradename	Quant Branded Box	83794
-Quant Clinical Drug	Has tradename	Branded Drug	6
-Quant Clinical Drug	Has tradename	Quant Branded Drug	90693
-Branded Drug	Mapped from	Branded Drug	170291
-Branded Drug Box	Mapped from	Branded Drug Box	204358
-Branded Drug Comp	Mapped from	Branded Drug Comp	142913
-Branded Drug Form	Mapped from	Branded Drug Form	115507
-Branded Pack	Mapped from	Branded Pack	1883
-Branded Pack Box	Mapped from	Branded Pack Box	615
-Clinical Drug	Mapped from	Clinical Drug	103592
 Clinical Drug Box	Mapped from	Clinical Drug Box	109099
-Clinical Drug Comp	Mapped from	Clinical Drug Comp	88263
-Clinical Drug Form	Mapped from	Clinical Drug Form	47080
-Clinical Pack	Mapped from	Clinical Pack	1646
-Clinical Pack Box	Mapped from	Clinical Pack Box	483
-Ingredient	Mapped from	Ingredient	14512
-Ingredient	Mapped from	Precise Ingredient	2969
-Marketed Product	Mapped from	Marketed Product	477807
-Quant Branded Box	Mapped from	Quant Branded Box	83271
-Quant Branded Drug	Mapped from	Quant Branded Drug	90455
-Quant Clinical Box	Mapped from	Quant Clinical Box	70900
-Quant Clinical Drug	Mapped from	Quant Clinical Drug	78238
-Branded Drug	Maps to	Branded Drug	170291
-Branded Drug Box	Maps to	Branded Drug Box	204358
-Branded Drug Comp	Maps to	Branded Drug Comp	142913
-Branded Drug Form	Maps to	Branded Drug Form	115507
-Branded Pack	Maps to	Branded Pack	1883
-Branded Pack Box	Maps to	Branded Pack Box	615
-Clinical Drug	Maps to	Clinical Drug	103592
 Clinical Drug Box	Maps to	Clinical Drug Box	109099
+Clinical Drug Box	RxNorm has dose form	Dose Form	109153
+Clinical Drug Comp	Constitutes	Clinical Drug	202903
+Clinical Drug Comp	Constitutes	Clinical Drug Form	1
+Clinical Drug Comp	Constitutes	Quant Clinical Drug	107
+Clinical Drug Comp	Has precise ing	Precise Ingredient	4467
+Clinical Drug Comp	Has tradename	Branded Drug Comp	222685
+Clinical Drug Comp	Mapped from	Clinical Drug Comp	88263
 Clinical Drug Comp	Maps to	Clinical Drug Comp	88263
+Clinical Drug Comp	RxNorm has ing	Ingredient	87858
+Clinical Drug Comp	RxNorm has ing	Precise Ingredient	119
+Clinical Drug Form	Component of	Clinical Drug	1
+Clinical Drug Form	Consists of	Clinical Drug Comp	1
+Clinical Drug Form	Drug has drug class	Ingredient	2
+Clinical Drug Form	Has marketed form	Marketed Product	2
+Clinical Drug Form	Has tradename	Branded Drug Form	113566
+Clinical Drug Form	Mapped from	Clinical Drug Form	47080
 Clinical Drug Form	Maps to	Clinical Drug Form	47080
+Clinical Drug Form	RxNorm has dose form	Dose Form	47127
+Clinical Drug Form	RxNorm has ing	Ingredient	130837
+Clinical Drug Form	RxNorm has ing	Precise Ingredient	97
+Clinical Drug Form	RxNorm inverse is a	Clinical Drug	102275
+Clinical Drug Form	RxNorm inverse is a	Quant Clinical Drug	21
+Clinical Drug Form	RxNorm is a	Clinical Dose Group	22862
+Clinical Pack	Available as box	Clinical Pack Box	483
+Clinical Pack	Contains	Clinical Drug	2641
+Clinical Pack	Contains	Quant Clinical Drug	776
+Clinical Pack	Has marketed form	Marketed Product	1258
+Clinical Pack	Has tradename	Branded Pack	1884
+Clinical Pack	Mapped from	Clinical Pack	1646
 Clinical Pack	Maps to	Clinical Pack	1646
+Clinical Pack	RxNorm has dose form	Dose Form	653
+Clinical Pack Box	Box of	Clinical Pack	483
+Clinical Pack Box	Contains	Clinical Drug	802
+Clinical Pack Box	Contains	Quant Clinical Drug	195
+Clinical Pack Box	Has tradename	Branded Pack Box	615
+Clinical Pack Box	Mapped from	Clinical Pack Box	483
 Clinical Pack Box	Maps to	Clinical Pack Box	483
-Ingredient	Maps to	Ingredient	14512
-Marketed Product	Maps to	Marketed Product	477807
-Precise Ingredient	Maps to	Ingredient	2969
-Quant Branded Box	Maps to	Quant Branded Box	83271
-Quant Branded Drug	Maps to	Quant Branded Drug	90455
-Quant Clinical Box	Maps to	Quant Clinical Box	70900
-Quant Clinical Drug	Maps to	Quant Clinical Drug	78238
-Branded Drug	Marketed form of	Branded Drug	2
-Branded Drug	Marketed form of	Clinical Drug	7
-Branded Drug Box	Marketed form of	Branded Drug	2
-Branded Drug Box	Marketed form of	Branded Drug Box	1
-Branded Drug Box	Marketed form of	Clinical Drug	4
-Branded Drug Box	Marketed form of	Clinical Drug Box	4
-Clinical Drug	Marketed form of	Clinical Drug	2
-Marketed Product	Marketed form of	Branded Drug	312132
-Marketed Product	Marketed form of	Branded Drug Box	210277
-Marketed Product	Marketed form of	Branded Drug Form	1
-Marketed Product	Marketed form of	Branded Pack	1181
-Marketed Product	Marketed form of	Clinical Drug	477056
-Marketed Product	Marketed form of	Clinical Drug Box	283718
-Marketed Product	Marketed form of	Clinical Drug Form	2
-Marketed Product	Marketed form of	Clinical Pack	1258
-Marketed Product	Marketed form of	Quant Branded Box	66063
-Marketed Product	Marketed form of	Quant Branded Drug	111785
-Marketed Product	Marketed form of	Quant Clinical Box	84251
-Marketed Product	Marketed form of	Quant Clinical Drug	166944
-Quant Branded Box	Marketed form of	Branded Drug	4
-Quant Branded Box	Marketed form of	Branded Drug Box	5
-Quant Branded Box	Marketed form of	Clinical Drug	5
-Quant Branded Box	Marketed form of	Clinical Drug Box	5
-Quant Branded Box	Marketed form of	Quant Clinical Box	5
-Quant Branded Box	Marketed form of	Quant Clinical Drug	5
-Quant Branded Drug	Marketed form of	Branded Drug	5
-Quant Branded Drug	Marketed form of	Clinical Drug	6
-Quant Branded Drug	Marketed form of	Quant Clinical Drug	6
-Quant Clinical Box	Marketed form of	Clinical Drug	38
-Quant Clinical Box	Marketed form of	Clinical Drug Box	38
-Quant Clinical Box	Marketed form of	Quant Clinical Drug	5
-Quant Clinical Drug	Marketed form of	Clinical Drug	26
-Quant Clinical Drug	Marketed form of	Quant Clinical Drug	1
-Precise Ingredient	Precise ing of	Brand Name	7215
-Precise Ingredient	Precise ing of	Clinical Drug Comp	4467
-Quant Branded Box	Quantified form of	Branded Drug Box	83585
-Quant Branded Drug	Quantified form of	Branded Drug	90718
-Quant Branded Drug	Quantified form of	Quant Branded Drug	5
-Quant Clinical Box	Quantified form of	Branded Drug Box	1
-Quant Clinical Box	Quantified form of	Clinical Drug Box	71216
-Quant Clinical Drug	Quantified form of	Branded Drug	8
-Quant Clinical Drug	Quantified form of	Clinical Drug	78312
-Quant Clinical Drug	Quantified form of	Quant Clinical Drug	21
 Dose Form	RxNorm dose form of	Branded Drug	170918
 Dose Form	RxNorm dose form of	Branded Drug Box	205017
 Dose Form	RxNorm dose form of	Branded Drug Form	115682
@@ -259,51 +208,123 @@ Dose Form	RxNorm dose form of	Quant Branded Box	83962
 Dose Form	RxNorm dose form of	Quant Branded Drug	91168
 Dose Form	RxNorm dose form of	Quant Clinical Box	71005
 Dose Form	RxNorm dose form of	Quant Clinical Drug	78513
-Branded Drug	RxNorm has dose form	Dose Form	170918
-Branded Drug Box	RxNorm has dose form	Dose Form	205017
-Branded Drug Form	RxNorm has dose form	Dose Form	115682
-Branded Pack	RxNorm has dose form	Dose Form	709
-Clinical Drug	RxNorm has dose form	Dose Form	103830
-Clinical Drug Box	RxNorm has dose form	Dose Form	109153
-Clinical Drug Form	RxNorm has dose form	Dose Form	47127
-Clinical Pack	RxNorm has dose form	Dose Form	653
-Marketed Product	RxNorm has dose form	Dose Form	478705
-Quant Branded Box	RxNorm has dose form	Dose Form	83962
-Quant Branded Drug	RxNorm has dose form	Dose Form	91168
-Quant Clinical Box	RxNorm has dose form	Dose Form	71005
-Quant Clinical Drug	RxNorm has dose form	Dose Form	78513
-Clinical Dose Group	RxNorm has ing	Ingredient	27003
-Clinical Drug Comp	RxNorm has ing	Ingredient	87858
-Clinical Drug Comp	RxNorm has ing	Precise Ingredient	119
-Clinical Drug Form	RxNorm has ing	Ingredient	130837
-Clinical Drug Form	RxNorm has ing	Precise Ingredient	97
+Dose Form	RxNorm is a	Dose Form Group	221
+Dose Form Group	Dose form group of	Branded Dose Group	20461
+Dose Form Group	Dose form group of	Clinical Dose Group	15675
+Dose Form Group	RxNorm inverse is a	Dose Form	221
+Ingredient	Drug class of drug	Clinical Drug Form	2
+Ingredient	Has brand name	Brand Name	129978
+Ingredient	Has form	Precise Ingredient	2969
+Ingredient	Mapped from	Ingredient	14512
+Ingredient	Mapped from	Precise Ingredient	2969
+Ingredient	Maps to	Ingredient	14512
 Ingredient	RxNorm ing of	Clinical Dose Group	27003
 Ingredient	RxNorm ing of	Clinical Drug Comp	87858
 Ingredient	RxNorm ing of	Clinical Drug Form	130837
+Marketed Product	Contains	Clinical Drug	2078
+Marketed Product	Contains	Quant Clinical Drug	683
+Marketed Product	Has brand name	Brand Name	308799
+Marketed Product	Has supplier	Supplier	477829
+Marketed Product	Has tradename	Branded Drug Comp	4
+Marketed Product	Mapped from	Marketed Product	477807
+Marketed Product	Maps to	Marketed Product	477807
+Marketed Product	Marketed form of	Branded Drug	312132
+Marketed Product	Marketed form of	Branded Drug Box	210277
+Marketed Product	Marketed form of	Branded Drug Form	1
+Marketed Product	Marketed form of	Branded Pack	1181
+Marketed Product	Marketed form of	Clinical Drug	477056
+Marketed Product	Marketed form of	Clinical Drug Box	283718
+Marketed Product	Marketed form of	Clinical Drug Form	2
+Marketed Product	Marketed form of	Clinical Pack	1258
+Marketed Product	Marketed form of	Quant Branded Box	66063
+Marketed Product	Marketed form of	Quant Branded Drug	111785
+Marketed Product	Marketed form of	Quant Clinical Box	84251
+Marketed Product	Marketed form of	Quant Clinical Drug	166944
+Marketed Product	RxNorm has dose form	Dose Form	478705
+Precise Ingredient	Form of	Ingredient	2969
+Precise Ingredient	Has brand name	Brand Name	88
+Precise Ingredient	Maps to	Ingredient	2969
+Precise Ingredient	Precise ing of	Brand Name	7215
+Precise Ingredient	Precise ing of	Clinical Drug Comp	4467
 Precise Ingredient	RxNorm ing of	Clinical Drug Comp	119
 Precise Ingredient	RxNorm ing of	Clinical Drug Form	97
-Branded Dose Group	RxNorm inverse is a	Branded Drug	33538
-Branded Dose Group	RxNorm inverse is a	Branded Drug Form	23064
-Branded Dose Group	RxNorm inverse is a	Quant Branded Drug	3403
-Branded Drug Form	RxNorm inverse is a	Branded Drug	170080
-Branded Drug Form	RxNorm inverse is a	Clinical Drug	18
-Branded Drug Form	RxNorm inverse is a	Quant Branded Drug	5
-Clinical Dose Group	RxNorm inverse is a	Clinical Drug	54236
-Clinical Dose Group	RxNorm inverse is a	Clinical Drug Form	22862
-Clinical Dose Group	RxNorm inverse is a	Quant Clinical Drug	3930
-Clinical Drug Form	RxNorm inverse is a	Clinical Drug	102275
-Clinical Drug Form	RxNorm inverse is a	Quant Clinical Drug	21
-Dose Form Group	RxNorm inverse is a	Dose Form	221
-Branded Drug	RxNorm is a	Branded Dose Group	33538
-Branded Drug	RxNorm is a	Branded Drug Form	170080
-Branded Drug Form	RxNorm is a	Branded Dose Group	23064
-Clinical Drug	RxNorm is a	Branded Drug Form	18
-Clinical Drug	RxNorm is a	Clinical Dose Group	54236
-Clinical Drug	RxNorm is a	Clinical Drug Form	102275
-Clinical Drug Form	RxNorm is a	Clinical Dose Group	22862
-Dose Form	RxNorm is a	Dose Form Group	221
+Quant Branded Box	Box of	Branded Drug	1
+Quant Branded Box	Box of	Quant Branded Drug	83275
+Quant Branded Box	Has brand name	Brand Name	81699
+Quant Branded Box	Has marketed form	Marketed Product	66063
+Quant Branded Box	Has supplier	Supplier	5
+Quant Branded Box	Has tradename	Quant Branded Box	12
+Quant Branded Box	Mapped from	Quant Branded Box	83271
+Quant Branded Box	Maps to	Quant Branded Box	83271
+Quant Branded Box	Marketed form of	Branded Drug	4
+Quant Branded Box	Marketed form of	Branded Drug Box	5
+Quant Branded Box	Marketed form of	Clinical Drug	5
+Quant Branded Box	Marketed form of	Clinical Drug Box	5
+Quant Branded Box	Marketed form of	Quant Clinical Box	5
+Quant Branded Box	Marketed form of	Quant Clinical Drug	5
+Quant Branded Box	Quantified form of	Branded Drug Box	83585
+Quant Branded Box	RxNorm has dose form	Dose Form	83962
+Quant Branded Box	Tradename of	Quant Branded Box	12
+Quant Branded Box	Tradename of	Quant Clinical Box	83794
+Quant Branded Drug	Available as box	Quant Branded Box	83275
+Quant Branded Drug	Available as box	Quant Clinical Box	4
+Quant Branded Drug	Consists of	Branded Drug Comp	5
+Quant Branded Drug	Contained in	Branded Pack	120
+Quant Branded Drug	Has brand name	Brand Name	89029
+Quant Branded Drug	Has marketed form	Marketed Product	111785
+Quant Branded Drug	Has quantified form	Quant Branded Drug	5
+Quant Branded Drug	Has supplier	Supplier	7
+Quant Branded Drug	Has tradename	Quant Branded Drug	53
+Quant Branded Drug	Mapped from	Quant Branded Drug	90455
+Quant Branded Drug	Maps to	Quant Branded Drug	90455
+Quant Branded Drug	Marketed form of	Branded Drug	5
+Quant Branded Drug	Marketed form of	Clinical Drug	6
+Quant Branded Drug	Marketed form of	Quant Clinical Drug	6
+Quant Branded Drug	Quantified form of	Branded Drug	90718
+Quant Branded Drug	Quantified form of	Quant Branded Drug	5
+Quant Branded Drug	RxNorm has dose form	Dose Form	91168
 Quant Branded Drug	RxNorm is a	Branded Dose Group	3403
 Quant Branded Drug	RxNorm is a	Branded Drug Form	5
+Quant Branded Drug	Tradename of	Clinical Drug	5
+Quant Branded Drug	Tradename of	Quant Branded Drug	53
+Quant Branded Drug	Tradename of	Quant Clinical Drug	90693
+Quant Clinical Box	Box of	Clinical Drug	1
+Quant Clinical Box	Box of	Quant Branded Drug	4
+Quant Clinical Box	Box of	Quant Clinical Drug	70883
+Quant Clinical Box	Has marketed form	Marketed Product	84251
+Quant Clinical Box	Has marketed form	Quant Branded Box	5
+Quant Clinical Box	Has tradename	Quant Branded Box	83794
+Quant Clinical Box	Mapped from	Quant Clinical Box	70900
+Quant Clinical Box	Maps to	Quant Clinical Box	70900
+Quant Clinical Box	Marketed form of	Clinical Drug	38
+Quant Clinical Box	Marketed form of	Clinical Drug Box	38
+Quant Clinical Box	Marketed form of	Quant Clinical Drug	5
+Quant Clinical Box	Quantified form of	Branded Drug Box	1
+Quant Clinical Box	Quantified form of	Clinical Drug Box	71216
+Quant Clinical Box	RxNorm has dose form	Dose Form	71005
+Quant Clinical Drug	Available as box	Quant Clinical Box	70883
+Quant Clinical Drug	Consists of	Clinical Drug Comp	107
+Quant Clinical Drug	Contained in	Branded Pack	630
+Quant Clinical Drug	Contained in	Branded Pack Box	192
+Quant Clinical Drug	Contained in	Clinical Pack	776
+Quant Clinical Drug	Contained in	Clinical Pack Box	195
+Quant Clinical Drug	Contained in	Marketed Product	683
+Quant Clinical Drug	Has marketed form	Marketed Product	166944
+Quant Clinical Drug	Has marketed form	Quant Branded Box	5
+Quant Clinical Drug	Has marketed form	Quant Branded Drug	6
+Quant Clinical Drug	Has marketed form	Quant Clinical Box	5
+Quant Clinical Drug	Has marketed form	Quant Clinical Drug	1
+Quant Clinical Drug	Has quantified form	Quant Clinical Drug	21
+Quant Clinical Drug	Has tradename	Branded Drug	6
+Quant Clinical Drug	Has tradename	Quant Branded Drug	90693
+Quant Clinical Drug	Mapped from	Quant Clinical Drug	78238
+Quant Clinical Drug	Maps to	Quant Clinical Drug	78238
+Quant Clinical Drug	Marketed form of	Clinical Drug	26
+Quant Clinical Drug	Marketed form of	Quant Clinical Drug	1
+Quant Clinical Drug	Quantified form of	Branded Drug	8
+Quant Clinical Drug	Quantified form of	Clinical Drug	78312
+Quant Clinical Drug	Quantified form of	Quant Clinical Drug	21
+Quant Clinical Drug	RxNorm has dose form	Dose Form	78513
 Quant Clinical Drug	RxNorm is a	Clinical Dose Group	3930
 Quant Clinical Drug	RxNorm is a	Clinical Drug Form	21
 Supplier	Supplier of	Branded Drug	7
@@ -312,24 +333,3 @@ Supplier	Supplier of	Clinical Drug	1
 Supplier	Supplier of	Marketed Product	477829
 Supplier	Supplier of	Quant Branded Box	5
 Supplier	Supplier of	Quant Branded Drug	7
-Branded Dose Group	Tradename of	Clinical Dose Group	20461
-Branded Drug	Tradename of	Branded Drug	66
-Branded Drug	Tradename of	Clinical Drug	170157
-Branded Drug	Tradename of	Quant Clinical Drug	6
-Branded Drug Box	Tradename of	Branded Drug Box	20
-Branded Drug Box	Tradename of	Clinical Drug Box	204920
-Branded Drug Comp	Tradename of	Branded Drug	12
-Branded Drug Comp	Tradename of	Branded Drug Comp	29
-Branded Drug Comp	Tradename of	Clinical Drug	2
-Branded Drug Comp	Tradename of	Clinical Drug Comp	222685
-Branded Drug Comp	Tradename of	Marketed Product	4
-Branded Drug Form	Tradename of	Branded Drug Form	40
-Branded Drug Form	Tradename of	Clinical Drug Form	113566
-Branded Pack	Tradename of	Clinical Pack	1884
-Branded Pack Box	Tradename of	Branded Pack Box	5
-Branded Pack Box	Tradename of	Clinical Pack Box	615
-Quant Branded Box	Tradename of	Quant Branded Box	12
-Quant Branded Box	Tradename of	Quant Clinical Box	83794
-Quant Branded Drug	Tradename of	Clinical Drug	5
-Quant Branded Drug	Tradename of	Quant Branded Drug	53
-Quant Branded Drug	Tradename of	Quant Clinical Drug	90693

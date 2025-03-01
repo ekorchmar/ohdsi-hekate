@@ -1,0 +1,98 @@
+concept_id	concept_name	relationship_id	ingredient_concept_id	ingredient_concept_name	ingredient_concept_class_id
+36405732	Glycopyrrolate Topical Cream	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+42479545	Glycopyrrolate Oral Suspension	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+42482483	Glycopyrrolate Topical Solution	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+44094568	Glycopyrrolate / indacaterol Metered Dose Inhaler	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+42479547	Glycopyrrolate / Neostigmine Prefilled Syringe	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+44055878	Glycopyrrolate Metered Dose Inhaler	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+21060952	Glycopyrrolate Oral Capsule	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+21159261	Glycopyrrolate Topical Ointment	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+42478952	Glycopyrrolate Dry Powder Inhaler	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+42481318	Glycopyrrolate / indacaterol Dry Powder Inhaler	RxNorm has ing	963353	glycopyrrolate	Precise Ingredient
+783033	amphotericin B lipid complex Intravenous Suspension	RxNorm has ing	964299	amphotericin B lipid complex	Precise Ingredient
+36787699	amphotericin B lipid complex Injectable Suspension	RxNorm has ing	964299	amphotericin B lipid complex	Precise Ingredient
+36269497	colistimethate Inhalant Powder	RxNorm has ing	1701677	colistimethate	Precise Ingredient
+36881811	colistimethate Prefilled Syringe	RxNorm has ing	1701677	colistimethate	Precise Ingredient
+43177386	Bacitracin / colistimethate / Hydrocortisone Ophthalmic Solution	RxNorm has ing	1701677	colistimethate	Precise Ingredient
+43215034	colistimethate Dry Powder Inhaler	RxNorm has ing	1701677	colistimethate	Precise Ingredient
+35134810	Rabbit anti-human T-lymphocyte globulin Injectable Solution	RxNorm has ing	19003472	rabbit anti-human T-lymphocyte globulin	Precise Ingredient
+36893520	Rabbit anti-human T-lymphocyte globulin Injectable Suspension	RxNorm has ing	19003472	rabbit anti-human T-lymphocyte globulin	Precise Ingredient
+36881782	Corticotropin-Releasing Hormone Prefilled Syringe	RxNorm has ing	19020789	corticorelin ovine	Precise Ingredient
+43209989	Citric Acid / Magnesium / picosulfate sodium Powder for Oral Solution	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+43751303	picosulfate sodium Delayed Release Oral Tablet	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+36259230	picosulfate sodium Topical Solution	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+42958799	picosulfate sodium / POLYETHYLENE GLYCOL 3350 / Sorbitol Oral Solution	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+36882747	Citric Acid / Magnesium Oxide / picosulfate sodium Oral Powder	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+42479689	Citric Acid / Magnesium Oxide / picosulfate sodium Injectable Solution	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+43287896	Citric Acid / magnesium carbonate / picosulfate sodium Powder for Oral Solution	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+36880838	picosulfate sodium Oral Powder	RxNorm has ing	19025115	picosulfate sodium	Precise Ingredient
+36788158	doxorubicin liposome Intravenous Solution	RxNorm has ing	19051649	doxorubicin liposome	Precise Ingredient
+782938	doxorubicin liposome Injectable Solution	RxNorm has ing	19051649	doxorubicin liposome	Precise Ingredient
+36788160	doxorubicin liposome Injectable Suspension	RxNorm has ing	19051649	doxorubicin liposome	Precise Ingredient
+36264377	doxorubicin liposome Intravenous Suspension	RxNorm has ing	19051649	doxorubicin liposome	Precise Ingredient
+36788602	amphotericin B liposomal Intravenous Solution	RxNorm has ing	19056402	amphotericin B liposomal	Precise Ingredient
+36891528	Calcium Chloride / Glucose / glycerol mono(di)sodium phosphate / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43022204	Calcium Chloride / Hetastarch / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43022207	Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43202133	Calcium Chloride / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43199061	Alanine / Arginine / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / Methionine / Phenylalanine / potassium phosphate / Proline / Serine / Sodium Acetate Trihydrate / Sodium Chloride / Threonine / ... Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43147050	Calcium gluceptate / Glucose / Magnesium lactate / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / sodium sulfate Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43155616	Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / Sodium gluconate Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43288451	Alanine / Arginine / Dibasic potassium phosphate / Glucose / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium / Methionine / Phenylalanine / Proline / Serine / Sodium Acetate Trihydrate / Sodium Chloride / Threonine / ... Injection	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43255892	Glucose / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / Sodium gluconate Injection	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43283453	Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / Sodium gluconate Injection	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43671852	Alanine / Ammonium Chloride / arginine glutamate / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / Phenylalanine / POTASSIUM LACTATE / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43743349	Glucose / Magnesium Chloride / Potassium Chloride / potassium phosphate / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43653286	Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Calcium Chloride / Glutamate / glycerol mono(di)sodium phosphate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Sulfate / Phenylalanine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43798480	Alanine / Ammonium Chloride / arginine glutamate / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / Phenylalanine / POTASSIUM LACTATE / potassium phosphate / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43780531	Alanine / Ammonium Chloride / arginine glutamate / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / Phenylalanine / POTASSIUM LACTATE / potassium phosphate / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+36887563	Calcium Chloride / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+44056393	Alanine / Arginine / Calcium Chloride / Fish Oils / Glucose / GLYCERYL PHOSPHATE / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Sulfate / Medium chain triglycerides / Methionine / Nitrogen / olive oil / ... Injectable Suspension	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43191076	Calcium Chloride / hydroxyethyl starch 130-0.4 / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43180233	Calcium Chloride / Gelatin / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43599027	Calcium Chloride / Glucose / Hydrochloric Acid / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43635184	Acetylcysteine / Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Calcium Chloride / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / malic acid / N-acetyltyrosine / Ornithine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43707074	Calcium Chloride / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / Xylitol Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43689244	Calcium Chloride / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / succinylated gelatin Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43743113	Calcium Chloride / Glucose / Magnesium Chloride / malic acid / Sodium Acetate Trihydrate / Sodium Chloride / Sodium Hydroxide Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43653733	Alanine / Ammonium Chloride / Arginine / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / Phenylalanine / potassium phosphate / Proline / Serine / Sodium Acetate Trihydrate / Sodium Chloride / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43707918	Acetylcysteine / Alanine / Ammonium Chloride / Arginine / Calcium Glycerophosphate / Glutamate / glycerol mono(di)sodium phosphate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / malic acid / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43833157	Calcium Chloride / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / Zinc Acetate Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43617031	Calcium Chloride / Glucose / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+42957045	calcium chloride, dihydration / Hetastarch / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43147084	Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43143899	Alanine / Arginine / Aspartic Acid / Calcium Chloride / Glucose / Glutamate / GLYCERYL PHOSPHATE / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / Methionine / olive oil / Phenylalanine / ... Injectable Suspension	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43177041	Alanine / Arginine / Aspartic Acid / Calcium Chloride / Glucose / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / Medium chain triglycerides / Methionine / Omega-3 Fatty Acids / ... Injectable Suspension	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43761208	Glucose / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43635176	Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Calcium Chloride / Glucose / Glutamate / glycerol mono(di)sodium phosphate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Sulfate / Phenylalanine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43743635	calcium acetate / magnesium acetate / Potassium Acetate / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43725552	Alanine / Ammonium Chloride / arginine glutamate / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / Phenylalanine / POTASSIUM LACTATE / potassium phosphate / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43653499	Glucose / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / sodium phosphate Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43707059	Calcium Chloride / Glucose / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43851157	Alanine / Ammonium Chloride / Arginine / Calcium Chloride / GLYCERYL PHOSPHATE / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Sulfate / Phenylalanine / Potassium Chloride / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43671341	Calcium Chloride / Hetastarch / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43599391	Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Glutamate / GLYCERYL PHOSPHATE / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Sulfate / Phenylalanine / Potassium Chloride / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+36891527	Calcium Chloride / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+36885622	Calcium Chloride / Glucose / glycerol mono(di)sodium phosphate / Hydrochloric Acid / Magnesium Chloride / malic acid / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+36893501	Sodium Acetate Trihydrate Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+44025862	Alanine / Arginine / Calcium Chloride / Fish Oils / Glucose / GLYCERYL PHOSPHATE / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Sulfate / Medium chain triglycerides / Methionine / olive oil / Phenylalanine / ... Injectable Suspension	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+44043104	Calcium Chloride / Citric Acid / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Ophthalmic Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+42957038	calcium chloride, dihydration / Hetastarch / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43158277	Calcium Chloride / hydroxyethyl starch 130-0.4 / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Prefilled Syringe	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43261277	Alanine / Arginine / Dibasic potassium phosphate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium / Methionine / Phenylalanine / Proline / Serine / Sodium Acetate Trihydrate / Sodium Chloride / Threonine / Tryptophan / ... Injection	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43815584	Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / Phenylalanine / Potassium Acetate / Proline / Serine / Sodium Acetate Trihydrate / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43797436	Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / Phenylalanine / Potassium Acetate / Proline / Serine / Sodium Acetate Trihydrate / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43761285	Hetastarch / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43725013	Alanine / Ammonium Chloride / Arginine / Aspartic Acid / Calcium Chloride / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / magnesium acetate / Phenylalanine / Potassium Acetate / Proline / Serine / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43725325	Acetylcysteine / Alanine / Ammonium Chloride / Arginine / Asparagine / Aspartic Acid / Glutamate / Glycine / Histidine / Isoleucine / Leucine / Lysine / Magnesium Chloride / Ornithine / Phenylalanine / Potassium Chloride / ... Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+43617044	Calcium Chloride / Magnesium Chloride / Potassium Chloride / Sodium Acetate Trihydrate / Sodium Chloride / Sodium Hydroxide / succinylated gelatin Injectable Solution	RxNorm has ing	19092167	sodium acetate trihydrate	Precise Ingredient
+42957443	BETAINE, ANHYDROUS Oral Powder	RxNorm has ing	19097471	betaine, anhydrous	Precise Ingredient
+42972173	Sodium iodide I131 Oral Capsule	RxNorm has ing	19135934	sodium iodide I131	Precise Ingredient
+42656227	irinotecan liposomal Injectable Solution	RxNorm has ing	35603068	irinotecan liposomal	Precise Ingredient
+36810634	albutrepenonacog alfa Injectable Solution	RxNorm has ing	35606573	albutrepenonacog alfa	Precise Ingredient
+41298559	rimabotulinumtoxinB Injectable Solution	RxNorm has ing	40166020	rimabotulinumtoxinB	Precise Ingredient
+44055720	rimabotulinumtoxinB Intramuscular Solution	RxNorm has ing	40166020	rimabotulinumtoxinB	Precise Ingredient
+21129192	rimabotulinumtoxinB Prefilled Syringe	RxNorm has ing	40166020	rimabotulinumtoxinB	Precise Ingredient
+44081851	brucine sulfate Oral Solution	RxNorm has ing	42900327	brucine sulfate	Precise Ingredient
+44120266	ado-trastuzumab emtansine Injectable Solution	RxNorm has ing	43525787	ado-trastuzumab emtansine	Precise Ingredient
+43027139	Citrate / Potassium Citrate Anhydrous / trometamol citrate Oral Solution	RxNorm has ing	43526341	potassium citrate anhydrous	Precise Ingredient
