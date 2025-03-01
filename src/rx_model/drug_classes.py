@@ -319,7 +319,8 @@ class ClinicalDrugForm[Id: ConceptIdentifier]:
     def __post_init__(self):
         if len(self.ingredients) == 0:
             raise exception.RxConceptCreationError(
-                f"{self.__class__.__name__} must have at least one ingredient."
+                f"{self.__class__.__name__} must have at least one ingredient, "
+                f"but {self.identifier} has none provided."
             )
 
         counts = {

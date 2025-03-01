@@ -5,7 +5,7 @@ Contains the class that hosts the drug concept hierarchy.
 from . import drug_classes as dc
 import rustworkx as rx
 import polars as pl
-from typing import Annotated, Literal
+from typing import Annotated
 
 
 # Generic types
@@ -158,4 +158,22 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
             # node_count_hint = 1000,  # TODO: Estimate the number of nodes
             # edge_count_hint = 1000,  # TODO: Estimate the number of edges
         )
+        # Cached indices of ingredients (roots)
+        self.ingredients: dict[dc.Ingredient[Id], int] = {}
 
+    def add_root(self, root: dc.Ingredient[Id]) -> None:
+        """
+        Add a root ingredient to the hierarchy.
+        """
+        self.ingredients[root] = self.graph.add_node(root)
+
+    def add_clinical_drug_form(
+        self,
+        clinical_drug_form: dc.ClinicalDrugForm[Id],
+    ) -> None:
+        """
+        Add a clinical drug form to the hierarchy.
+        """
+        node_idx = self.graph.add_node(clinical_drug_form)
+        for ingredient in clinical_drug_form.ingredients:
+            self.graph.add_edge(self.ingredients[ingredient], node_idx, None)

@@ -10,6 +10,7 @@ import polars as pl  # For type hinting and schema definition
 from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
+from utils.classes import SortedTuple
 from utils.constants import ALL_CONCEPT_RELATIONSHIP_IDS
 from utils.logger import LOGGER
 
@@ -196,7 +197,9 @@ class OMOPVocabulariesV5:
         )
 
         # Populate atoms with known concepts
-        self.logger.info("Processing atomic concepts (Ingredient, Dose Form, etc.)")
+        self.logger.info(
+            "Processing atomic concepts (Ingredient, Dose Form, etc.)"
+        )
         rxn_atoms: pl.DataFrame = self.concept_data.select([
             "concept_id",
             "concept_name",
@@ -212,6 +215,11 @@ class OMOPVocabulariesV5:
             ])
         )
         self.atoms.add_from_frame(rxn_atoms)
+
+        # Add ingredients as roots to hierarchy
+        self.logger.info("Adding Ingredients to hierarchy")
+        for ingredient in self.atoms.ingredient.values():
+            self.hierarchy.add_root(ingredient)
 
         # Concept Relationship
         logging.info("Reading CONCEPT_RELATIONSHIP.csv")
@@ -232,10 +240,15 @@ class OMOPVocabulariesV5:
             relationship_id="Form of",  # Maps to?
         )
 
-        for row in ing_to_precise.iter_rows(named=True):
-            ingredient = self.atoms.ingredient[row["concept_id_target"]]
-            precise_identifier: int = row["concept_id"]
-            precise_name: str = row["concept_name"]
+        self.logger.info("Processing Precise Ingredients")
+        column_names = ing_to_precise.columns
+        concept_id_target_idx = column_names.index("concept_id_target")
+        concept_id_idx = column_names.index("concept_id")
+        concept_name_idx = column_names.index("concept_name")
+        for row in ing_to_precise.iter_rows():
+            ingredient = self.atoms.ingredient[row[concept_id_target_idx]]
+            precise_identifier: int = row[concept_id_idx]
+            precise_name: str = row[concept_name_idx]
             self.atoms.add_precise_ingredient(
                 dc.PreciseIngredient(
                     identifier=dc.ConceptId(precise_identifier),
@@ -243,3 +256,82 @@ class OMOPVocabulariesV5:
                     invariant=ingredient,
                 )
             )
+
+        # Process complex concepts with no strength data:
+        #  - Clinical Drug Form
+        #  - Branded Drug For
+
+        self.logger.info("Processing Clinical Drug Forms")
+
+        self.logger.info("Finding Dose Forms for Clinical Drug Forms")
+        cdc_dose_form: dict[int, dc.DoseForm[dc.ConceptId]] = {}
+        cdc_to_df = self.get_class_relationships(
+            class_id_1="Clinical Drug Form",
+            class_id_2="Dose Form",
+            relationship_id="RxNorm has dose form",
+        )
+        concept_id_idx = cdc_to_df.columns.index("concept_id")
+        concept_id_target_idx = cdc_to_df.columns.index("concept_id_target")
+        for row in cdc_to_df.iter_rows():
+            cdc_concept_id: int = row[concept_id_idx]  # pyright: ignore[reportRedeclaration] # noqa: E501
+            dose_form = self.atoms.dose_form[row[concept_id_target_idx]]
+            cdc_dose_form[cdc_concept_id] = dose_form
+
+        self.logger.info("Finding Ingredients for Clinical Drug Forms")
+        cdc_ingredient: dict[int, list[dc.Ingredient[dc.ConceptId]]] = {}
+        cdc_to_ing = self.get_class_relationships(
+            class_id_1="Clinical Drug Form",
+            class_id_2="Ingredient",
+            relationship_id="RxNorm has ing",
+        )
+        concept_id_idx = cdc_to_ing.columns.index("concept_id")
+        concept_id_target_idx = cdc_to_ing.columns.index("concept_id_target")
+        for row in cdc_to_ing.iter_rows():
+            cdc_concept_id: int = row[concept_id_idx]
+            ingredient = self.atoms.ingredient[row[concept_id_target_idx]]
+            cdc_ingredient.setdefault(cdc_concept_id, []).append(ingredient)
+
+        # WARN: RxE concepts may have Precise Ingredient in place of Ingredient,
+        # but this IS an error, as evidenced by DRUG_STRENGTH entries. We are
+        # discarding those Clinical Drug Forms.
+        # TODO: Handle this case by referencing DRUG_STRENGTH for real counts
+        # of ingredients.
+
+        self.logger.info("Creating Clinical Drug Forms")
+        cdc_concepts = self.concept_data.filter(
+            pl.col("concept_class_id") == "Clinical Drug Form"
+        ).select(["concept_id"])
+        valid_cdc_count = 0
+
+        for (cdc_concept_id,) in cdc_concepts.iter_rows():
+            dose_form = cdc_dose_form.get(cdc_concept_id)
+            ingredients = cdc_ingredient.get(cdc_concept_id)
+
+            if dose_form is None:
+                self.logger.warning(
+                    f"Dose Form absent for Clinical Drug Form {cdc_concept_id}"
+                )
+
+            elif ingredients is None:
+                self.logger.warning(
+                    f"Ingredients absent for Clinical Drug Form "
+                    f"{cdc_concept_id}"
+                )
+
+            # TODO: add a more robust check by DRUG_STRENGTH
+
+            else:
+                valid_cdc_count += 1
+                self.hierarchy.add_clinical_drug_form(
+                    dc.ClinicalDrugForm(
+                        identifier=dc.ConceptId(cdc_concept_id),
+                        dose_form=dose_form,
+                        ingredients=SortedTuple(ingredients),
+                    )
+                )
+
+        self.logger.info(
+            f"Processed {valid_cdc_count} Clinical Drug Forms with "
+            f"Dose Forms and Ingredients out of {len(cdc_concepts)} "
+            f"possible."
+        )
