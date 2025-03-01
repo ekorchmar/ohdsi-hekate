@@ -13,7 +13,9 @@ from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from utils.classes import SortedTuple
-from utils.constants import ALL_CONCEPT_RELATIONSHIP_IDS
+from utils.constants import (
+    ALL_CONCEPT_RELATIONSHIP_IDS,
+)
 from utils.logger import LOGGER
 
 
@@ -59,6 +61,12 @@ class OMOPTable[FilterArg](ABC):
         """
         return self.reader.collect()
 
+    def materialize(self) -> None:
+        """
+        Materialize the lazy frame into a DataFrame.
+        """
+        self.reader.materialize()
+
 
 class ConceptTable(OMOPTable[None]):
     TABLE_SCHEMA: Schema = {
@@ -80,7 +88,7 @@ class ConceptTable(OMOPTable[None]):
         # "domain_id", Made redundant by class
         "vocabulary_id",
         "concept_class_id",
-        # "standard_concept",  # Determined by class
+        "standard_concept",
         "concept_code",
         "valid_start_date",
         # "valid_end_date",  # Known for valid concepts
@@ -96,8 +104,8 @@ class ConceptTable(OMOPTable[None]):
             # Use .explain():
             # https://www.statology.org/how-to-use-explain-understand-lazyframe-query-optimization-polars/
             frame.filter(
-                # Invalid reason is needed later
-                pl.col("invalid_reason").is_null(),
+                # Invalid reason is needed for filtering, so we keep it
+                # pl.col("invalid_reason").is_null(),
                 (
                     (pl.col("domain_id") == "Drug")
                     | (pl.col("domain_id") == "Unit")
@@ -160,7 +168,7 @@ class RelationshipTable(OMOPTable[pl.Series]):
         "relationship_id",
         "valid_start_date",
         # "valid_end_date",  # Known for valid relationships
-        "invalid_reason",
+        # "invalid_reason",
     ]
 
     @override
@@ -335,13 +343,20 @@ class OMOPVocabulariesV5:
             filter_arg=self.concept.data()["concept_id"],
         )
 
+        # Filter implicitly deprecated concepts
+        self.filter_malformed_concepts()
+
         self.strength: StrengthTable = StrengthTable(
             path=vocab_download_path / "DRUG_STRENGTH.csv",
             logger=self.logger,
             filter_arg=self.concept.data()["concept_id"],
         )
 
-        # TODO: filter implicitly deprecated concepts
+        self.ancestor: AncestorTable = AncestorTable(
+            path=vocab_download_path / "CONCEPT_ANCESTOR.csv",
+            logger=self.logger,
+            filter_arg=self.concept.data()["concept_id"],
+        )
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
@@ -452,7 +467,7 @@ class OMOPVocabulariesV5:
         # discarding those Clinical Drug Forms.
 
         self.logger.info("Creating Clinical Drug Forms")
-        cdc_concepts = self.concept.data().filter(
+        cdc_concepts: pl.Series = self.concept.data().filter(
             pl.col("concept_class_id") == "Clinical Drug Form"
         )["concept_id"]
         valid_cdc_count = 0
@@ -460,15 +475,12 @@ class OMOPVocabulariesV5:
         cdc_ds_ing_count = self.get_strength_counts(cdc_concepts)
 
         for cdc_concept_id in cdc_concepts:
-            dose_form = cdc_dose_form.get(cdc_concept_id)
-            ingreds = cdc_ingredient.get(cdc_concept_id)
-
-            if dose_form is None:
+            if (dose_form := cdc_dose_form.get(cdc_concept_id)) is None:
                 self.logger.warning(
                     f"Dose Form absent for Clinical Drug Form {cdc_concept_id}"
                 )
 
-            elif ingreds is None:
+            elif (ingreds := cdc_ingredient.get(cdc_concept_id)) is None:
                 self.logger.warning(
                     f"Ingredients absent for Clinical Drug Form "
                     f"{cdc_concept_id}"
@@ -492,6 +504,95 @@ class OMOPVocabulariesV5:
 
         self.logger.info(
             f"Processed {valid_cdc_count} Clinical Drug Forms with "
-            f"Dose Forms and Ingredients out of {len(cdc_concepts)} "
+            f"Dose Forms and Ingredients out of {len(cdc_concepts):,} "
             f"possible."
         )
+
+    def filter_malformed_concepts(self) -> None:
+        """
+        Filter out concepts with invalid or missing data.
+        """
+        self.logger.info("Filtering out malformed concepts")
+
+        # 1. Filter out drug concepts that treat Precise Ingredients as
+        #    Ingredients
+        self.logger.info(
+            "Filtering out drug concepts that treat Precise Ingredients as "
+            "Ingredients"
+        )
+        prec_ing_concepts = (
+            self.concept.data()
+            .filter(
+                pl.col("vocabulary_id") == "RxNorm",
+                pl.col("concept_class_id") == "Precise Ingredient",
+                pl.col("invalid_reason").is_null(),
+            )
+            .select(["concept_id"])
+        )
+        complex_drug_concepts = self.concept.data().filter(
+            pl.col("standard_concept") == "S",
+            ~(pl.col("concept_class_id") == "Ingredient"),
+        )
+        complex_pi_as_ing = (
+            prec_ing_concepts.join(
+                other=self.relationship.data().filter(
+                    # NOTE: This relationship_id is reserved for Ingredients!
+                    pl.col("relationship_id") == "RxNorm ing of",
+                ),
+                left_on="concept_id",
+                right_on="concept_id_1",
+                suffix="_relationship",
+            )
+            .join(
+                other=complex_drug_concepts,
+                left_on="concept_id_2",
+                right_on="concept_id",
+                suffix="_target",
+            )
+            .select(concept_id="concept_id_2")
+        )
+
+        self.logger.warning(
+            f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
+            "Precise Ingredients as Ingredients"
+        )
+        self.logger.info("Removing from the concept table")
+        self.concept.reader.anti_join(complex_pi_as_ing, on=["concept_id"])
+
+        self.logger.info("Removing from relationship table (left)")
+        self.relationship.reader.anti_join(
+            complex_pi_as_ing,
+            left_on=["concept_id_1"],
+            right_on=["concept_id"],
+        )
+        self.logger.info("Removing from relationship table (right)")
+        self.relationship.reader.anti_join(
+            complex_pi_as_ing,
+            left_on=["concept_id_2"],
+            right_on=["concept_id"],
+        )
+
+        # 2. Try salvaging concepts that specify multiple Brand Names,
+        #    Dose Forms, or Suppliers, but only one of them is valid
+        # TODO: Implement this
+
+        # 3. Filter out invalid concepts
+        self.logger.info("Filtering out invalid concepts and their relations")
+        invalid_concepts = (
+            self.concept.data()
+            .filter(pl.col("invalid_reason").is_not_null())
+            .select("concept_id")
+        )
+        self.logger.info(
+            f"Found {len(invalid_concepts):,} invalid concepts "
+            f"out of {len(self.concept.data()):,}"
+        )
+        self.concept.reader.filter(pl.col("invalid_reason").is_null())
+        self.relationship.reader.filter(
+            ~(
+                pl.col("concept_id_1").is_in(invalid_concepts["concept_id"])
+                | pl.col("concept_id_2").is_in(invalid_concepts["concept_id"])
+            )
+        )
+
+        exit(1)

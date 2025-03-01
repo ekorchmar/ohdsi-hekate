@@ -2,6 +2,8 @@
 
 import polars as pl
 
+from typing import Literal
+
 VALID_CONCEPT_END_DATE = 2099_12_31
 
 # List of all concept_relationship_ids that are relevant to the project.
@@ -47,3 +49,18 @@ ALL_CONCEPT_RELATIONSHIP_IDS: pl.Series = pl.Series(
     ],
     dtype=pl.Utf8,
 )
+
+type DefiningMonoAttributeClass = Literal["Dose Form", "Brand Name", "Supplier"]
+
+DEFINING_ATTRIBUTE_RELATIONSHIP: dict[DefiningMonoAttributeClass, str] = {
+    "Dose Form": "RxNorm dose form of",
+    "Brand Name": "Brand name of",
+    "Supplier": "Supplier of",
+}
+
+REPLACEMENT_RELATIONSHIP = [
+    "Maps to",
+    "Mapped from",
+    "Concept replaced by",
+    "Concept replaces",
+]

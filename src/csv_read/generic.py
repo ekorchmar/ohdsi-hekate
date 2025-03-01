@@ -7,6 +7,7 @@ from collections.abc import Mapping
 import logging
 from pathlib import Path
 from typing import Callable, TypeVar
+from collections.abc import Sequence
 
 import csv
 import polars as pl
@@ -60,8 +61,7 @@ class CSVReader:
                 Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
 
             filter_arg: Optional argument to pass to the `line_filter` function.
-                resulting call will look like
-                `line_filter(lazy_frame, filter_arg)`.
+                resulting call will look like `line_filter(lazy_frame, filter_arg)`.
 
             schema: Required schema to use when reading the CSV file. Provided
                 as a dictionary of column names and their respective Polars
@@ -109,24 +109,90 @@ class CSVReader:
                 f"Columns {', '.join(missed_columns)} not found in the header."
             )
 
+    def materialize(self):
+        """
+        Materialize the lazy frame into a DataFrame.
+        """
+        if self.data is not None:
+            return
+        self.logger.info("Collecting and caching data from disk")
+        self.data = self._lazy_frame.collect()
+        assert self.data is not None
+        self.logger.info(f"{len(self.data):,} rows collected and cached")
+
     def collect(self) -> pl.DataFrame:
         """
         Collect the entire CSV file into a DataFrame.
         """
         if self.data is None:
-            self.logger.info("Collecting and caching data from disk")
-            self.data = self._lazy_frame.collect()
-            self.logger.info(f"{len(self.data)} rows collected and cached")
+            self.materialize()
+            assert self.data is not None
         return self.data
 
-    def filter(self, predicate: pl.Expr) -> None:
+    def filter(self, *predicates: pl.Expr) -> None:
         """
         Filter the data materialized data using a predicate. This is a
         destructive operation that changes the materialized data in place.
+
+        Filter may be applied before data is materialized, in which case
+        it will be applied to the lazy frame.
         """
         if self.data is None:
-            raise ValueError(
-                "Data is not yet materialized. Have you called collect()?"
+            self.logger.info("Filtering data before materialization")
+            self._lazy_frame = self._lazy_frame.filter(*predicates)
+
+        else:
+            old_len = len(self.data)
+            self.data = self.data.filter(*predicates)
+            self.logger.info(
+                f"Filtered {old_len - len(self.data):,} rows from "
+                f"{old_len:,} with predicate"
             )
 
-        self.data = self.data.filter(predicate)
+    def anti_join(
+        self,
+        other: pl.DataFrame,
+        *,
+        on: Sequence[str] | None = None,
+        left_on: Sequence[str] | None = None,
+        right_on: Sequence[str] | None = None,
+    ) -> None:
+        """
+        Anti-join the data with another DataFrame. This is a destructive
+        operation that changes the materialized data in place.
+
+        Anti-join may be applied before data is materialized, in which case
+        data will be materialized first.
+
+        Args:
+            other: DataFrame to anti-join with.
+
+            on: Columns to join on. Must be present in both DataFrames. If this
+                parameter is provided, `left_on` and `right_on` must be `None`.
+
+            left_on: Columns to join on in the left DataFrame. Must be present
+                in the left DataFrame. If this parameter is provided, `on` must
+                be `None` and `right_on` must be provided.
+
+            right_on: Columns to join on in the right DataFrame. Must be present
+                in the right DataFrame. If this parameter is provided, `on` must
+                be `None` and `left_on` must be provided.
+        """
+        if self.data is None:
+            self.materialize()
+            assert self.data is not None
+
+        old_len = len(self.data)
+
+        self.data = self.data.join(
+            other=other,
+            how="anti",
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+        )
+
+        self.logger.info(
+            f"Removed {old_len - len(self.data):,} rows with anti-join of"
+            f"{len(other):,} rows"
+        )
