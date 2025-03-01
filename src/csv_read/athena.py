@@ -3,7 +3,9 @@ Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
 import logging
+from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import override
 
 import polars as pl  # For type hinting and schema definition
 
@@ -15,12 +17,43 @@ from utils.constants import ALL_CONCEPT_RELATIONSHIP_IDS
 from utils.logger import LOGGER
 
 
-class OMOPVocabulariesV5:
+class OMOPTable(ABC):
     """
-    Class to read Athena OMOP CDM Vocabularies
+    Abstract class to read Athena OMOP CDM Vocabularies
     """
 
-    CONCEPT_SCHEMA: Schema = {
+    TABLE_SCHEMA: Schema
+    TABLE_COLUMNS: list[str]
+    reader: CSVReader
+    path: Path
+
+    @abstractmethod
+    def table_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Filter function to apply to the table.
+        """
+
+    def __init__(self, path: Path, logger: logging.Logger):
+        super().__init__()
+        self.path = path
+        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
+
+        self.logger.info(f"Reading {path.name}")
+        self.reader = CSVReader(
+            path=self.path,
+            schema=self.TABLE_SCHEMA,
+            line_filter=self.table_filter,
+        )
+
+    def data(self) -> pl.DataFrame:
+        """
+        Run the reader and return the data.
+        """
+        return self.reader.collect()
+
+
+class ConceptTable(OMOPTable):
+    TABLE_SCHEMA: Schema = {
         "concept_id": pl.UInt32,
         "concept_name": pl.Utf8,
         "domain_id": pl.Utf8,
@@ -33,7 +66,7 @@ class OMOPVocabulariesV5:
         "valid_end_date": pl.UInt32,
         "invalid_reason": pl.Utf8,
     }
-    CONCEPT_COLUMNS: list[str] = [
+    TABLE_COLUMNS: list[str] = [
         "concept_id",
         "concept_name",
         # "domain_id", Made redundant by class
@@ -43,61 +76,18 @@ class OMOPVocabulariesV5:
         "concept_code",
         "valid_start_date",
         # "valid_end_date",  # Known for valid concepts
+        "invalid_reason",
     ]
 
-    CONCEPT_RELATIONSHIP_SCHEMA: Schema = {
-        "concept_id_1": pl.UInt32,
-        "concept_id_2": pl.UInt32,
-        "relationship_id": pl.Utf8,
-        "valid_start_date": pl.UInt32,
-        "valid_end_date": pl.UInt32,
-        "invalid_reason": pl.Utf8,
-    }
-    CONCEPT_RELATIONSHIP_COLUMNS: list[str] = [
-        "concept_id_1",
-        "concept_id_2",
-        "relationship_id",
-        "valid_start_date",
-        # "valid_end_date",  # Known for valid relationships
-        # "invalid_reason",  # Not used
-    ]
-
-    DRUG_STRENGTH_SCHEMA: Schema = {
-        "drug_concept_id": pl.UInt32,
-        "ingredient_concept_id": pl.UInt32,
-        "amount_value": pl.Float64,
-        "amount_unit_concept_id": pl.UInt32,
-        "numerator_value": pl.Float64,
-        "numerator_unit_concept_id": pl.UInt32,
-        "denominator_value": pl.Float64,
-        "denominator_unit_concept_id": pl.UInt32,
-        "box_size": pl.UInt32,
-        "valid_start_date": pl.UInt32,
-        "valid_end_date": pl.UInt32,
-        "invalid_reason": pl.Utf8,  # But we will keep this just in case
-    }
-    DRUG_STRENGTH_COLUMNS: list[str] = [
-        "drug_concept_id",
-        "ingredient_concept_id",
-        "amount_value",
-        "amount_unit_concept_id",
-        "denominator_value",
-        "denominator_unit_concept_id",
-        # "box_size",  # Not used for now
-        # NOTE: DRUG_STRENGTH implicitly contains only valid entries
-        #
-        # "valid_start_date",
-        # "valid_end_date",
-        # "invalid_reason",
-    ]
-
-    def concept_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
+    @override
+    def table_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
         return (
             # TODO: test if this is faster than using the .is_in() method
             # Use .explain():
             # https://www.statology.org/how-to-use-explain-understand-lazyframe-query-optimization-polars/
             frame.filter(
-                pl.col("invalid_reason").is_null(),
+                # Invalid reason is needed later
+                # pl.col("invalid_reason").is_null(),
                 (
                     (pl.col("domain_id") == "Drug")
                     | (pl.col("domain_id") == "Unit")
@@ -141,13 +131,63 @@ class OMOPVocabulariesV5:
                 ),
             )
             # Only subset of columns (in predictable order)
-            .select(self.CONCEPT_COLUMNS)
+            .select(self.TABLE_COLUMNS)
         )
 
+
+class OMOPVocabulariesV5:
+    """
+    Class to read Athena OMOP CDM Vocabularies
+    """
+
+    CONCEPT_RELATIONSHIP_SCHEMA: Schema = {
+        "concept_id_1": pl.UInt32,
+        "concept_id_2": pl.UInt32,
+        "relationship_id": pl.Utf8,
+        "valid_start_date": pl.UInt32,
+        "valid_end_date": pl.UInt32,
+        "invalid_reason": pl.Utf8,
+    }
+    CONCEPT_RELATIONSHIP_COLUMNS: list[str] = [
+        "concept_id_1",
+        "concept_id_2",
+        "relationship_id",
+        "valid_start_date",
+        # "valid_end_date",  # Known for valid relationships
+        "invalid_reason",
+    ]
+
+    DRUG_STRENGTH_SCHEMA: Schema = {
+        "drug_concept_id": pl.UInt32,
+        "ingredient_concept_id": pl.UInt32,
+        "amount_value": pl.Float64,
+        "amount_unit_concept_id": pl.UInt32,
+        "numerator_value": pl.Float64,
+        "numerator_unit_concept_id": pl.UInt32,
+        "denominator_value": pl.Float64,
+        "denominator_unit_concept_id": pl.UInt32,
+        "box_size": pl.UInt32,
+        "valid_start_date": pl.UInt32,
+        "valid_end_date": pl.UInt32,
+        "invalid_reason": pl.Utf8,
+    }
+    DRUG_STRENGTH_COLUMNS: list[str] = [
+        "drug_concept_id",
+        "ingredient_concept_id",
+        "amount_value",
+        "amount_unit_concept_id",
+        "denominator_value",
+        "denominator_unit_concept_id",
+        # "box_size",  # Not used for now
+        # NOTE: DRUG_STRENGTH implicitly contains only valid entries
+        #
+        # "valid_start_date",
+        # "valid_end_date",
+        # "invalid_reason",
+    ]
+
     def concept_relationship_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
-        concept = self.concept_reader.data
-        if concept is None:
-            raise ValueError("Concept data must be read first!")
+        concept = self.concept.data()
 
         return frame.filter(
             # TODO: Hunt for valid relations to invalid targets
@@ -160,9 +200,7 @@ class OMOPVocabulariesV5:
         ).select(self.CONCEPT_RELATIONSHIP_COLUMNS)
 
     def drug_strength_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
-        concept = self.concept_reader.data
-        if concept is None:
-            raise ValueError("Concept data must be read first!")
+        concept = self.concept.data()
         ingredients = concept.filter(
             pl.col("concept_class_id") == "Ingredient"
         )["concept_id"]
@@ -173,10 +211,6 @@ class OMOPVocabulariesV5:
             # pl.col("drug_concept_id").is_in(concept["concept_id"]),
             pl.col("ingredient_concept_id").is_in(ingredients),
         ).select(self.DRUG_STRENGTH_COLUMNS)
-
-    @property
-    def concept_data(self) -> pl.DataFrame:
-        return self.concept_reader.collect()
 
     @property
     def relationship_data(self) -> pl.DataFrame:
@@ -192,7 +226,7 @@ class OMOPVocabulariesV5:
         """
         Get relationships of a defined type between concepts of two classes.
         """
-        concept = self.concept_data
+        concept = self.concept.data()
         relationship = self.relationship_data.filter(
             pl.col("relationship_id") == relationship_id
         )
@@ -212,10 +246,12 @@ class OMOPVocabulariesV5:
                 suffix="_target",
             )
             .rename({"concept_id_2": "concept_id_target"})
-            .select([
-                *self.CONCEPT_COLUMNS,
-                *map(lambda x: f"{x}_target", self.CONCEPT_COLUMNS),
-            ])
+            .select(
+                [
+                    *concept.columns,
+                    *map(lambda x: f"{x}_target", concept.columns),
+                ]
+            )
         )
 
         return joined
@@ -245,47 +281,17 @@ class OMOPVocabulariesV5:
         self.strengths: h.KnownStrength[dc.ConceptId] = h.KnownStrength()
         self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
 
-        self.vocab_download_path: Path = vocab_download_path
-
         # Concept
-        self.logger.info("Reading CONCEPT.csv")
-        concept_path = self.vocab_download_path / "CONCEPT.csv"
-
-        self.concept_reader: CSVReader = CSVReader(
-            path=concept_path,
-            schema=self.CONCEPT_SCHEMA,
-            line_filter=self.concept_filter,
+        self.concept: ConceptTable = ConceptTable(
+            path=vocab_download_path / "CONCEPT.csv",
+            logger=self.logger,
         )
 
-        # Populate atoms with known concepts
-        self.logger.info(
-            "Processing atomic concepts (Ingredient, Dose Form, etc.)"
-        )
-        rxn_atoms: pl.DataFrame = self.concept_data.select([
-            "concept_id",
-            "concept_name",
-            "concept_class_id",
-        ]).filter(
-            pl.col("concept_class_id").is_in([
-                "Ingredient",
-                # "Precise Ingredient",  # Needs CONCEPT_RELATIONSHIP
-                "Brand Name",
-                "Dose Form",
-                "Supplier",
-                "Unit",
-            ])
-        )
-        self.atoms.add_from_frame(rxn_atoms)
-
-        # Add ingredients as roots to hierarchy
-        self.logger.info("Adding Ingredients to hierarchy")
-        for ingredient in self.atoms.ingredient.values():
-            self.hierarchy.add_root(ingredient)
-
+        # TODO: Refactor other table readers to use common methods
         # Concept Relationship
         logging.info("Reading CONCEPT_RELATIONSHIP.csv")
         concept_relationship_path = (
-            self.vocab_download_path / "CONCEPT_RELATIONSHIP.csv"
+            vocab_download_path / "CONCEPT_RELATIONSHIP.csv"
         )
 
         self.relationship_reader: CSVReader = CSVReader(
@@ -294,7 +300,60 @@ class OMOPVocabulariesV5:
             line_filter=self.concept_relationship_filter,
         )
 
-        # We can now also process Precise Ingredients
+        self.logger.info("Reading DRUG_STRENGTH.csv")
+        drug_strength_path = vocab_download_path / "DRUG_STRENGTH.csv"
+        self.strength_reader: CSVReader = CSVReader(
+            path=drug_strength_path,
+            schema=self.DRUG_STRENGTH_SCHEMA,
+            line_filter=self.drug_strength_filter,
+        )
+
+        # Process the drug classes from the simplest to the most complex
+        self.process_atoms()
+        self.process_precise_ingredients()
+        self.process_clinical_drug_forms()
+
+    def process_atoms(self) -> None:
+        """
+        Process atom concepts with known concept data.
+        """
+        # Populate atoms with known concepts
+        self.logger.info(
+            "Processing atomic concepts (Ingredient, Dose Form, etc.)"
+        )
+        rxn_atoms: pl.DataFrame = (
+            self.concept.data()
+            .select(
+                [
+                    "concept_id",
+                    "concept_name",
+                    "concept_class_id",
+                ]
+            )
+            .filter(
+                pl.col("concept_class_id").is_in(
+                    [
+                        "Ingredient",
+                        # "Precise Ingredient",  # Needs linking to Ingredient
+                        "Brand Name",
+                        "Dose Form",
+                        "Supplier",
+                        "Unit",
+                    ]
+                )
+            )
+        )
+        self.atoms.add_from_frame(rxn_atoms)
+
+        # Add ingredients as roots to hierarchy
+        self.logger.info("Adding Ingredients to the hierarchy")
+        for ingredient in self.atoms.ingredient.values():
+            self.hierarchy.add_root(ingredient)
+
+    def process_precise_ingredients(self) -> None:
+        """
+        Process Precise Ingredients and link them to Ingredients
+        """
         ing_to_precise = self.get_class_relationships(
             class_id_1="Precise Ingredient",
             class_id_2="Ingredient",
@@ -318,21 +377,13 @@ class OMOPVocabulariesV5:
                 )
             )
 
-        # Process complex concepts with no strength data:
-        #  - Clinical Drug Form
-        #  - Branded Drug For
-
-        # We still need to process DRUG_STRENGTH.csv for ingredient counts, so
-        self.logger.info("Reading DRUG_STRENGTH.csv")
-        drug_strength_path = self.vocab_download_path / "DRUG_STRENGTH.csv"
-        self.strength_reader: CSVReader = CSVReader(
-            path=drug_strength_path,
-            schema=self.DRUG_STRENGTH_SCHEMA,
-            line_filter=self.drug_strength_filter,
-        )
-
+    def process_clinical_drug_forms(self) -> None:
+        """
+        Process Clinical Drug Forms and link them to Dose Forms and Ingredients
+        """
         self.logger.info("Processing Clinical Drug Forms")
 
+        cdc_concept_id: int
         self.logger.info("Finding Dose Forms for Clinical Drug Forms")
         cdc_dose_form: dict[int, dc.DoseForm[dc.ConceptId]] = {}
         cdc_to_df = self.get_class_relationships(
@@ -343,7 +394,7 @@ class OMOPVocabulariesV5:
         concept_id_idx = cdc_to_df.columns.index("concept_id")
         concept_id_target_idx = cdc_to_df.columns.index("concept_id_target")
         for row in cdc_to_df.iter_rows():
-            cdc_concept_id: int = row[concept_id_idx]  # pyright: ignore[reportRedeclaration] # noqa: E501
+            cdc_concept_id = row[concept_id_idx]
             dose_form = self.atoms.dose_form[row[concept_id_target_idx]]
             cdc_dose_form[cdc_concept_id] = dose_form
 
@@ -357,18 +408,16 @@ class OMOPVocabulariesV5:
         concept_id_idx = cdc_to_ing.columns.index("concept_id")
         concept_id_target_idx = cdc_to_ing.columns.index("concept_id_target")
         for row in cdc_to_ing.iter_rows():
-            cdc_concept_id: int = row[concept_id_idx]
+            cdc_concept_id = row[concept_id_idx]
             ingredient = self.atoms.ingredient[row[concept_id_target_idx]]
             cdc_ingredient.setdefault(cdc_concept_id, []).append(ingredient)
 
         # WARN: RxE concepts may have Precise Ingredient in place of Ingredient,
         # but this IS an error, as evidenced by DRUG_STRENGTH entries. We are
         # discarding those Clinical Drug Forms.
-        # TODO: Handle this case by referencing DRUG_STRENGTH for real counts
-        # of ingredients.
 
         self.logger.info("Creating Clinical Drug Forms")
-        cdc_concepts = self.concept_data.filter(
+        cdc_concepts = self.concept.data().filter(
             pl.col("concept_class_id") == "Clinical Drug Form"
         )["concept_id"]
         valid_cdc_count = 0

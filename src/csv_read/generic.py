@@ -109,3 +109,15 @@ class CSVReader:
             self.data = self._lazy_frame.collect()
             self.logger.info(f"{len(self.data)} rows collected and cached")
         return self.data
+
+    def filter(self, predicate: pl.Expr) -> None:
+        """
+        Filter the data materialized data using a predicate. This is a
+        destructive operation that changes the materialized data in place.
+        """
+        if self.data is None:
+            raise ValueError(
+                "Data is not yet materialized. Have you called collect()?"
+            )
+
+        self.data = self.data.filter(predicate)
