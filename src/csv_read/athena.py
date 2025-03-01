@@ -228,6 +228,34 @@ class StrengthTable(OMOPTable[pl.Series]):
         ).select(self.TABLE_COLUMNS)
 
 
+class AncestorTable(OMOPTable[pl.Series]):
+    TABLE_SCHEMA: Schema = {
+        "ancestor_concept_id": pl.UInt32,
+        "descendant_concept_id": pl.UInt32,
+        "min_levels_of_separation": pl.UInt32,
+        "max_levels_of_separation": pl.UInt32,
+    }
+    TABLE_COLUMNS: list[str] = [
+        "ancestor_concept_id",
+        "descendant_concept_id",
+        # "min_levels_of_separation",
+        # "max_levels_of_separation",
+    ]
+
+    @override
+    def table_filter(
+        self, frame: pl.LazyFrame, filter_arg: pl.Series | None = None
+    ) -> pl.LazyFrame:
+        concept = filter_arg
+        if concept is None:
+            raise ValueError("Concept filter argument is required.")
+
+        return frame.filter(
+            pl.col("descendant_concept_id").is_in(concept),
+            pl.col("ancestor_concept_id").is_in(concept),
+        ).select(self.TABLE_COLUMNS)
+
+
 class OMOPVocabulariesV5:
     """
     Class to read Athena OMOP CDM Vocabularies
