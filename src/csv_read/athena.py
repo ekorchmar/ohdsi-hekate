@@ -295,12 +295,10 @@ class OMOPVocabulariesV5:
                 suffix="_target",
             )
             .rename({"concept_id_2": "concept_id_target"})
-            .select(
-                [
-                    *concept.columns,
-                    *map(lambda x: f"{x}_target", concept.columns),
-                ]
-            )
+            .select([
+                *concept.columns,
+                *map(lambda x: f"{x}_target", concept.columns),
+            ])
         )
 
         return joined
@@ -373,24 +371,20 @@ class OMOPVocabulariesV5:
         )
         rxn_atoms: pl.DataFrame = (
             self.concept.data()
-            .select(
-                [
-                    "concept_id",
-                    "concept_name",
-                    "concept_class_id",
-                ]
-            )
+            .select([
+                "concept_id",
+                "concept_name",
+                "concept_class_id",
+            ])
             .filter(
-                pl.col("concept_class_id").is_in(
-                    [
-                        "Ingredient",
-                        # "Precise Ingredient",  # Needs linking to Ingredient
-                        "Brand Name",
-                        "Dose Form",
-                        "Supplier",
-                        "Unit",
-                    ]
-                )
+                pl.col("concept_class_id").is_in([
+                    "Ingredient",
+                    # "Precise Ingredient",  # Needs linking to Ingredient
+                    "Brand Name",
+                    "Dose Form",
+                    "Supplier",
+                    "Unit",
+                ])
             )
         )
         self.atoms.add_from_frame(rxn_atoms)
@@ -576,7 +570,7 @@ class OMOPVocabulariesV5:
         #    Dose Forms, or Suppliers, but only one of them is valid
         # TODO: Implement this
 
-        # 3. Filter out invalid concepts
+        # 3. Filter out explicitly deprecated concepts
         self.logger.info("Filtering out invalid concepts and their relations")
         invalid_concepts = (
             self.concept.data()
