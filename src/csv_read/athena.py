@@ -17,7 +17,7 @@ from utils.constants import ALL_CONCEPT_RELATIONSHIP_IDS
 from utils.logger import LOGGER
 
 
-class OMOPTable(ABC):
+class OMOPTable[FilterArg](ABC):
     """
     Abstract class to read Athena OMOP CDM Vocabularies
     """
@@ -28,12 +28,19 @@ class OMOPTable(ABC):
     path: Path
 
     @abstractmethod
-    def table_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
+    def table_filter(
+        self, frame: pl.LazyFrame, filter_arg: FilterArg | None = None
+    ) -> pl.LazyFrame:
         """
         Filter function to apply to the table.
         """
 
-    def __init__(self, path: Path, logger: logging.Logger):
+    def __init__(
+        self,
+        path: Path,
+        logger: logging.Logger,
+        filter_arg: FilterArg | None = None,
+    ):
         super().__init__()
         self.path = path
         self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
@@ -43,6 +50,7 @@ class OMOPTable(ABC):
             path=self.path,
             schema=self.TABLE_SCHEMA,
             line_filter=self.table_filter,
+            filter_arg=filter_arg,
         )
 
     def data(self) -> pl.DataFrame:
@@ -52,7 +60,7 @@ class OMOPTable(ABC):
         return self.reader.collect()
 
 
-class ConceptTable(OMOPTable):
+class ConceptTable(OMOPTable[None]):
     TABLE_SCHEMA: Schema = {
         "concept_id": pl.UInt32,
         "concept_name": pl.Utf8,
@@ -80,14 +88,16 @@ class ConceptTable(OMOPTable):
     ]
 
     @override
-    def table_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
+    def table_filter(
+        self, frame: pl.LazyFrame, filter_arg: None = None
+    ) -> pl.LazyFrame:
         return (
             # TODO: test if this is faster than using the .is_in() method
             # Use .explain():
             # https://www.statology.org/how-to-use-explain-understand-lazyframe-query-optimization-polars/
             frame.filter(
                 # Invalid reason is needed later
-                # pl.col("invalid_reason").is_null(),
+                pl.col("invalid_reason").is_null(),
                 (
                     (pl.col("domain_id") == "Drug")
                     | (pl.col("domain_id") == "Unit")
@@ -135,12 +145,8 @@ class ConceptTable(OMOPTable):
         )
 
 
-class OMOPVocabulariesV5:
-    """
-    Class to read Athena OMOP CDM Vocabularies
-    """
-
-    CONCEPT_RELATIONSHIP_SCHEMA: Schema = {
+class RelationshipTable(OMOPTable[pl.Series]):
+    TABLE_SCHEMA: Schema = {
         "concept_id_1": pl.UInt32,
         "concept_id_2": pl.UInt32,
         "relationship_id": pl.Utf8,
@@ -148,7 +154,7 @@ class OMOPVocabulariesV5:
         "valid_end_date": pl.UInt32,
         "invalid_reason": pl.Utf8,
     }
-    CONCEPT_RELATIONSHIP_COLUMNS: list[str] = [
+    TABLE_COLUMNS: list[str] = [
         "concept_id_1",
         "concept_id_2",
         "relationship_id",
@@ -157,7 +163,27 @@ class OMOPVocabulariesV5:
         "invalid_reason",
     ]
 
-    DRUG_STRENGTH_SCHEMA: Schema = {
+    @override
+    def table_filter(
+        self, frame: pl.LazyFrame, filter_arg: pl.Series | None = None
+    ) -> pl.LazyFrame:
+        concept = filter_arg
+        if concept is None:
+            raise ValueError("Concept filter argument is required.")
+
+        return frame.filter(
+            # TODO: Hunt for valid relations to invalid targets
+            pl.col("invalid_reason").is_null(),
+            pl.col("relationship_id").is_in(ALL_CONCEPT_RELATIONSHIP_IDS),
+            # TODO: Parametrize these joins; maybe it's not worth the
+            # performance hit
+            pl.col("concept_id_1").is_in(concept),
+            pl.col("concept_id_2").is_in(concept),
+        ).select(self.TABLE_COLUMNS)
+
+
+class StrengthTable(OMOPTable[pl.Series]):
+    TABLE_SCHEMA: Schema = {
         "drug_concept_id": pl.UInt32,
         "ingredient_concept_id": pl.UInt32,
         "amount_value": pl.Float64,
@@ -171,7 +197,7 @@ class OMOPVocabulariesV5:
         "valid_end_date": pl.UInt32,
         "invalid_reason": pl.Utf8,
     }
-    DRUG_STRENGTH_COLUMNS: list[str] = [
+    TABLE_COLUMNS: list[str] = [
         "drug_concept_id",
         "ingredient_concept_id",
         "amount_value",
@@ -186,39 +212,26 @@ class OMOPVocabulariesV5:
         # "invalid_reason",
     ]
 
-    def concept_relationship_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
-        concept = self.concept.data()
-
-        return frame.filter(
-            # TODO: Hunt for valid relations to invalid targets
-            pl.col("invalid_reason").is_null(),
-            pl.col("relationship_id").is_in(ALL_CONCEPT_RELATIONSHIP_IDS),
-            # TODO: Parametrize these joins; maybe it's not worth the
-            # performance hit
-            pl.col("concept_id_1").is_in(concept["concept_id"]),
-            pl.col("concept_id_2").is_in(concept["concept_id"]),
-        ).select(self.CONCEPT_RELATIONSHIP_COLUMNS)
-
-    def drug_strength_filter(self, frame: pl.LazyFrame) -> pl.LazyFrame:
-        concept = self.concept.data()
-        ingredients = concept.filter(
-            pl.col("concept_class_id") == "Ingredient"
-        )["concept_id"]
+    @override
+    def table_filter(
+        self, frame: pl.LazyFrame, filter_arg: pl.Series | None = None
+    ) -> pl.LazyFrame:
+        ingredients = filter_arg
+        if ingredients is None:
+            raise ValueError("Ingredient filter argument is required.")
 
         return frame.filter(
             pl.col("invalid_reason").is_null(),
             # Redundant
             # pl.col("drug_concept_id").is_in(concept["concept_id"]),
             pl.col("ingredient_concept_id").is_in(ingredients),
-        ).select(self.DRUG_STRENGTH_COLUMNS)
+        ).select(self.TABLE_COLUMNS)
 
-    @property
-    def relationship_data(self) -> pl.DataFrame:
-        return self.relationship_reader.collect()
 
-    @property
-    def strength_data(self) -> pl.DataFrame:
-        return self.strength_reader.collect()
+class OMOPVocabulariesV5:
+    """
+    Class to read Athena OMOP CDM Vocabularies
+    """
 
     def get_class_relationships(
         self, class_id_1: str, class_id_2: str, relationship_id: str
@@ -227,7 +240,7 @@ class OMOPVocabulariesV5:
         Get relationships of a defined type between concepts of two classes.
         """
         concept = self.concept.data()
-        relationship = self.relationship_data.filter(
+        relationship = self.relationship.data().filter(
             pl.col("relationship_id") == relationship_id
         )
 
@@ -261,7 +274,8 @@ class OMOPVocabulariesV5:
         Get the counts of ingredients for each drug concept.
         """
         counts_df = (
-            self.strength_data.join(
+            self.strength.data()
+            .join(
                 other=drug_ids.to_frame(name="drug_concept_id"),
                 left_on="drug_concept_id",
                 right_on="drug_concept_id",
@@ -281,32 +295,25 @@ class OMOPVocabulariesV5:
         self.strengths: h.KnownStrength[dc.ConceptId] = h.KnownStrength()
         self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
 
-        # Concept
+        # Vocabulary table readers
         self.concept: ConceptTable = ConceptTable(
             path=vocab_download_path / "CONCEPT.csv",
             logger=self.logger,
         )
 
-        # TODO: Refactor other table readers to use common methods
-        # Concept Relationship
-        logging.info("Reading CONCEPT_RELATIONSHIP.csv")
-        concept_relationship_path = (
-            vocab_download_path / "CONCEPT_RELATIONSHIP.csv"
+        self.relationship: RelationshipTable = RelationshipTable(
+            path=vocab_download_path / "CONCEPT_RELATIONSHIP.csv",
+            logger=self.logger,
+            filter_arg=self.concept.data()["concept_id"],
         )
 
-        self.relationship_reader: CSVReader = CSVReader(
-            path=concept_relationship_path,
-            schema=self.CONCEPT_RELATIONSHIP_SCHEMA,
-            line_filter=self.concept_relationship_filter,
+        self.strength: StrengthTable = StrengthTable(
+            path=vocab_download_path / "DRUG_STRENGTH.csv",
+            logger=self.logger,
+            filter_arg=self.concept.data()["concept_id"],
         )
 
-        self.logger.info("Reading DRUG_STRENGTH.csv")
-        drug_strength_path = vocab_download_path / "DRUG_STRENGTH.csv"
-        self.strength_reader: CSVReader = CSVReader(
-            path=drug_strength_path,
-            schema=self.DRUG_STRENGTH_SCHEMA,
-            line_filter=self.drug_strength_filter,
-        )
+        # TODO: filter implicitly deprecated concepts
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()

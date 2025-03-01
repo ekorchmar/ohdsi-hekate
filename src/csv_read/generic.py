@@ -6,7 +6,7 @@
 from collections.abc import Mapping
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypeVar
 
 import csv
 import polars as pl
@@ -14,7 +14,10 @@ import polars as pl
 from utils.exceptions import SchemaError
 from utils.logger import LOGGER
 
+T = TypeVar("T")
+
 type Schema = Mapping[str, type[pl.DataType]]
+type LineFilter[T] = Callable[[pl.LazyFrame, T | None], pl.LazyFrame]
 
 
 class CSVReader:
@@ -29,7 +32,8 @@ class CSVReader:
         schema: Schema,
         delimiter: str = "\t",
         quote_char: str | None = None,
-        line_filter: Callable[[pl.LazyFrame], pl.LazyFrame] | None = None,
+        line_filter: LineFilter[T] | None = None,
+        filter_arg: T | None = None,
     ):
         """
         Args:
@@ -50,9 +54,14 @@ class CSVReader:
             line_filter: Modifications to polars.LazyFrame to optionally
                 discard or otherwise modify rows. Defaults to `None`. The
                 function should take a `pl.LazyFrame` as input and return a
-                `pl.LazyFrame`.
+                `pl.LazyFrame`. Line filters may require an additional argument,
+                which can be passed using the `filter_arg` parameter.
 
                 Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
+
+            filter_arg: Optional argument to pass to the `line_filter` function.
+                resulting call will look like
+                `line_filter(lazy_frame, filter_arg)`.
 
             schema: Required schema to use when reading the CSV file. Provided
                 as a dictionary of column names and their respective Polars
@@ -81,7 +90,7 @@ class CSVReader:
 
         # Apply line filter if provided
         if line_filter:
-            self._lazy_frame = line_filter(self._lazy_frame)
+            self._lazy_frame = line_filter(self._lazy_frame, filter_arg)
         self.logger.debug(self._lazy_frame.explain())
 
         self.data: pl.DataFrame | None = None
