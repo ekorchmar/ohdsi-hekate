@@ -175,12 +175,14 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     def add_clinical_drug_form(
         self,
         clinical_drug_form: dc.ClinicalDrugForm[Id],
-    ) -> None:
+    ) -> int:
         """
-        Add a clinical drug form to the hierarchy.
+        Add a clinical drug form to the hierarchy. Returns the index of the
+        added node in the graph.
         """
         node_idx = self.graph.add_node(clinical_drug_form)
         for ingredient in clinical_drug_form.ingredients:
             _ = self.graph.add_edge(  # Discard edge index
                 self.ingredients[ingredient], node_idx, None
             )
+        return node_idx

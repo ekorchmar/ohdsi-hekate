@@ -360,7 +360,8 @@ class OMOPVocabulariesV5:
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
         self.process_precise_ingredients()
-        self.process_clinical_drug_forms()
+        cdf_nodes: list[int] = self.process_clinical_drug_forms()
+        del cdf_nodes
 
     def process_atoms(self) -> None:
         """
@@ -422,11 +423,13 @@ class OMOPVocabulariesV5:
                 )
             )
 
-    def process_clinical_drug_forms(self) -> None:
+    def process_clinical_drug_forms(self) -> list[int]:
         """
         Process Clinical Drug Forms and link them to Dose Forms and Ingredients
         """
         self.logger.info("Processing Clinical Drug Forms")
+        # Save node indices for reuse by descending classes
+        cdc_nodes: list[int] = []
 
         cdc_concept_id: int
         self.logger.info("Finding Dose Forms for Clinical Drug Forms")
@@ -485,18 +488,21 @@ class OMOPVocabulariesV5:
 
             else:
                 valid_cdc_count += 1
-                self.hierarchy.add_clinical_drug_form(
+                node_idx = self.hierarchy.add_clinical_drug_form(
                     dc.ClinicalDrugForm(
                         identifier=dc.ConceptId(cdc_concept_id),
                         dose_form=dose_form,
                         ingredients=SortedTuple(ingreds),
                     )
                 )
+                cdc_nodes.append(node_idx)
 
         self.logger.info(
             f"Processed {valid_cdc_count:,} Clinical Drug Forms out of "
             f"{len(cdc_concepts):,} possible."
         )
+
+        return cdc_nodes
 
     def filter_malformed_concepts(self) -> None:
         """
@@ -567,6 +573,9 @@ class OMOPVocabulariesV5:
     def filter_out_bad_concepts(self, bad_concepts: pl.Series) -> None:
         """
         Filter out concepts and their relationships from the tables.
+
+        Args:
+            bad_concepts: Polars Series with `concept_id` values to filter out.
         """
         bad_concepts_df = bad_concepts.to_frame(name="concept_id")
         self.logger.info("Removing from the concept table")
@@ -724,3 +733,10 @@ class OMOPVocabulariesV5:
                     f"No drug concepts with multiple {concept_class} "
                     "attributes were salvaged"
                 )
+
+    def process_clinical_drug_comps(self) -> list[int]:
+        """
+        Process Clinical Drug Components and link them to Ingredients and
+        Precise Ingredients (if available)
+        """
+        raise NotImplementedError("Not implemented yet")
