@@ -16,6 +16,7 @@ from utils.classes import SortedTuple
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     DEFINING_ATTRIBUTE_RELATIONSHIP,
+    PERCENT_CONCEPT_ID,
 )
 from utils.logger import LOGGER
 
@@ -194,7 +195,7 @@ class RelationshipTable(OMOPTable[pl.Series]):
         )
 
 
-class StrengthTable(OMOPTable[pl.Series]):
+class StrengthTable(OMOPTable[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
         "drug_concept_id": pl.UInt32,
         "ingredient_concept_id": pl.UInt32,
@@ -214,29 +215,24 @@ class StrengthTable(OMOPTable[pl.Series]):
         "ingredient_concept_id",
         "amount_value",
         "amount_unit_concept_id",
+        "numerator_value",
+        "numerator_unit_concept_id",
         "denominator_value",
         "denominator_unit_concept_id",
         # "box_size",  # Not used for now
-        # NOTE: DRUG_STRENGTH implicitly contains only valid entries
-        #
-        # "valid_start_date",
-        # "valid_end_date",
-        # "invalid_reason",
     ]
 
     @override
     def table_filter(
-        self, frame: pl.LazyFrame, filter_arg: pl.Series | None = None
+        self, frame: pl.LazyFrame, filter_arg: pl.DataFrame | None = None
     ) -> pl.LazyFrame:
-        ingredients = filter_arg
-        if ingredients is None:
-            raise ValueError("Ingredient filter argument is required.")
+        known_valid_drugs = filter_arg
+        if known_valid_drugs is None:
+            raise ValueError("Valid drugs as filter argument is required.")
 
         return frame.filter(
             pl.col("invalid_reason").is_null(),
-            # Redundant
-            # pl.col("drug_concept_id").is_in(concept["concept_id"]),
-            pl.col("ingredient_concept_id").is_in(ingredients),
+            pl.col("drug_concept_id").is_in(known_valid_drugs["concept_id"]),
         )
 
 
@@ -318,13 +314,20 @@ class OMOPVocabulariesV5:
                 other=drug_ids.to_frame(name="drug_concept_id"),
                 left_on="drug_concept_id",
                 right_on="drug_concept_id",
-            )
-            .group_by("drug_concept_id")
-            .count()
-            .rename({"count": "ingredient_count"})
+            )["drug_concept_id"]
+            .value_counts()
         )
 
         return {row[0]: row[1] for row in counts_df.iter_rows()}
+
+    def get_strength_data(self, drug_ids: pl.Series) -> pl.DataFrame:
+        """
+        Get the strength data for each drug concept.
+        """
+        return self.strength.data().join(
+            other=drug_ids.unique().to_frame(name="drug_concept_id"),
+            on="drug_concept_id",
+        )
 
     def __init__(self, vocab_download_path: Path):
         self.logger: logging.Logger = LOGGER.getChild("VocabV5")
@@ -360,12 +363,15 @@ class OMOPVocabulariesV5:
         self.filter_malformed_concepts()
 
         # Now there are much less concepts to process
-        clean_concept_ids = self.concept.data()["concept_id"]
         self.strength: StrengthTable = StrengthTable(
             path=vocab_download_path / "DRUG_STRENGTH.csv",
             logger=self.logger,
-            filter_arg=clean_concept_ids,
+            filter_arg=self.concept.data(),
         )
+
+        # Also use Drug Strength for filtering other tables
+        self.filter_non_ingredient_in_strength()
+        self.filter_invalid_strength_configurations()
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
@@ -520,8 +526,8 @@ class OMOPVocabulariesV5:
             f"{len(cdc_concepts):,} possible."
         )
 
-        bad_cdc = pl.concat(
-            map(pl.Series, [cdc_no_df, cdc_no_ing, cdc_ing_mismatch])
+        bad_cdc = pl.Series(
+            cdc_no_df + cdc_no_ing + cdc_ing_mismatch, dtype=pl.UInt32
         )
         if len(bad_cdc):
             self.logger.warning(
@@ -723,9 +729,8 @@ class OMOPVocabulariesV5:
             concept_to_multiple_valid = (
                 rel_to_attribute.filter(
                     pl.col("invalid_reason_target").is_null()
-                )
-                .group_by("concept_id")
-                .count()
+                )["concept_id"]
+                .value_counts()
                 .filter(pl.col("count") > 1)
             )["concept_id"]
 
@@ -773,8 +778,8 @@ class OMOPVocabulariesV5:
             # eventually export the QA data for Vocabularies to fix the upstream
             # source data.
             concept_to_multiple_relations = (
-                rel_to_attribute.group_by("concept_id")
-                .count()
+                rel_to_attribute["concept_id"]
+                .value_counts()
                 .filter(pl.col("count") > 1)
             )["concept_id"]
             diff = len(concept_to_multiple_relations) - len(
@@ -796,4 +801,228 @@ class OMOPVocabulariesV5:
         Process Clinical Drug Components and link them to Ingredients and
         Precise Ingredients (if available)
         """
-        raise NotImplementedError("Not implemented yet")
+        self.logger.info("Processing Clinical Drug Components")
+        # Save node indices for reuse by descending classes
+        cdf_nodes: list[int] = []
+
+        self.logger.info("Finding Ingredients for Clinical Drug Components")
+
+        # We could stick to DRUG_STRENGTH only, but we need to validate
+        # the data
+        cdf_to_ing = self.get_class_relationships(
+            class_id_1="Clinical Drug Comp",
+            class_id_2="Ingredient",
+            relationship_id="RxNorm has ing",
+        )
+        cdf_to_mult = (
+            cdf_to_ing.group_by("concept_id")
+            .count()
+            .filter(pl.col("count") > 1)
+        )["concept_id"]
+        if len(cdf_to_mult):
+            self.logger.warning(
+                f"Found {len(cdf_to_mult):,} Clinical Drug Components with "
+                "multiple Ingredients"
+            )
+            self.filter_out_bad_concepts(cdf_to_mult)
+            cdf_to_ing = cdf_to_ing.join(
+                other=cdf_to_mult.to_frame(name="concept_id"),
+                on="concept_id",
+                how="anti",
+            )
+
+        # Find the Precise Ingredients for Clinical Drug Components
+        cdf_to_precise = self.get_class_relationships(
+            class_id_1="Clinical Drug Comp",
+            class_id_2="Precise Ingredient",
+            relationship_id="Has precise ing",
+        )
+        cdf_to_mult_pi = (
+            cdf_to_precise["concept_id"]
+            .value_counts()
+            .filter(pl.col("count") > 1)
+        )["concept_id"]
+
+        if len(cdf_to_mult_pi):
+            self.logger.warning(
+                f"Found {len(cdf_to_mult_pi):,} Clinical Drug Components with "
+                f"multiple Precise Ingredients"
+            )
+            self.filter_out_bad_concepts(cdf_to_mult_pi)
+            cdf_to_precise = cdf_to_precise.join(
+                other=cdf_to_mult_pi.to_frame(name="concept_id"),
+                on="concept_id",
+                how="anti",
+            )
+
+        strength_data = self.get_strength_data(cdf_to_ing["concept_id"])
+
+        del cdf_nodes, strength_data
+        raise NotImplementedError(
+            "Finish implementing Clinical Drug Components"
+        )
+
+    def filter_non_ingredient_in_strength(self):
+        """
+        Filter out drug concepts that treat other drug classes
+        (usually Precise Ingredients) as Ingredients in DRUG_STRENGTH entries
+        """
+
+        self.logger.info(
+            "Filtering out drug concepts that specify non-Ingredients in "
+            "DRUG_STRENGTH"
+        )
+        drug_strength_noning = (
+            self.strength.data()
+            .join(
+                other=self.concept.data(),
+                left_on="ingredient_concept_id",
+                right_on="concept_id",
+            )
+            .filter(
+                pl.col("concept_class_id") != "Ingredient",
+            )
+            .select("drug_concept_id", "concept_class_id")
+        )
+
+        if len(drug_strength_noning):
+            msg = (
+                f"Found {len(drug_strength_noning):,} drug concepts that "
+                f"treat non-Ingredients as Ingredients in DRUG_STRENGTH, "
+                f"by target:"
+            )
+            cls_counts = drug_strength_noning["concept_class_id"].value_counts()
+            cls: str
+            cnt: int
+            for cls, cnt in cls_counts.iter_rows():
+                msg += f"\n- {cnt:,} {cls} concepts"
+
+            self.logger.warning(msg)
+            self.filter_out_bad_concepts(
+                drug_strength_noning["drug_concept_id"]
+            )
+            self.strength.reader.anti_join(
+                drug_strength_noning, on=["drug_concept_id"]
+            )
+        else:
+            self.logger.info(
+                "No drug concepts that treat non-Ingredients as Ingredients "
+                "in DRUG_STRENGTH found"
+            )
+
+    def filter_invalid_strength_configurations(self):
+        """
+        Filter out drug concepts with invalid strength configurations
+        """
+        # First, define the valid configurations
+        # - Amount value and unit are present, rest of the fields are null
+        amount_only = (
+            pl.col("amount_value").is_not_null()
+            & pl.col("amount_unit_concept_id").is_not_null()
+            & pl.col("numerator_value").is_null()
+            & pl.col("numerator_unit_concept_id").is_null()
+            & pl.col("denominator_value").is_null()
+            & pl.col("denominator_unit_concept_id").is_null()
+        )
+        # - Numerator value and unit are present, but denominator is unit only
+        liquid_concentration = (
+            pl.col("amount_value").is_null()
+            & pl.col("amount_unit_concept_id").is_null()
+            & pl.col("numerator_value").is_not_null()
+            & pl.col("numerator_unit_concept_id").is_not_null()
+            & pl.col("denominator_value").is_null()
+            & pl.col("denominator_unit_concept_id").is_not_null()
+        )
+        # - Numerator and denominator values and units are present
+        liquid_quantity = (
+            pl.col("amount_value").is_null()
+            & pl.col("amount_unit_concept_id").is_null()
+            & pl.col("numerator_value").is_not_null()
+            & pl.col("numerator_unit_concept_id").is_not_null()
+            & pl.col("denominator_value").is_not_null()
+            & pl.col("denominator_unit_concept_id").is_not_null()
+        )
+        # - Gases are weird. They can have numerator with percents exactly in
+        #   numerator and no denominator data.
+        gas_concentration = (
+            pl.col("amount_value").is_null()
+            & pl.col("amount_unit_concept_id").is_null()
+            & pl.col("numerator_value").is_not_null()
+            & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
+            & pl.col("denominator_value").is_null()
+            & pl.col("denominator_unit_concept_id").is_null()
+        )
+        # - Quantified gases are even worse! They can have numerator value,
+        #   percents numerator unit and denominator value with no unit.
+        gas_quantity = (
+            pl.col("amount_value").is_null()
+            & pl.col("amount_unit_concept_id").is_null()
+            & pl.col("numerator_value").is_not_null()
+            & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
+            & pl.col("denominator_value").is_not_null()
+            & pl.col("denominator_unit_concept_id").is_null()
+        )
+
+        # TODO: Box size variations, once we start using them
+
+        strength_with_class = (
+            self.strength.data()
+            .join(
+                other=self.concept.data(),
+                left_on="drug_concept_id",
+                right_on="concept_id",
+            )
+            .select(*StrengthTable.TABLE_COLUMNS, "concept_class_id")
+        )
+
+        # Filter configurations by class
+        valid_strength: pl.Expr = (
+            # WARN: There are CDF, BDF and Ingredient concept that specify
+            # amount unit ONLY. This is not a valid configuration, but we will
+            # let it slide for now, as their strength data is meaningless.
+            pl.col("concept_class_id").is_in([
+                "Clinical Drug Form",
+                "Branded Drug Form",
+                "Ingredient",
+                # "Precise Ingredient",  # Always wrong
+            ])
+            |
+            # Comps and Drugs can have either amount or liquid concentration
+            (
+                pl.col("concept_class_id").is_in([
+                    "Clinical Drug Comp",
+                    "Branded Drug Comp",
+                    "Clinical Drug",
+                    "Branded Drug",
+                ])
+                & (amount_only | liquid_concentration | gas_concentration)
+            )
+            |
+            # Quant Drug classes can have any quantity of non-solid phase
+            (
+                pl.col("concept_class_id").is_in([
+                    "Quant Clinical Drug",
+                    "Quant Branded Drug",
+                ])
+                & (liquid_quantity | gas_quantity)
+            )
+        )
+
+        invalid_strength = strength_with_class.filter(~valid_strength)
+
+        if len(invalid_strength):
+            # invalid_strength.write_csv(
+            #     Path("reference") / "source_errors" / "invalid_strength.csv"
+            # )
+            invalid_drugs = invalid_strength["drug_concept_id"].unique()
+            self.logger.warning(
+                f"Found {len(invalid_strength):,} invalid strength "
+                f"configurations for {len(invalid_drugs):,} drug concepts"
+            )
+            self.filter_out_bad_concepts(invalid_drugs)
+            self.strength.reader.anti_join(
+                invalid_drugs.to_frame(name="drug_concept_id"),
+                on=["drug_concept_id"],
+            )
+        else:
+            self.logger.info("All strength configurations are validated")

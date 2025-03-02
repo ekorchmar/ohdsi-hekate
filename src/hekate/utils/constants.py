@@ -64,3 +64,5 @@ REPLACEMENT_RELATIONSHIP = [
     "Concept replaced by",
     "Concept replaces",
 ]
+
+PERCENT_CONCEPT_ID = 8554
