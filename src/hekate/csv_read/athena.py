@@ -1005,16 +1005,6 @@ class OMOPVocabulariesV5:
             & pl.col("denominator_value").is_null()
             & pl.col("denominator_unit_concept_id").is_null()
         )
-        # - Quantified gases are even worse! They can have numerator value,
-        #   percents numerator unit and denominator value with no unit.
-        gas_quantity = (
-            pl.col("amount_value").is_null()
-            & pl.col("amount_unit_concept_id").is_null()
-            & pl.col("numerator_value").is_not_null()
-            & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
-            & pl.col("denominator_value").is_not_null()
-            & pl.col("denominator_unit_concept_id").is_null()
-        )
 
         # TODO: Box size variations, once we start using them
 
@@ -1051,13 +1041,13 @@ class OMOPVocabulariesV5:
                 & (amount_only | liquid_concentration | gas_concentration)
             )
             |
-            # Quant Drug classes can have any quantity of non-solid phase
+            # Quant Drug classes can have only have liquid quantity
             (
                 pl.col("concept_class_id").is_in([
                     "Quant Clinical Drug",
                     "Quant Branded Drug",
                 ])
-                & (liquid_quantity | gas_quantity)
+                & liquid_quantity
             )
         )
 
