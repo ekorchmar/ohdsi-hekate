@@ -552,11 +552,17 @@ class OMOPVocabulariesV5:
             .select(concept_id="concept_id_2")
         )
 
-        self.logger.warning(
-            f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
-            "Precise Ingredients as Ingredients"
-        )
-        self.filter_out_bad_concepts(complex_pi_as_ing["concept_id"])
+        if len(complex_pi_as_ing):
+            self.logger.warning(
+                f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
+                "Precise Ingredients as Ingredients"
+            )
+            self.filter_out_bad_concepts(complex_pi_as_ing["concept_id"])
+        else:
+            self.logger.info(
+                "No drug concepts that treat Precise Ingredients as "
+                "Ingredients found"
+            )
 
     def filter_out_bad_concepts(self, bad_concepts: pl.Series) -> None:
         """
@@ -614,7 +620,7 @@ class OMOPVocabulariesV5:
         )
 
         for concept_class, rel in DEFINING_ATTRIBUTE_RELATIONSHIP.items():
-            self.logger.warning(
+            self.logger.info(
                 f"Salvaging concepts that specify more than one "
                 f"{concept_class} attribute"
             )
@@ -657,11 +663,17 @@ class OMOPVocabulariesV5:
                 .filter(pl.col("count") > 1)
             )["concept_id"]
 
-            self.logger.warning(
-                f"Found {len(concept_to_multiple_valid):,} drug concepts "
-                f"with multiple valid {concept_class} attributes"
-            )
-            self.filter_out_bad_concepts(concept_to_multiple_valid)
+            if len(concept_to_multiple_valid):
+                self.logger.warning(
+                    f"Found {len(concept_to_multiple_valid):,} drug concepts "
+                    f"with multiple valid {concept_class} attributes"
+                )
+                self.filter_out_bad_concepts(concept_to_multiple_valid)
+            else:
+                self.logger.info(
+                    f"No drug concepts with multiple valid {concept_class} "
+                    "attributes found"
+                )
 
             # Second, find ones having only any amount of invalid attributes
             concept_has_valid = rel_to_attribute.filter(
@@ -675,9 +687,40 @@ class OMOPVocabulariesV5:
                     how="anti",
                 )
             )["concept_id"].unique()
-            self.logger.warning(
-                f"Found {len(concept_has_only_invalid):,} drug concepts "
-                f"with only invalid {concept_class} attributes"
+
+            if len(concept_has_only_invalid):
+                self.logger.warning(
+                    f"Found {len(concept_has_only_invalid):,} drug concepts "
+                    f"with only invalid {concept_class} attributes"
+                )
+                self.filter_out_bad_concepts(concept_has_only_invalid)
+            else:
+                self.logger.info(
+                    f"No drug concepts with only invalid {concept_class} "
+                    "attributes found"
+                )
+
+            # Log the number of concepts salvaged
+            # For this, find concepts with multiple relations
+            # and substract the ones that were filtered out
+            # NOTE: This is not critical for Hekate run, but we may want to
+            # eventually export the QA data for Vocabularies to fix the upstream
+            # source data.
+            concept_to_multiple_relations = (
+                rel_to_attribute.group_by("concept_id")
+                .count()
+                .filter(pl.col("count") > 1)
+            )["concept_id"]
+            diff = len(concept_to_multiple_relations) - len(
+                concept_to_multiple_valid
             )
-            print(concept_has_only_invalid)
-            self.filter_out_bad_concepts(concept_has_only_invalid)
+            if diff:
+                self.logger.info(
+                    f"Salvaged {diff:,} drug concepts with multiple "
+                    f"{concept_class} attributes"
+                )
+            else:
+                self.logger.info(
+                    f"No drug concepts with multiple {concept_class} "
+                    "attributes were salvaged"
+                )
