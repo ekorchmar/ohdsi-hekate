@@ -53,9 +53,9 @@ ALL_CONCEPT_RELATIONSHIP_IDS: pl.Series = pl.Series(
 type DefiningMonoAttributeClass = Literal["Dose Form", "Brand Name", "Supplier"]
 
 DEFINING_ATTRIBUTE_RELATIONSHIP: dict[DefiningMonoAttributeClass, str] = {
-    "Dose Form": "RxNorm dose form of",
-    "Brand Name": "Brand name of",
-    "Supplier": "Supplier of",
+    "Dose Form": "RxNorm has dose form",
+    "Brand Name": "Has brand name",
+    "Supplier": "Has supplier",
 }
 
 REPLACEMENT_RELATIONSHIP = [
