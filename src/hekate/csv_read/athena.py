@@ -542,6 +542,8 @@ class OMOPVocabulariesV5:
                 f"{len(bad_cdc):,} Clinical Drug Forms had failed "
                 "integrity checks",
             )
+        else:
+            self.logger.info("All Clinical Drug Forms passed integrity checks")
 
         return cdc_nodes
 
@@ -853,7 +855,9 @@ class OMOPVocabulariesV5:
             ("Precise Ingredient", "Has precise ing", "PI"),
         ]
 
+        attrs: dict[str, pl.DataFrame] = {}
         for class_id, relationship_id, short in tuples_to_check:
+            self.logger.info(f"Finding {class_id} for Clinical Drug Components")
             cdc_to_attr = self.get_class_relationships(
                 class_id_1="Clinical Drug Comp",
                 class_id_2=class_id,
@@ -871,21 +875,44 @@ class OMOPVocabulariesV5:
                     f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
                     f"multiple of {class_id} attributes",
                 )
+                cdc_to_attr = cdc_to_attr.filter(
+                    ~pl.col("concept_id").is_in(cdc_to_mult)
+                )
             else:
                 self.logger.info(
-                    "No Clinical Drug Components with multiple Ingredients found"
+                    f"No Clinical Drug Components with multiple of {class_id} "
+                    f"attributes found"
                 )
 
-        strength_data = self.get_strength_data(
-            self.concept.data().filter(
-                pl.col("concept_class_id") == "Clinical Drug Comp"
-            )["concept_id"]
+            attrs[short] = cdc_to_attr.select("concept_id", "concept_id_target")
+
+        cdc_frame = (
+            attrs["Ing"]
+            .rename({"concept_id_target": "ingredient_concept_id"})
+            .join(
+                other=attrs["PI"].rename({
+                    "concept_id_target": "precise_ingredient_concept_id"
+                }),
+                on="concept_id",
+                how="left",
+            )
+            .join(
+                other=self.get_strength_data(
+                    self.concept.data().filter(
+                        pl.col("concept_class_id") == "Clinical Drug Comp"
+                    )["concept_id"]
+                ),
+                left_on="concept_id",
+                right_on="drug_concept_id",
+                how="left",
+            )
         )
 
-        del cdc_nodes, strength_data
-        raise NotImplementedError(
-            "Finish implementing Clinical Drug Components"
-        )
+        for row in cdc_frame.iter_rows(named=True):
+            raise NotImplementedError(
+                "Finish implementing Clinical Drug Components"
+            )
+        return cdc_nodes
 
     def filter_non_ingredient_in_strength(self):
         """
@@ -1046,10 +1073,6 @@ class OMOPVocabulariesV5:
                 "Malformed_Strength",
                 f"Found {len(invalid_strength):,} invalid strength "
                 f"configurations for {len(invalid_drugs):,} drug concepts",
-            )
-            self.strength.reader.anti_join(
-                invalid_drugs.to_frame(name="drug_concept_id"),
-                on=["drug_concept_id"],
             )
         else:
             self.logger.info("All strength configurations are validated")
