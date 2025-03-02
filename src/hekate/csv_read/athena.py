@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import override
 
 import polars as pl  # For type hinting and schema definition
-
 from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
+from rx_model.exception import RxConceptCreationError
 from utils.classes import SortedTuple
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
@@ -511,14 +511,20 @@ class OMOPVocabulariesV5:
                 )
 
             else:
-                valid_cdc_count += 1
-                node_idx = self.hierarchy.add_clinical_drug_form(
-                    dc.ClinicalDrugForm(
+                try:
+                    cdf = dc.ClinicalDrugForm(
                         identifier=dc.ConceptId(cdc_concept_id),
                         dose_form=dose_form,
                         ingredients=SortedTuple(ingreds),
                     )
-                )
+                except RxConceptCreationError as e:
+                    self.logger.error(
+                        f"Failed to create Clinical Drug Form {cdc_concept_id}"
+                        f": {e}"
+                    )
+                    continue
+                valid_cdc_count += 1
+                node_idx = self.hierarchy.add_clinical_drug_form(cdf)
                 cdc_nodes.append(node_idx)
 
         self.logger.info(
