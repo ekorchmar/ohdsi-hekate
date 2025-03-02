@@ -530,11 +530,12 @@ class OMOPVocabulariesV5:
             cdc_no_df + cdc_no_ing + cdc_ing_mismatch, dtype=pl.UInt32
         )
         if len(bad_cdc):
-            self.logger.warning(
+            self.filter_out_bad_concepts(
+                bad_cdc,
+                "CDC_Processing",
                 f"{len(bad_cdc):,} Clinical Drug Forms had failed "
-                "integrity checks"
+                "integrity checks",
             )
-            self.filter_out_bad_concepts(bad_cdc)
 
         return cdc_nodes
 
@@ -594,27 +595,36 @@ class OMOPVocabulariesV5:
         )
 
         if len(complex_pi_as_ing):
-            self.logger.warning(
+            self.filter_out_bad_concepts(
+                complex_pi_as_ing["concept_id"],
+                "PI_as_Ing",
                 f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
-                "Precise Ingredients as Ingredients"
+                f"Precise Ingredients as Ingredients",
             )
-            self.filter_out_bad_concepts(complex_pi_as_ing["concept_id"])
         else:
             self.logger.info(
                 "No drug concepts that treat Precise Ingredients as "
                 "Ingredients found"
             )
 
-    def filter_out_bad_concepts(self, bad_concepts: pl.Series) -> None:
+    def filter_out_bad_concepts(
+        self, bad_concepts: pl.Series, reason_short: str, reason_full: str
+    ) -> None:
         """
         Filter out concepts and their relationships from the tables.
 
         Args:
             bad_concepts: Polars Series with `concept_id` values to filter out.
+            reason_short: Short reason for filtering out the concepts. Will be
+                used for structuring the log messages and reports.
+            reason_long: Reason for filtering out the concepts. Will be used for
+                logging and/or reporting.
         """
+        logger = self.logger.getChild(reason_short)
+        logger.warning(reason_full)
         bad_concepts_df = bad_concepts.to_frame(name="concept_id")
 
-        self.logger.info("Including all descendants of bad concepts")
+        logger.info("Including all descendants of bad concepts")
         bad_descendants_df = (
             self.ancestor.data()
             .join(
@@ -627,33 +637,54 @@ class OMOPVocabulariesV5:
         )
         bad_concepts_df = pl.concat([bad_concepts_df, bad_descendants_df])
 
-        self.logger.info("Removing from the concept table")
+        logger.info("Removing from the concept table")
         self.concept.reader.anti_join(bad_concepts_df, on=["concept_id"])
 
-        self.logger.info("Removing from relationship table (left)")
+        logger.info("Removing from relationship table (left)")
         self.relationship.reader.anti_join(
             bad_concepts_df,
             left_on=["concept_id_1"],
             right_on=["concept_id"],
         )
-        self.logger.info("Removing from relationship table (right)")
+        logger.info("Removing from relationship table (right)")
         self.relationship.reader.anti_join(
             bad_concepts_df,
             left_on=["concept_id_2"],
             right_on=["concept_id"],
         )
 
-        self.logger.info("Removing from ancestor table (left)")
+        logger.info("Removing from ancestor table (left)")
         self.ancestor.reader.anti_join(
             bad_concepts_df,
             left_on=["ancestor_concept_id"],
             right_on=["concept_id"],
         )
 
-        self.logger.info("Removing from ancestor table (right)")
+        logger.info("Removing from ancestor table (right)")
         self.ancestor.reader.anti_join(
             bad_concepts_df,
             left_on=["descendant_concept_id"],
+            right_on=["concept_id"],
+        )
+
+        # Most of these checks are performed before the strength table
+        # is materialized, and we don't want to materialize it just for this
+        # operation.
+        try:
+            strength = self.strength
+        except AttributeError:
+            return
+
+        logger.info("Removing from strength table (left)")
+        strength.reader.anti_join(
+            bad_concepts_df,
+            left_on=["drug_concept_id"],
+            right_on=["concept_id"],
+        )
+        logger.info("Removing from strength table (right)")
+        strength.reader.anti_join(
+            bad_concepts_df,
+            left_on=["ingredient_concept_id"],
             right_on=["concept_id"],
         )
 
@@ -735,11 +766,12 @@ class OMOPVocabulariesV5:
             )["concept_id"]
 
             if len(concept_to_multiple_valid):
-                self.logger.warning(
+                self.filter_out_bad_concepts(
+                    concept_to_multiple_valid,
+                    "Multiple_" + concept_class.replace(" ", "_"),
                     f"Found {len(concept_to_multiple_valid):,} drug concepts "
-                    f"with multiple valid {concept_class} attributes"
+                    f"with multiple valid {concept_class} attributes",
                 )
-                self.filter_out_bad_concepts(concept_to_multiple_valid)
             else:
                 self.logger.info(
                     f"No drug concepts with multiple valid {concept_class} "
@@ -760,11 +792,12 @@ class OMOPVocabulariesV5:
             )["concept_id"].unique()
 
             if len(concept_has_only_invalid):
-                self.logger.warning(
+                self.filter_out_bad_concepts(
+                    concept_has_only_invalid,
+                    "No_" + concept_class.replace(" ", "_"),
                     f"Found {len(concept_has_only_invalid):,} drug concepts "
-                    f"with only invalid {concept_class} attributes"
+                    f"with only invalid {concept_class} attributes",
                 )
-                self.filter_out_bad_concepts(concept_has_only_invalid)
             else:
                 self.logger.info(
                     f"No drug concepts with only invalid {concept_class} "
@@ -803,61 +836,72 @@ class OMOPVocabulariesV5:
         """
         self.logger.info("Processing Clinical Drug Components")
         # Save node indices for reuse by descending classes
-        cdf_nodes: list[int] = []
+        cdc_nodes: list[int] = []
 
         self.logger.info("Finding Ingredients for Clinical Drug Components")
 
         # We could stick to DRUG_STRENGTH only, but we need to validate
         # the data
-        cdf_to_ing = self.get_class_relationships(
+        cdc_to_ing = self.get_class_relationships(
             class_id_1="Clinical Drug Comp",
             class_id_2="Ingredient",
             relationship_id="RxNorm has ing",
         )
-        cdf_to_mult = (
-            cdf_to_ing.group_by("concept_id")
+        cdc_to_mult = (
+            cdc_to_ing.group_by("concept_id")
             .count()
             .filter(pl.col("count") > 1)
         )["concept_id"]
-        if len(cdf_to_mult):
-            self.logger.warning(
-                f"Found {len(cdf_to_mult):,} Clinical Drug Components with "
-                "multiple Ingredients"
+        if len(cdc_to_mult):
+            self.filter_out_bad_concepts(
+                cdc_to_mult,
+                "CDC_Multiple_Ing",
+                f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
+                f"multiple Ingredients",
             )
-            self.filter_out_bad_concepts(cdf_to_mult)
-            cdf_to_ing = cdf_to_ing.join(
-                other=cdf_to_mult.to_frame(name="concept_id"),
+            cdc_to_ing = cdc_to_ing.join(
+                other=cdc_to_mult.to_frame(name="concept_id"),
                 on="concept_id",
                 how="anti",
             )
+        else:
+            self.logger.info(
+                "No Clinical Drug Components with multiple Ingredients found"
+            )
 
         # Find the Precise Ingredients for Clinical Drug Components
-        cdf_to_precise = self.get_class_relationships(
+        cdc_to_precise = self.get_class_relationships(
             class_id_1="Clinical Drug Comp",
             class_id_2="Precise Ingredient",
             relationship_id="Has precise ing",
         )
         cdf_to_mult_pi = (
-            cdf_to_precise["concept_id"]
+            cdc_to_precise["concept_id"]
             .value_counts()
             .filter(pl.col("count") > 1)
         )["concept_id"]
 
         if len(cdf_to_mult_pi):
-            self.logger.warning(
+            self.filter_out_bad_concepts(
+                cdf_to_mult_pi,
+                "CDC_Multiple_PI",
                 f"Found {len(cdf_to_mult_pi):,} Clinical Drug Components with "
-                f"multiple Precise Ingredients"
+                f"multiple Precise Ingredients",
             )
-            self.filter_out_bad_concepts(cdf_to_mult_pi)
-            cdf_to_precise = cdf_to_precise.join(
+            cdc_to_precise = cdc_to_precise.join(
                 other=cdf_to_mult_pi.to_frame(name="concept_id"),
                 on="concept_id",
                 how="anti",
             )
+        else:
+            self.logger.info(
+                "No Clinical Drug Components with multiple Precise Ingredients "
+                "found"
+            )
 
-        strength_data = self.get_strength_data(cdf_to_ing["concept_id"])
+        strength_data = self.get_strength_data(cdc_to_ing["concept_id"])
 
-        del cdf_nodes, strength_data
+        del cdc_nodes, strength_data
         raise NotImplementedError(
             "Finish implementing Clinical Drug Components"
         )
@@ -897,9 +941,10 @@ class OMOPVocabulariesV5:
             for cls, cnt in cls_counts.iter_rows():
                 msg += f"\n- {cnt:,} {cls} concepts"
 
-            self.logger.warning(msg)
             self.filter_out_bad_concepts(
-                drug_strength_noning["drug_concept_id"]
+                drug_strength_noning["drug_concept_id"],
+                "Non_Ing_Strength",
+                msg,
             )
             self.strength.reader.anti_join(
                 drug_strength_noning, on=["drug_concept_id"]
@@ -1015,11 +1060,12 @@ class OMOPVocabulariesV5:
             #     Path("reference") / "source_errors" / "invalid_strength.csv"
             # )
             invalid_drugs = invalid_strength["drug_concept_id"].unique()
-            self.logger.warning(
+            self.filter_out_bad_concepts(
+                invalid_drugs,
+                "Malformed_Strength",
                 f"Found {len(invalid_strength):,} invalid strength "
-                f"configurations for {len(invalid_drugs):,} drug concepts"
+                f"configurations for {len(invalid_drugs):,} drug concepts",
             )
-            self.filter_out_bad_concepts(invalid_drugs)
             self.strength.reader.anti_join(
                 invalid_drugs.to_frame(name="drug_concept_id"),
                 on=["drug_concept_id"],
