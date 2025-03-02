@@ -322,7 +322,7 @@ class OMOPVocabulariesV5:
 
     def get_strength_data(self, drug_ids: pl.Series) -> pl.DataFrame:
         """
-        Get the strength data for each drug concept.
+        Get the strength data slice for each drug concept.
         """
         return self.strength.data().join(
             other=drug_ids.unique().to_frame(name="drug_concept_id"),
@@ -842,64 +842,39 @@ class OMOPVocabulariesV5:
 
         # We could stick to DRUG_STRENGTH only, but we need to validate
         # the data
-        cdc_to_ing = self.get_class_relationships(
-            class_id_1="Clinical Drug Comp",
-            class_id_2="Ingredient",
-            relationship_id="RxNorm has ing",
+        tuples_to_check = [
+            ("Ingredient", "RxNorm has ing", "Ing"),
+            ("Precise Ingredient", "Has precise ing", "PI"),
+        ]
+
+        for class_id, relationship_id, short in tuples_to_check:
+            cdc_to_attr = self.get_class_relationships(
+                class_id_1="Clinical Drug Comp",
+                class_id_2=class_id,
+                relationship_id=relationship_id,
+            )
+            cdc_to_mult = (
+                cdc_to_attr.group_by("concept_id")
+                .count()
+                .filter(pl.col("count") > 1)
+            )["concept_id"]
+            if len(cdc_to_mult):
+                self.filter_out_bad_concepts(
+                    cdc_to_mult,
+                    "CDC_Multiple_" + short,
+                    f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
+                    f"multiple of {class_id} attributes",
+                )
+            else:
+                self.logger.info(
+                    "No Clinical Drug Components with multiple Ingredients found"
+                )
+
+        strength_data = self.get_strength_data(
+            self.concept.data().filter(
+                pl.col("concept_class_id") == "Clinical Drug Comp"
+            )["concept_id"]
         )
-        cdc_to_mult = (
-            cdc_to_ing.group_by("concept_id")
-            .count()
-            .filter(pl.col("count") > 1)
-        )["concept_id"]
-        if len(cdc_to_mult):
-            self.filter_out_bad_concepts(
-                cdc_to_mult,
-                "CDC_Multiple_Ing",
-                f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
-                f"multiple Ingredients",
-            )
-            cdc_to_ing = cdc_to_ing.join(
-                other=cdc_to_mult.to_frame(name="concept_id"),
-                on="concept_id",
-                how="anti",
-            )
-        else:
-            self.logger.info(
-                "No Clinical Drug Components with multiple Ingredients found"
-            )
-
-        # Find the Precise Ingredients for Clinical Drug Components
-        cdc_to_precise = self.get_class_relationships(
-            class_id_1="Clinical Drug Comp",
-            class_id_2="Precise Ingredient",
-            relationship_id="Has precise ing",
-        )
-        cdf_to_mult_pi = (
-            cdc_to_precise["concept_id"]
-            .value_counts()
-            .filter(pl.col("count") > 1)
-        )["concept_id"]
-
-        if len(cdf_to_mult_pi):
-            self.filter_out_bad_concepts(
-                cdf_to_mult_pi,
-                "CDC_Multiple_PI",
-                f"Found {len(cdf_to_mult_pi):,} Clinical Drug Components with "
-                f"multiple Precise Ingredients",
-            )
-            cdc_to_precise = cdc_to_precise.join(
-                other=cdf_to_mult_pi.to_frame(name="concept_id"),
-                on="concept_id",
-                how="anti",
-            )
-        else:
-            self.logger.info(
-                "No Clinical Drug Components with multiple Precise Ingredients "
-                "found"
-            )
-
-        strength_data = self.get_strength_data(cdc_to_ing["concept_id"])
 
         del cdc_nodes, strength_data
         raise NotImplementedError(
