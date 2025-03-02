@@ -23,12 +23,16 @@ from utils.logger import LOGGER
 class OMOPTable[FilterArg](ABC):
     """
     Abstract class to read Athena OMOP CDM Vocabularies
+
+    Attributes:
+        TABLE_SCHEMA: Schema for the table.
+        TABLE_COLUMNS: Ordered sequence of columns to keep from the table.
+        reader: CSVReader instance to read the table.
+
     """
 
     TABLE_SCHEMA: Schema
     TABLE_COLUMNS: list[str]
-    reader: CSVReader
-    path: Path
 
     @abstractmethod
     def table_filter(
@@ -45,13 +49,14 @@ class OMOPTable[FilterArg](ABC):
         filter_arg: FilterArg | None = None,
     ):
         super().__init__()
-        self.path = path
+        self.path: Path = path
         self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
 
         self.logger.info(f"Reading {path.name}")
-        self.reader = CSVReader(
+        self.reader: CSVReader = CSVReader(
             path=self.path,
             schema=self.TABLE_SCHEMA,
+            keep_columns=self.TABLE_COLUMNS,
             line_filter=self.table_filter,
             filter_arg=filter_arg,
         )
@@ -149,8 +154,6 @@ class ConceptTable(OMOPTable[None]):
                     # | (pl.col("concept_class_id") == "Branded Pack Box")
                 ),
             )
-            # Only subset of columns (in predictable order)
-            .select(self.TABLE_COLUMNS)
         )
 
 
@@ -181,14 +184,14 @@ class RelationshipTable(OMOPTable[pl.Series]):
             raise ValueError("Concept filter argument is required.")
 
         return frame.filter(
-            # TODO: Hunt for valid relations to invalid targets
+            # Only care about valid internal relationships
             pl.col("invalid_reason").is_null(),
             pl.col("relationship_id").is_in(ALL_CONCEPT_RELATIONSHIP_IDS),
             # TODO: Parametrize these joins; maybe it's not worth the
             # performance hit
             pl.col("concept_id_1").is_in(concept),
             pl.col("concept_id_2").is_in(concept),
-        ).select(self.TABLE_COLUMNS)
+        )
 
 
 class StrengthTable(OMOPTable[pl.Series]):
@@ -234,7 +237,7 @@ class StrengthTable(OMOPTable[pl.Series]):
             # Redundant
             # pl.col("drug_concept_id").is_in(concept["concept_id"]),
             pl.col("ingredient_concept_id").is_in(ingredients),
-        ).select(self.TABLE_COLUMNS)
+        )
 
 
 class AncestorTable(OMOPTable[pl.Series]):
@@ -259,10 +262,11 @@ class AncestorTable(OMOPTable[pl.Series]):
         if concept is None:
             raise ValueError("Concept filter argument is required.")
 
+        # Only keep internal relationships
         return frame.filter(
             pl.col("descendant_concept_id").is_in(concept),
             pl.col("ancestor_concept_id").is_in(concept),
-        ).select(self.TABLE_COLUMNS)
+        )
 
 
 class OMOPVocabulariesV5:
@@ -514,7 +518,8 @@ class OMOPVocabulariesV5:
 
     def filter_malformed_concepts(self) -> None:
         """
-        Filter out concepts with invalid or missing data.
+        Filter out concepts with invalid or missing data. This first performs
+        integrity checks and then removes the explicitly deprecated concepts.
         """
         self.logger.info("Filtering out malformed concepts")
 

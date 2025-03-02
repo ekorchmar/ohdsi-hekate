@@ -1,6 +1,6 @@
-"""\
-    Generic CSV reader, able to iterate over rows of Athena or
-    BuildRxE input CSV files.
+"""
+Generic CSV reader, able to iterate over rows of Athena or
+BuildRxE input CSV files.
 """
 
 from collections.abc import Mapping
@@ -9,10 +9,8 @@ from pathlib import Path
 from typing import Callable, TypeVar
 from collections.abc import Sequence
 
-import csv
 import polars as pl
 
-from utils.exceptions import SchemaError
 from utils.logger import LOGGER
 
 T = TypeVar("T")
@@ -31,6 +29,7 @@ class CSVReader:
         self,
         path: Path,
         schema: Schema,
+        keep_columns: Sequence[str],
         delimiter: str = "\t",
         quote_char: str | None = None,
         line_filter: LineFilter[T] | None = None,
@@ -42,8 +41,9 @@ class CSVReader:
 
             schema: Obligatory schema to use when reading the CSV file.
 
-            columns: List of column names. Defaults to `None` to include
-                all columns.
+            keep_columns: List of column names to keep. Defaults to `None` to
+                include all columns. If filter is specified, columns will be
+                applied after filtering.
 
             delimiter: Delimiter used in the CSV file. Defaults to "\\t" as is
                 historically used by Athena.
@@ -71,12 +71,10 @@ class CSVReader:
         self.delimiter: str = delimiter
         self.path: Path = path
         self.schema: Schema = schema
+        self.columns: Sequence[str] = keep_columns
 
         # Associate a logger with the pathname
         self.logger: logging.Logger = LOGGER.getChild(path.name)
-
-        # Find actual column layout
-        self.infer_header_order()
 
         # Create a reader object
         self._lazy_frame: pl.LazyFrame = pl.scan_csv(
@@ -91,23 +89,13 @@ class CSVReader:
         # Apply line filter if provided
         if line_filter:
             self._lazy_frame = line_filter(self._lazy_frame, filter_arg)
+
+        # Apply column selection
+        self._lazy_frame = self._lazy_frame.select(self.columns)
+
         self.logger.debug(self._lazy_frame.explain())
 
         self.data: pl.DataFrame | None = None
-
-    def infer_header_order(self) -> None:
-        """
-        Parse the header to validate the known schema.
-        """
-        with open(self.path, "r") as file:
-            reader = csv.reader(file, delimiter=self.delimiter)
-            self.header: list[str] = list(next(reader))
-
-        missed_columns = set(self.schema) - set(self.header)
-        if missed_columns:
-            raise SchemaError(
-                f"Columns {', '.join(missed_columns)} not found in the header."
-            )
 
     def materialize(self):
         """
