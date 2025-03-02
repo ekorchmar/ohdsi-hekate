@@ -193,6 +193,6 @@ class CSVReader:
         )
 
         self.logger.info(
-            f"Removed {old_len - len(self.data):,} rows with anti-join of"
+            f"Removed {old_len - len(self.data):,} rows with anti-join of "
             f"{len(other):,} rows"
         )
