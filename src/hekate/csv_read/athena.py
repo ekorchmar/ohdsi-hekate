@@ -336,32 +336,40 @@ class OMOPVocabulariesV5:
             logger=self.logger,
         )
 
+        # Materialize the concept table to filter big tables early
+        self.concept.materialize()
+        all_concept_ids = self.concept.data()["concept_id"]
+
         self.relationship: RelationshipTable = RelationshipTable(
             path=vocab_download_path / "CONCEPT_RELATIONSHIP.csv",
             logger=self.logger,
-            filter_arg=self.concept.data()["concept_id"],
-        )
-
-        # Filter implicitly deprecated concepts
-        self.filter_malformed_concepts()
-
-        self.strength: StrengthTable = StrengthTable(
-            path=vocab_download_path / "DRUG_STRENGTH.csv",
-            logger=self.logger,
-            filter_arg=self.concept.data()["concept_id"],
+            filter_arg=all_concept_ids,
         )
 
         self.ancestor: AncestorTable = AncestorTable(
             path=vocab_download_path / "CONCEPT_ANCESTOR.csv",
             logger=self.logger,
-            filter_arg=self.concept.data()["concept_id"],
+            filter_arg=all_concept_ids,
+        )
+
+        # Filter implicitly deprecated concepts
+        self.filter_malformed_concepts()
+
+        # Now there are much less concepts to process
+        clean_concept_ids = self.concept.data()["concept_id"]
+        self.strength: StrengthTable = StrengthTable(
+            path=vocab_download_path / "DRUG_STRENGTH.csv",
+            logger=self.logger,
+            filter_arg=clean_concept_ids,
         )
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
         self.process_precise_ingredients()
         cdf_nodes: list[int] = self.process_clinical_drug_forms()
-        del cdf_nodes
+        cdc_nodes: list[int] = self.process_clinical_drug_comps()
+
+        del cdf_nodes, cdc_nodes
 
     def process_atoms(self) -> None:
         """
@@ -578,6 +586,20 @@ class OMOPVocabulariesV5:
             bad_concepts: Polars Series with `concept_id` values to filter out.
         """
         bad_concepts_df = bad_concepts.to_frame(name="concept_id")
+
+        self.logger.info("Including all descendants of bad concepts")
+        bad_descendants_df = (
+            self.ancestor.data()
+            .join(
+                other=bad_concepts_df,
+                left_on="ancestor_concept_id",
+                right_on="concept_id",
+            )
+            .select(concept_id="descendant_concept_id")
+            .unique()
+        )
+        bad_concepts_df = pl.concat([bad_concepts_df, bad_descendants_df])
+
         self.logger.info("Removing from the concept table")
         self.concept.reader.anti_join(bad_concepts_df, on=["concept_id"])
 
@@ -591,6 +613,20 @@ class OMOPVocabulariesV5:
         self.relationship.reader.anti_join(
             bad_concepts_df,
             left_on=["concept_id_2"],
+            right_on=["concept_id"],
+        )
+
+        self.logger.info("Removing from ancestor table (left)")
+        self.ancestor.reader.anti_join(
+            bad_concepts_df,
+            left_on=["ancestor_concept_id"],
+            right_on=["concept_id"],
+        )
+
+        self.logger.info("Removing from ancestor table (right)")
+        self.ancestor.reader.anti_join(
+            bad_concepts_df,
+            left_on=["descendant_concept_id"],
             right_on=["concept_id"],
         )
 
