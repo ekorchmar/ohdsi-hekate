@@ -15,6 +15,7 @@ from rx_model import hierarchy as h
 from utils.classes import SortedTuple
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
+    DEFINING_ATTRIBUTE_RELATIONSHIP,
 )
 from utils.logger import LOGGER
 
@@ -456,10 +457,6 @@ class OMOPVocabulariesV5:
             ingredient = self.atoms.ingredient[row[concept_id_target_idx]]
             cdc_ingredient.setdefault(cdc_concept_id, []).append(ingredient)
 
-        # WARN: RxE concepts may have Precise Ingredient in place of Ingredient,
-        # but this IS an error, as evidenced by DRUG_STRENGTH entries. We are
-        # discarding those Clinical Drug Forms.
-
         self.logger.info("Creating Clinical Drug Forms")
         cdc_concepts: pl.Series = self.concept.data().filter(
             pl.col("concept_class_id") == "Clinical Drug Form"
@@ -497,9 +494,8 @@ class OMOPVocabulariesV5:
                 )
 
         self.logger.info(
-            f"Processed {valid_cdc_count} Clinical Drug Forms with "
-            f"Dose Forms and Ingredients out of {len(cdc_concepts):,} "
-            f"possible."
+            f"Processed {valid_cdc_count:,} Clinical Drug Forms out of "
+            f"{len(cdc_concepts):,} possible."
         )
 
     def filter_malformed_concepts(self) -> None:
@@ -508,8 +504,18 @@ class OMOPVocabulariesV5:
         """
         self.logger.info("Filtering out malformed concepts")
 
-        # 1. Filter out drug concepts that treat Precise Ingredients as
-        #    Ingredients
+        self.filter_precise_ingredient_as_ingredient()
+
+        self.salvage_multiple_defining_attributes()
+
+        # Remove explicitly deprecated concepts and their relations
+        self.filter_explicitly_deprecated_concepts()
+
+    def filter_precise_ingredient_as_ingredient(self):
+        """
+        Filter out drug concepts that treat Precise Ingredients as
+        Ingredients
+        """
         self.logger.info(
             "Filtering out drug concepts that treat Precise Ingredients as "
             "Ingredients"
@@ -550,27 +556,33 @@ class OMOPVocabulariesV5:
             f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
             "Precise Ingredients as Ingredients"
         )
+        self.filter_out_bad_concepts(complex_pi_as_ing["concept_id"])
+
+    def filter_out_bad_concepts(self, bad_concepts: pl.Series) -> None:
+        """
+        Filter out concepts and their relationships from the tables.
+        """
+        bad_concepts_df = bad_concepts.to_frame(name="concept_id")
         self.logger.info("Removing from the concept table")
-        self.concept.reader.anti_join(complex_pi_as_ing, on=["concept_id"])
+        self.concept.reader.anti_join(bad_concepts_df, on=["concept_id"])
 
         self.logger.info("Removing from relationship table (left)")
         self.relationship.reader.anti_join(
-            complex_pi_as_ing,
+            bad_concepts_df,
             left_on=["concept_id_1"],
             right_on=["concept_id"],
         )
         self.logger.info("Removing from relationship table (right)")
         self.relationship.reader.anti_join(
-            complex_pi_as_ing,
+            bad_concepts_df,
             left_on=["concept_id_2"],
             right_on=["concept_id"],
         )
 
-        # 2. Try salvaging concepts that specify multiple Brand Names,
-        #    Dose Forms, or Suppliers, but only one of them is valid
-        # TODO: Implement this
-
-        # 3. Filter out explicitly deprecated concepts
+    def filter_explicitly_deprecated_concepts(self):
+        """
+        Filter out explicitly deprecated concepts
+        """
         self.logger.info("Filtering out invalid concepts and their relations")
         invalid_concepts = (
             self.concept.data()
@@ -581,6 +593,8 @@ class OMOPVocabulariesV5:
             f"Found {len(invalid_concepts):,} invalid concepts "
             f"out of {len(self.concept.data()):,}"
         )
+
+        # NOTE: Do not use filter_out_bad_concepts() here, this is faster
         self.concept.reader.filter(pl.col("invalid_reason").is_null())
         self.relationship.reader.filter(
             ~(
@@ -589,4 +603,81 @@ class OMOPVocabulariesV5:
             )
         )
 
-        exit(1)
+    def salvage_multiple_defining_attributes(self):
+        """
+        Salvage concepts that specify more than one defining attribute,
+        only one of them being valid.
+        """
+        complex_drug_concepts = self.concept.data().filter(
+            pl.col("standard_concept") == "S",
+            ~(pl.col("concept_class_id") == "Ingredient"),
+        )
+
+        for concept_class, rel in DEFINING_ATTRIBUTE_RELATIONSHIP.items():
+            self.logger.warning(
+                f"Salvaging concepts that specify more than one "
+                f"{concept_class} attribute"
+            )
+
+            # Find concepts with multiple defining attributes
+            rel_to_attribute = (
+                complex_drug_concepts.join(
+                    other=self.relationship.data().filter(
+                        pl.col("relationship_id") == rel,
+                    ),
+                    left_on="concept_id",
+                    right_on="concept_id_1",
+                    suffix="_relationship",
+                )
+                .join(
+                    other=self.concept.data().filter(
+                        pl.col("concept_class_id") == concept_class,
+                    ),
+                    left_on="concept_id_2",
+                    right_on="concept_id",
+                    suffix="_target",
+                )
+                .select("concept_id", "concept_id_2", "invalid_reason_target")
+            )
+
+            # We want to catch only:
+            # - Concepts with multiple valid attributes
+            # - Concepts with exactly 0 valid attributes
+            #     These would be misenterpreted as concepts of another class
+            #     by Build_RxE. Hekate would reject them at a later stage still,
+            #     but it's better to catch them early.
+
+            # First, count with multiple valid attributes
+            concept_to_multiple_valid = (
+                rel_to_attribute.filter(
+                    pl.col("invalid_reason_target").is_null()
+                )
+                .group_by("concept_id")
+                .count()
+                .filter(pl.col("count") > 1)
+            )["concept_id"]
+
+            self.logger.warning(
+                f"Found {len(concept_to_multiple_valid):,} drug concepts "
+                f"with multiple valid {concept_class} attributes"
+            )
+            self.filter_out_bad_concepts(concept_to_multiple_valid)
+
+            # Second, find ones having only any amount of invalid attributes
+            concept_has_valid = rel_to_attribute.filter(
+                pl.col("invalid_reason_target").is_null()
+            ).select("concept_id")
+            concept_has_only_invalid = (
+                rel_to_attribute.join(
+                    concept_has_valid,
+                    left_on="concept_id",
+                    right_on="concept_id",
+                    how="anti",
+                )
+            )["concept_id"].unique()
+            self.logger.warning(
+                f"Found {len(concept_has_only_invalid):,} drug concepts "
+                f"with only invalid {concept_class} attributes"
+            )
+            print(concept_has_only_invalid)
+            self.filter_out_bad_concepts(concept_has_only_invalid)
