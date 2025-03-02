@@ -480,19 +480,25 @@ class OMOPVocabulariesV5:
 
         cdc_ds_ing_count = self.get_strength_counts(cdc_concepts)
 
+        cdc_no_df: list[int] = []
+        cdc_no_ing: list[int] = []
+        cdc_ing_mismatch: list[int] = []
         for cdc_concept_id in cdc_concepts:
             if (dose_form := cdc_dose_form.get(cdc_concept_id)) is None:
+                cdc_no_df.append(cdc_concept_id)
                 self.logger.warning(
                     f"Dose Form absent for Clinical Drug Form {cdc_concept_id}"
                 )
 
             elif (ingreds := cdc_ingredient.get(cdc_concept_id)) is None:
+                cdc_no_ing.append(cdc_concept_id)
                 self.logger.warning(
                     f"Ingredients absent for Clinical Drug Form "
                     f"{cdc_concept_id}"
                 )
 
             elif not cdc_ds_ing_count.get(cdc_concept_id, 0) == len(ingreds):
+                cdc_ing_mismatch.append(cdc_concept_id)
                 self.logger.warning(
                     f"Ingredient count mismatch for Clinical Drug Form "
                     f"{cdc_concept_id}"
@@ -513,6 +519,16 @@ class OMOPVocabulariesV5:
             f"Processed {valid_cdc_count:,} Clinical Drug Forms out of "
             f"{len(cdc_concepts):,} possible."
         )
+
+        bad_cdc = pl.concat(
+            map(pl.Series, [cdc_no_df, cdc_no_ing, cdc_ing_mismatch])
+        )
+        if len(bad_cdc):
+            self.logger.warning(
+                f"{len(bad_cdc):,} Clinical Drug Forms had failed "
+                "integrity checks"
+            )
+            self.filter_out_bad_concepts(bad_cdc)
 
         return cdc_nodes
 
