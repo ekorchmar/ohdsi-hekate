@@ -5,7 +5,7 @@ Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import override
+from typing import NamedTuple, override
 
 import polars as pl  # For type hinting and schema definition
 from csv_read.generic import CSVReader, Schema
@@ -16,9 +16,14 @@ from utils.classes import SortedTuple
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     DEFINING_ATTRIBUTE_RELATIONSHIP,
-    PERCENT_CONCEPT_ID,
+    STRENGTH_CONFIGURATIONS,
 )
 from utils.logger import LOGGER
+
+
+class StrengthTuple(NamedTuple):
+    ingredient_concept_id: int
+    strength: dc.SolidStrength | dc.LiquidQuantity | dc.LiquidConcentration
 
 
 class OMOPTable[FilterArg](ABC):
@@ -372,6 +377,8 @@ class OMOPVocabulariesV5:
         # Also use Drug Strength for filtering other tables
         self.filter_non_ingredient_in_strength()
         self.filter_invalid_strength_configurations()
+        # TODO: filter concepts having varying denominator unit/value
+        # This does not happen in the current release, but might eventually
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
@@ -968,46 +975,6 @@ class OMOPVocabulariesV5:
         Filter out drug concepts with invalid strength configurations
         """
         # First, define the valid configurations
-        # - Amount value and unit are present, rest of the fields are null
-        amount_only = (
-            pl.col("amount_value").is_not_null()
-            & pl.col("amount_unit_concept_id").is_not_null()
-            & pl.col("numerator_value").is_null()
-            & pl.col("numerator_unit_concept_id").is_null()
-            & pl.col("denominator_value").is_null()
-            & pl.col("denominator_unit_concept_id").is_null()
-        )
-        # - Numerator value and unit are present, but denominator is unit only
-        liquid_concentration = (
-            pl.col("amount_value").is_null()
-            & pl.col("amount_unit_concept_id").is_null()
-            & pl.col("numerator_value").is_not_null()
-            & pl.col("numerator_unit_concept_id").is_not_null()
-            & pl.col("denominator_value").is_null()
-            & pl.col("denominator_unit_concept_id").is_not_null()
-        )
-        # - Numerator and denominator values and units are present
-        liquid_quantity = (
-            pl.col("amount_value").is_null()
-            & pl.col("amount_unit_concept_id").is_null()
-            & pl.col("numerator_value").is_not_null()
-            & pl.col("numerator_unit_concept_id").is_not_null()
-            & pl.col("denominator_value").is_not_null()
-            & pl.col("denominator_unit_concept_id").is_not_null()
-        )
-        # - Gases are weird. They can have numerator with percents exactly in
-        #   numerator and no denominator data.
-        gas_concentration = (
-            pl.col("amount_value").is_null()
-            & pl.col("amount_unit_concept_id").is_null()
-            & pl.col("numerator_value").is_not_null()
-            & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
-            & pl.col("denominator_value").is_null()
-            & pl.col("denominator_unit_concept_id").is_null()
-        )
-
-        # TODO: Box size variations, once we start using them
-
         strength_with_class = (
             self.strength.data()
             .join(
@@ -1030,7 +997,7 @@ class OMOPVocabulariesV5:
                 # "Precise Ingredient",  # Always wrong
             ])
             |
-            # Comps and Drugs can have either amount or liquid concentration
+            # Comps and Drugs can have either amount concentration
             (
                 pl.col("concept_class_id").is_in([
                     "Clinical Drug Comp",
@@ -1038,7 +1005,11 @@ class OMOPVocabulariesV5:
                     "Clinical Drug",
                     "Branded Drug",
                 ])
-                & (amount_only | liquid_concentration | gas_concentration)
+                & (
+                    STRENGTH_CONFIGURATIONS["amount_only"]
+                    | STRENGTH_CONFIGURATIONS["liquid_concentration"]
+                    | STRENGTH_CONFIGURATIONS["gas_concentration"]
+                )
             )
             |
             # Quant Drug classes can have only have liquid quantity
@@ -1047,7 +1018,7 @@ class OMOPVocabulariesV5:
                     "Quant Clinical Drug",
                     "Quant Branded Drug",
                 ])
-                & liquid_quantity
+                & STRENGTH_CONFIGURATIONS["liquid_quantity"]
             )
         )
 

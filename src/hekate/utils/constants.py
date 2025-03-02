@@ -66,3 +66,45 @@ REPLACEMENT_RELATIONSHIP = [
 ]
 
 PERCENT_CONCEPT_ID = 8554
+
+
+STRENGTH_CONFIGURATIONS: dict[str, pl.Expr] = {
+    # - Amount value and unit are present, rest of the fields are null
+    "amount_only": (
+        pl.col("amount_value").is_not_null()
+        & pl.col("amount_unit_concept_id").is_not_null()
+        & pl.col("numerator_value").is_null()
+        & pl.col("numerator_unit_concept_id").is_null()
+        & pl.col("denominator_value").is_null()
+        & pl.col("denominator_unit_concept_id").is_null()
+    ),
+    # - Numerator value and unit are present, but denominator is unit only
+    "liquid_concentration": (
+        pl.col("amount_value").is_null()
+        & pl.col("amount_unit_concept_id").is_null()
+        & pl.col("numerator_value").is_not_null()
+        & pl.col("numerator_unit_concept_id").is_not_null()
+        & pl.col("denominator_value").is_null()
+        & pl.col("denominator_unit_concept_id").is_not_null()
+    ),
+    # - Numerator and denominator values and units are present
+    "liquid_quantity": (
+        pl.col("amount_value").is_null()
+        & pl.col("amount_unit_concept_id").is_null()
+        & pl.col("numerator_value").is_not_null()
+        & pl.col("numerator_unit_concept_id").is_not_null()
+        & pl.col("denominator_value").is_not_null()
+        & pl.col("denominator_unit_concept_id").is_not_null()
+    ),
+    # - Gases are weird. They can have numerator with percents exactly in
+    #   numerator and no denominator data.
+    "gas_concentration": (
+        pl.col("amount_value").is_null()
+        & pl.col("amount_unit_concept_id").is_null()
+        & pl.col("numerator_value").is_not_null()
+        & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
+        & pl.col("denominator_value").is_null()
+        & pl.col("denominator_unit_concept_id").is_null()
+    ),
+    # TODO: Box size variations, once we start using them
+}
