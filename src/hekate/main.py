@@ -12,7 +12,7 @@ Hekate starts another hex!
 """)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
     path = Path("~/Downloads/Vocab/").expanduser()
     LOGGER.info(f"Starting processing of Athena Vocabularies from {path}")
@@ -28,7 +28,6 @@ if __name__ == '__main__':
     # but we may want to raise an error instead.
 
     class IFind43147050(rx.visit.DFSVisitor):
-
         @override
         def discover_vertex(self, v: int, t: int):
             del t  # Discover time
@@ -41,7 +40,7 @@ if __name__ == '__main__':
     rx.dfs_search(
         a.hierarchy.graph,
         list(a.hierarchy.ingredients.values()),
-        IFind43147050()
+        IFind43147050(),
     )
 
     print("Done")

@@ -4,6 +4,7 @@ class RxConceptError(Exception):
 
 class RxConceptCreationError(RxConceptError):
     """Occurs when a concept cannot be created due to integrity constraints."""
+
     pass
 
 

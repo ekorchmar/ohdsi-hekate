@@ -2,8 +2,7 @@ import logging
 import sys
 
 FORMATTER = logging.Formatter(
-    "[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] "
-    "%(message)s"
+    "[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
 )
 _stdout_handler = logging.StreamHandler(sys.stdout)
 _stdout_handler.setFormatter(FORMATTER)

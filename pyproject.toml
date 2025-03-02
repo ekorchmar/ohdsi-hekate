@@ -48,10 +48,10 @@ database = ["sqlalchemy", "pandas"]
 "Source" = "https://github.com/OHDSI/hekate"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src/hekate"]
 
 [tool.setuptools.dynamic]
-version = {file = "src/__version__"}
+version = {file = "src/hekate/__version__"}
 
 [tool.pyright]
 include = ["src"]
