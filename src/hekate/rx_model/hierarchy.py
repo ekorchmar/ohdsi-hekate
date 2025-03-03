@@ -2,10 +2,10 @@
 Contains the class that hosts the drug concept hierarchy.
 """
 
-from . import drug_classes as dc
+from rx_model import drug_classes as dc
 import rustworkx as rx
 import polars as pl
-from typing import Annotated
+from typing import Annotated, Final, Protocol
 
 
 # Generic types
@@ -32,6 +32,16 @@ type UnboundStrength = (
 type _BoundStrength[Id: dc.ConceptIdentifier, S: dc.UnquantifiedStrength] = (
     dc.BoundStrength[Id, S] | dc.BoundQuantity[Id]
 )
+
+
+class DrugClassNode[Id: dc.ConceptIdentifier](Protocol):
+    """
+    Protocol for the nodes in the drug concept hierarchy.
+    """
+
+    identifier: Final[Id]
+
+    # TODO: Add a shared generic method for transitive closure
 
 
 class Atoms[Id: dc.ConceptIdentifier]:
@@ -161,7 +171,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     """
 
     def __init__(self):
-        self.graph: rx.PyDAG = rx.PyDAG(
+        self.graph: rx.PyDAG[DrugClassNode[Id], None] = rx.PyDAG(
             check_cycle=False,  # Will be really hard to create a cycle
             multigraph=False,  # Hierarchical structure
             # node_count_hint = 1000,  # TODO: Estimate the number of nodes
@@ -206,5 +216,20 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
             self.ingredients[clinical_drug_component.ingredient],
             node_idx,
             None,
+        )
+        return node_idx
+
+    def add_branded_drug_form(
+        self,
+        branded_drug_form: dc.BrandedDrugForm[Id],
+        clinical_drug_form_idx: int,
+    ) -> int:
+        """
+        Add a branded drug form to the hierarchy. Returns the index of the
+        added node in the graph.
+        """
+        node_idx = self.graph.add_node(branded_drug_form)
+        _ = self.graph.add_edge(  # Discard edge index
+            clinical_drug_form_idx, node_idx, None
         )
         return node_idx

@@ -21,7 +21,7 @@ from utils.constants import (
 from utils.logger import LOGGER
 
 
-class StrengthTuple(NamedTuple):
+class _StrengthTuple(NamedTuple):
     ingredient_concept_id: int
     strength: h.UnboundStrength
 
@@ -40,6 +40,11 @@ class _StrengthDataRow(NamedTuple):
     liquid_quantity: bool
     gas_concentration: bool
     # TODO: box_size and other strength data
+
+
+# Type hint for a dictionary linking int concept_ids to indices in the hierarchy
+# graph. This serves as a temporary cache to speed up the hierarchy building
+type _TempNodeView = dict[int, int]
 
 
 class OMOPTable[FilterArg](ABC):
@@ -327,7 +332,7 @@ class OMOPVocabulariesV5:
 
     def get_strength_data(
         self, drug_ids: pl.Series
-    ) -> dict[int, list[StrengthTuple]]:
+    ) -> dict[int, list[_StrengthTuple]]:
         """
         Get the strength data slice for each drug concept.
 
@@ -344,7 +349,7 @@ class OMOPVocabulariesV5:
             variant of strength data, in shape of `SolidStrength`,
             `LiquidQuantity`, or `LiquidConcentration`.
         """
-        strength_data: dict[int, list[StrengthTuple]] = {}
+        strength_data: dict[int, list[_StrengthTuple]] = {}
         strength_df = self.strength.data().join(
             other=drug_ids.unique().to_frame(name="drug_concept_id"),
             on="drug_concept_id",
@@ -420,7 +425,7 @@ class OMOPVocabulariesV5:
                 continue
 
             strength_data.setdefault(row.drug_concept_id, []).append(
-                StrengthTuple(row.ingredient_concept_id, strength)
+                _StrengthTuple(row.ingredient_concept_id, strength)
             )
 
             # TODO: save strength data to self.strengths
@@ -581,9 +586,9 @@ class OMOPVocabulariesV5:
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
         self.process_precise_ingredients()
-        cdf_nodes: list[int] = self.process_clinical_drug_forms()
-        cdc_nodes: list[int] = self.process_clinical_drug_comps()
-        bdf_nodes: list[int] = self.process_branded_drug_forms(cdf_nodes)
+        cdf_nodes: _TempNodeView = self.process_clinical_drug_forms()
+        cdc_nodes: _TempNodeView = self.process_clinical_drug_comps()
+        bdf_nodes: _TempNodeView = self.process_branded_drug_forms(cdf_nodes)
 
         del cdc_nodes, bdf_nodes
 
@@ -647,7 +652,7 @@ class OMOPVocabulariesV5:
                 )
             )
 
-    def process_clinical_drug_forms(self) -> list[int]:
+    def process_clinical_drug_forms(self) -> _TempNodeView:
         """
         Process Clinical Drug Forms and link them to Dose Forms and Ingredients
 
@@ -656,8 +661,7 @@ class OMOPVocabulariesV5:
         """
         self.logger.info("Processing Clinical Drug Forms")
         # Save node indices for reuse by descending classes
-        cdf_nodes: list[int] = []
-
+        cdf_nodes: _TempNodeView = {}
         self.logger.info("Finding Dose Forms for Clinical Drug Forms")
         cdf_to_df = self.get_class_relationships(
             class_id_1="Clinical Drug Form",
@@ -797,7 +801,7 @@ class OMOPVocabulariesV5:
                 continue
 
             node_idx = self.hierarchy.add_clinical_drug_form(cdf)
-            cdf_nodes.append(node_idx)
+            cdf_nodes[concept_id] = node_idx
 
         self.filter_out_bad_concepts(
             pl.Series(cdf_no_ing, dtype=pl.UInt32),
@@ -1163,7 +1167,7 @@ class OMOPVocabulariesV5:
                     "attributes were salvaged"
                 )
 
-    def process_clinical_drug_comps(self) -> list[int]:
+    def process_clinical_drug_comps(self) -> _TempNodeView:
         """
         Process Clinical Drug Components and link them to Ingredients and
         Precise Ingredients (if available)
@@ -1173,7 +1177,7 @@ class OMOPVocabulariesV5:
         """
         self.logger.info("Processing Clinical Drug Components")
         # Save node indices for reuse by descending classes
-        cdc_nodes: list[int] = []
+        cdc_nodes: _TempNodeView = {}
 
         self.logger.info("Finding Ingredients for Clinical Drug Components")
 
@@ -1324,7 +1328,7 @@ class OMOPVocabulariesV5:
                 continue
 
             node_idx: int = self.hierarchy.add_clinical_drug_component(cdc)
-            cdc_nodes.append(node_idx)
+            cdc_nodes[concept_id] = node_idx
 
         self.filter_out_bad_concepts(
             pl.Series(cdc_ingredient_mismatch, dtype=pl.UInt32),
@@ -1506,7 +1510,9 @@ class OMOPVocabulariesV5:
             f"configurations for {len(invalid_drugs):,} drug concepts",
         )
 
-    def process_branded_drug_forms(self, cdf_nodes: list[int]) -> list[int]:
+    def process_branded_drug_forms(
+        self, cdf_nodes: _TempNodeView
+    ) -> _TempNodeView:
         """
         Process Branded Drug Forms and link them to parent Clinical Drug
         Components and Brand Names
@@ -1520,7 +1526,7 @@ class OMOPVocabulariesV5:
         """
 
         self.logger.info("Processing Branded Drug Forms")
-        bdf_nodes: list[int] = []
+        bdf_nodes: _TempNodeView = {}
 
         self.logger.info("Finding Brand Names for Branded Drug Forms")
         bdf_to_bn = self.get_class_relationships(
@@ -1572,14 +1578,158 @@ class OMOPVocabulariesV5:
 
         # Catch Branded Drug Forms without Clinical Drug Forms
         bdf_no_cdf = bdf_concepts.filter(pl.col("cdf_concept_id").is_null())
-        print(bdf_no_cdf)
-        exit(1)
         self.filter_out_bad_concepts(
             bdf_no_cdf["concept_id"],
             "All Branded Drug Forms have a Clinical Drug Form",
             "BDF_no_CDF",
             f"{len(bdf_no_cdf):,} Branded Drug Forms had no Clinical Drug Form",
         )
+        if len(bdf_no_cdf):
+            bdf_concepts = bdf_concepts.filter(
+                pl.col("cdf_concept_id").is_not_null()
+            )
 
-        del bdf_nodes, cdf_nodes
-        raise NotImplementedError("Branded Drug Forms are not implemented yet")
+        # Catch multiple Clinical Drug Forms for a single Branded Drug Form
+        bdf_mult_cdf = (
+            bdf_to_cdf.group_by("concept_id")
+            .count()
+            .filter(pl.col("count") > 1)
+        )
+        self.filter_out_bad_concepts(
+            bdf_mult_cdf["concept_id"],
+            "All Branded Drug Forms had a single Clinical Drug Form",
+            "BDF_Mult_CDF",
+            f"{len(bdf_mult_cdf):,} Branded Drug Forms had multiple "
+            "Clinical Drug Forms",
+        )
+        if len(bdf_mult_cdf):
+            bdf_concepts = bdf_concepts.join(
+                bdf_mult_cdf, on="concept_id", how="anti"
+            )
+
+        # We do not need the ingredient data to construct the BDF concept, but
+        # we will cross-check it against CDF data to ensure consistency
+        bdf_ing_ds = (
+            self.strength.data()
+            .join(
+                other=bdf_concepts,
+                left_on="drug_concept_id",
+                right_on="concept_id",
+            )
+            .select(["drug_concept_id", "ingredient_concept_id"])
+            .group_by("drug_concept_id")
+            .all()
+            .select(
+                concept_id="drug_concept_id",
+                ingredient_concept_ids="ingredient_concept_id",
+            )
+        )
+
+        # NOTE: We skip internal consistency checks. There is only one way for
+        # a BDF to be correct, and that is to have a single CDF with the same
+        # data.
+
+        bdf_concepts = bdf_concepts.join(
+            other=bdf_ing_ds,
+            on="concept_id",
+        )
+
+        bdf_bad_cdf: list[int] = []
+        bdf_cdf_ing_mismatch: list[int] = []
+        bdf_bad_bn: list[int] = []
+        bdf_failed: list[int] = []
+        for row in bdf_concepts.iter_rows():
+            concept_id: int = row[0]
+            brand_concept_id: int = row[1]
+            cdf_concept_id: int = row[2]
+            ingredient_concept_ids: list[int] = row[3]
+
+            try:
+                brand_name = self.atoms.brand_name[
+                    dc.ConceptId(brand_concept_id)
+                ]
+            except KeyError:
+                self.logger.error(
+                    f"Brand Name {brand_concept_id} not found for "
+                    f"Branded Drug Form {concept_id}"
+                )
+                bdf_bad_bn.append(concept_id)
+                continue
+
+            if (cdf_node_idx := cdf_nodes.get(cdf_concept_id)) is None:
+                self.logger.error(
+                    f"Branded Drug Form {concept_id} had no registered "
+                    f"Clinical Drug Form {cdf_concept_id}"
+                )
+                bdf_bad_cdf.append(concept_id)
+                continue
+
+            cdf = self.hierarchy.graph[cdf_node_idx]
+            if not isinstance(cdf, dc.ClinicalDrugForm):
+                # This should never happen, but we will catch it anyway
+                self.logger.error(
+                    f"Branded Drug Form {concept_id} specified a non-CDF "
+                    f"{cdf_concept_id} as Clinical Drug Form"
+                )
+                bdf_bad_cdf.append(concept_id)
+                continue
+
+            # Ingredients are sorted by identifier, so we can compare them
+            cdf_ing_ids = [ing.identifier for ing in cdf.ingredients]
+
+            if sorted(ingredient_concept_ids) != cdf_ing_ids:
+                self.logger.error(
+                    f"Ingredients mismatch for Branded Drug Form {concept_id}: "
+                    f"{ingredient_concept_ids} != {cdf_ing_ids}"
+                )
+                bdf_cdf_ing_mismatch.append(concept_id)
+                continue
+
+            try:
+                bdf = dc.BrandedDrugForm(
+                    identifier=dc.ConceptId(concept_id),
+                    brand_name=brand_name,
+                    clinical_drug_form=cdf,
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Branded Drug Form {concept_id}: {e}"
+                )
+                bdf_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_branded_drug_form(bdf, cdf_node_idx)
+            bdf_nodes[concept_id] = node_idx
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdf_bad_bn, dtype=pl.UInt32),
+            "All Branded Drug Forms have valid Brand Names",
+            "BDF_Bad_BN",
+            f"{len(bdf_bad_bn):,} Branded Drug Forms had bad Brand Names",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdf_bad_cdf, dtype=pl.UInt32),
+            "All Branded Drug Forms have valid Clinical Drug Forms",
+            "BDF_Bad_CDF",
+            f"{len(bdf_bad_cdf):,} Branded Drug Forms had bad Clinical Drug "
+            f"Forms",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdf_cdf_ing_mismatch, dtype=pl.UInt32),
+            "All Branded Drug Forms have matching Ingredients with their "
+            "Clinical Drug Forms",
+            "BDF_Ing_Mismatch",
+            f"{len(bdf_cdf_ing_mismatch):,} Branded Drug Forms had mismatched "
+            "Ingredients with their Clinical Drug Forms",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdf_failed, dtype=pl.UInt32),
+            "All Branded Drug Forms were successfully created",
+            "BDF_Failed",
+            f"{len(bdf_failed):,} Branded Drug Forms had failed creation",
+        )
+
+        return bdf_nodes
