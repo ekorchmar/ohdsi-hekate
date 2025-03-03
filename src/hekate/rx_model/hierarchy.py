@@ -23,8 +23,11 @@ type _AtomicConcept[Id: dc.ConceptIdentifier] = (
     dc.Unit
 )
 type NumDenomU = tuple[dc.Unit, dc.Unit]
-type _UnboundStrength = (
-    dc.SolidStrength | dc.LiquidConcentration | dc.LiquidQuantity
+type UnboundStrength = (
+    dc.SolidStrength
+    | dc.LiquidConcentration
+    | dc.LiquidQuantity
+    | dc.GaseousPercentage
 )
 type _BoundStrength[Id: dc.ConceptIdentifier, S: dc.UnquantifiedStrength] = (
     dc.BoundStrength[Id, S] | dc.BoundQuantity[Id]
@@ -132,6 +135,7 @@ class KnownStrength[Id: dc.ConceptIdentifier]:
     def __init__(self):
         self.solid_stength: dict[dc.Unit, dc.SolidStrength] = {}
         self.liquid_concentration: dict[NumDenomU, dc.LiquidConcentration] = {}
+        self.gaseous_percentage: dict[dc.Unit, dc.GaseousPercentage] = {}
         self.liquid_quantity: dict[dc.Unit, dc.LiquidQuantity] = {}
         self.bound_strength_graph: rx.PyDAG = rx.PyDAG(
             check_cycle=False,  # Will be really hard to create a cycle
@@ -140,7 +144,7 @@ class KnownStrength[Id: dc.ConceptIdentifier]:
             # edge_count_hint = 1000,  # TODO: Estimate the number of edges
         )
 
-    def add_strength(self, strength: _UnboundStrength) -> None:
+    def add_strength(self, strength: UnboundStrength) -> None:
         del strength
         raise NotImplementedError
 

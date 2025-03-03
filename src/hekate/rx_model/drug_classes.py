@@ -8,6 +8,7 @@ from rx_model import exception  # For custom exceptions
 from utils.utils import keep_multiple_values
 from utils.utils import invert_merge_dict
 from utils.classes import SortedTuple  # To ensure consistent layout
+from utils.constants import PERCENT_CONCEPT_ID  # For gaseous percentage check
 
 from dataclasses import dataclass
 
@@ -190,8 +191,16 @@ class LiquidConcentration:
 
     # TODO: Concisely check for both numerator and denominator units
     def unit_matches(
-        self, other: "LiquidConcentration | LiquidQuantity"
+        self, other: "LiquidConcentration | LiquidQuantity | GaseousPercentage"
     ) -> None:
+        if isinstance(other, GaseousPercentage):
+            raise exception.StrengthUnitMismatchError(
+                f"Liquid concentration {self} cannot be compared to gaseous "
+                f"percentage {other}.",
+                self.numerator_unit,
+                other.numerator_unit,
+            )
+
         if self.numerator_unit != other.numerator_unit:
             raise exception.StrengthUnitMismatchError(
                 f"Liquid quantity numerator units do not match: "
@@ -216,6 +225,34 @@ class LiquidConcentration:
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
+class GaseousPercentage:
+    """
+    Special case of concentration for gases. Only specifies numerator value
+    and unit.
+    """
+
+    numerator_value: float
+    numerator_unit: Unit
+    # Null for denominator value
+    # Null for denominator unit
+
+    def __post_init__(self):
+        # Numerator unit must be a percentage
+        if self.numerator_unit.identifier != ConceptId(PERCENT_CONCEPT_ID):
+            raise exception.RxConceptCreationError(
+                f"Gaseous concentration must be percent ({PERCENT_CONCEPT_ID})"
+                f"percentage unit, not {self.numerator_unit}."
+            )
+
+        # Numerator value must be a positive number < 100
+        if 0 <= self.numerator_value > 100:
+            raise exception.RxConceptCreationError(
+                f"Gaseous concentration must have a positive numerator "
+                f"value not exceeding 100, not {self.numerator_value}."
+            )
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
 class LiquidQuantity(LiquidConcentration):
     """
     Quantified liquid dosage with both total content and volume.
@@ -223,7 +260,14 @@ class LiquidQuantity(LiquidConcentration):
 
     denominator_value: float
 
-    def get_unquantified(self) -> LiquidConcentration:
+    def get_unquantified(self) -> LiquidConcentration | GaseousPercentage:
+        # Gas percentage is a special case
+        if self.numerator_unit.identifier == ConceptId(PERCENT_CONCEPT_ID):
+            return GaseousPercentage(
+                numerator_value=self.numerator_value,
+                numerator_unit=self.numerator_unit,
+            )
+
         return LiquidConcentration(
             numerator_value=self.numerator_value / self.denominator_value,
             numerator_unit=self.numerator_unit,
@@ -257,7 +301,9 @@ class LiquidQuantity(LiquidConcentration):
             )
 
 
-type UnquantifiedStrength = SolidStrength | LiquidConcentration
+type UnquantifiedStrength = (
+    SolidStrength | LiquidConcentration | GaseousPercentage
+)
 
 
 # Derived concepts
@@ -398,7 +444,9 @@ class BoundStrength[Id: ConceptIdentifier, S: UnquantifiedStrength]:
 class BoundQuantity[Id: ConceptIdentifier]:
     ingredient: Ingredient[Id]
     strength: LiquidQuantity
-    corresponding_component: ClinicalDrugComponent[Id, LiquidConcentration]
+    corresponding_component: ClinicalDrugComponent[
+        Id, LiquidConcentration | GaseousPercentage
+    ]
 
     def __post_init__(self):
         comp = self.corresponding_component
@@ -484,11 +532,15 @@ class BrandedDrug[Id: ConceptIdentifier, S: UnquantifiedStrength]:
 class QuantifiedClinicalDrug[Id: ConceptIdentifier]:
     identifier: Id
     contents: SortedTuple[BoundQuantity[Id]]
-    unquantified_equivalent: ClinicalDrug[Id, LiquidConcentration]
+    unquantified_equivalent: ClinicalDrug[
+        Id, LiquidConcentration | GaseousPercentage
+    ]
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedBrandedDrug[Id: ConceptIdentifier]:
     identifier: Id
     clinical_drug: QuantifiedClinicalDrug[Id]
-    unquantified_equivalent: BrandedDrug[Id, LiquidConcentration]
+    unquantified_equivalent: BrandedDrug[
+        Id, LiquidConcentration | GaseousPercentage
+    ]
