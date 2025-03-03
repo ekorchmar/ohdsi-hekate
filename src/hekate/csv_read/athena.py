@@ -585,6 +585,7 @@ class OMOPVocabulariesV5:
         self.filter_deprecated_units_in_strength()
         self.filter_non_ingredient_in_strength()
         self.filter_invalid_strength_configurations()
+        # TODO: filter gases with percentage sum exceeding 100
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
@@ -1111,12 +1112,156 @@ class OMOPVocabulariesV5:
             )
         )
 
-        _ = self.get_strength_data(cdc_frame["concept_id"])
-
-        for row in cdc_frame.iter_rows(named=True):
-            raise NotImplementedError(
-                "Finish implementing Clinical Drug Components"
+        # As we are working with CDC, only one strength entry is expected
+        # per concept
+        # NOTE: This check is semantically redundant, as we already filter
+        # multiple ingredients per CONCEPT_RELATIONSHIP data, but there
+        # are no guarantees of consistency.
+        cdc_ds_ing_count = self.get_strength_counts(cdc_frame["concept_id"])
+        multiple_strength = pl.Series(
+            k for k, v in cdc_ds_ing_count.items() if v > 1
+        )
+        if len(multiple_strength):
+            self.filter_out_bad_concepts(
+                multiple_strength,
+                "CDC_Multiple_Strength",
+                f"Found {len(multiple_strength):,} Clinical Drug Components "
+                "with multiple strength entries",
             )
+            cdc_frame = cdc_frame.filter(
+                ~pl.col("concept_id").is_in(multiple_strength)
+            )
+        else:
+            self.logger.info(
+                "No Clinical Drug Components with multiple strength entries "
+                "found"
+            )
+
+        strength_data = self.get_strength_data(cdc_frame["concept_id"])
+        cdc_frame = cdc_frame.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(strength_data.keys(), dtype=pl.UInt32)
+            )
+        )
+
+        cdc_ingredient_mismatch: list[int] = []
+        cdc_bad_ingredient: list[int] = []
+        cdc_bad_precise_ingredient: list[int] = []
+        cdc_failed: list[int] = []
+        for row in cdc_frame.iter_rows():
+            concept_id: int = row[0]
+            ingredient_concept_id: int = row[1]
+            precise_ingredient_concept_id: int | None = row[2]
+            (str_tuple,) = strength_data[concept_id]
+            ds_ingredient_concept_id: int = str_tuple.ingredient_concept_id
+            strength: h.UnboundStrength = str_tuple.strength
+
+            # I really hope this check is redundant
+            if ingredient_concept_id != ds_ingredient_concept_id:
+                self.logger.error(
+                    f"Ingredient mismatch for Clinical Drug Component "
+                    f"{concept_id}: {ingredient_concept_id} != "
+                    f"{ds_ingredient_concept_id}"
+                )
+                cdc_ingredient_mismatch.append(concept_id)
+
+            try:
+                ingredient = self.atoms.ingredient[
+                    dc.ConceptId(ingredient_concept_id)
+                ]
+            except KeyError:
+                self.logger.error(
+                    f"Ingredient {ingredient_concept_id} not found for "
+                    f"Clinical Drug Component {concept_id}"
+                )
+                cdc_bad_ingredient.append(concept_id)
+                continue
+
+            if (picid := precise_ingredient_concept_id) is not None:
+                possible_pi = self.atoms.precise_ingredient.get(ingredient, [])
+                possible_identifiers = [pi.identifier for pi in possible_pi]
+                if dc.ConceptId(picid) not in possible_identifiers:
+                    self.logger.error(
+                        f"Precise Ingredient {picid} is not a valid Precise "
+                        f"Ingredient for Ingredient {ingredient_concept_id}"
+                    )
+                    cdc_bad_precise_ingredient.append(concept_id)
+                    continue
+                else:
+                    precise_ingredient = possible_pi[
+                        possible_identifiers.index(dc.ConceptId(picid))
+                    ]
+            else:
+                precise_ingredient = None
+
+            try:
+                cdc = dc.ClinicalDrugComponent(
+                    identifier=dc.ConceptId(concept_id),
+                    ingredient=ingredient,
+                    precise_ingredient=precise_ingredient,
+                    strength=strength,
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Clinical Drug Component {concept_id}"
+                    f": {e}"
+                )
+                cdc_failed.append(concept_id)
+                continue
+
+            node_idx: int = self.hierarchy.add_clinical_drug_component(cdc)
+            cdc_nodes.append(node_idx)
+
+        if len(cdc_ingredient_mismatch):
+            self.filter_out_bad_concepts(
+                pl.Series(cdc_ingredient_mismatch, dtype=pl.UInt32),
+                "CDC_Ing_Mismatch",
+                f"{len(cdc_ingredient_mismatch):,} Clinical Drug Components "
+                f"had ingredient mismatches between DRUG_STRENGTH and "
+                "CONCEPT_RELATIONSHIP",
+            )
+        else:
+            self.logger.info(
+                "All Clinical Drug Components have the same ingredient in "
+                "DRUG_STRENGTH and CONCEPT_RELATIONSHIP"
+            )
+
+        if len(cdc_bad_ingredient):
+            self.filter_out_bad_concepts(
+                pl.Series(cdc_bad_ingredient, dtype=pl.UInt32),
+                "CDC_Bad_Ing",
+                f"{len(cdc_bad_ingredient):,} Clinical Drug Components had "
+                "bad Ingredients",
+            )
+        else:
+            self.logger.info(
+                "All Clinical Drug Components have valid Ingredients"
+            )
+
+        if len(cdc_bad_precise_ingredient):
+            self.filter_out_bad_concepts(
+                pl.Series(cdc_bad_precise_ingredient, dtype=pl.UInt32),
+                "CDC_Bad_PI",
+                f"{len(cdc_bad_precise_ingredient):,} Clinical Drug Components "
+                "had bad Precise Ingredients",
+            )
+        else:
+            self.logger.info(
+                "All Clinical Drug Components have valid Precise Ingredients"
+            )
+
+        if len(cdc_failed):
+            self.filter_out_bad_concepts(
+                pl.Series(cdc_failed, dtype=pl.UInt32),
+                "CDC_Failed",
+                f"{len(cdc_failed):,} Clinical Drug Components had failed "
+                "creation",
+            )
+        else:
+            self.logger.info(
+                "All Clinical Drug Components were successfully created"
+            )
+
         return cdc_nodes
 
     def filter_non_ingredient_in_strength(self):

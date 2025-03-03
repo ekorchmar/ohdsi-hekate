@@ -190,3 +190,21 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
                 self.ingredients[ingredient], node_idx, None
             )
         return node_idx
+
+    def add_clinical_drug_component[S: dc.UnquantifiedStrength](
+        self,
+        clinical_drug_component: dc.ClinicalDrugComponent[Id, S],
+    ) -> int:
+        """
+        Add a clinical drug component to the hierarchy. Returns the index of
+        the added node in the graph.
+        """
+        # TODO: add strength data
+
+        node_idx = self.graph.add_node(clinical_drug_component)
+        _ = self.graph.add_edge(  # Discard edge index
+            self.ingredients[clinical_drug_component.ingredient],
+            node_idx,
+            None,
+        )
+        return node_idx
