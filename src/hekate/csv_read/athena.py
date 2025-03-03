@@ -325,22 +325,6 @@ class OMOPVocabulariesV5:
 
         return joined
 
-    def get_strength_counts(self, drug_ids: pl.Series) -> dict[int, int]:
-        """
-        Get the counts of ingredients for each drug concept.
-        """
-        counts_df = (
-            self.strength.data()
-            .join(
-                other=drug_ids.to_frame(name="drug_concept_id"),
-                left_on="drug_concept_id",
-                right_on="drug_concept_id",
-            )["drug_concept_id"]
-            .value_counts()
-        )
-
-        return {row[0]: row[1] for row in counts_df.iter_rows()}
-
     def get_strength_data(
         self, drug_ids: pl.Series
     ) -> dict[int, list[StrengthTuple]]:
@@ -592,8 +576,11 @@ class OMOPVocabulariesV5:
         self.process_precise_ingredients()
         cdf_nodes: list[int] = self.process_clinical_drug_forms()
         cdc_nodes: list[int] = self.process_clinical_drug_comps()
+        bdf_nodes: list[int] = self.process_branded_drug_forms(
+            cdf_nodes=cdf_nodes
+        )
 
-        del cdf_nodes, cdc_nodes
+        del cdc_nodes, bdf_nodes
 
     def process_atoms(self) -> None:
         """
@@ -658,106 +645,206 @@ class OMOPVocabulariesV5:
     def process_clinical_drug_forms(self) -> list[int]:
         """
         Process Clinical Drug Forms and link them to Dose Forms and Ingredients
+
+        Returns:
+            List of node indices for Clinical Drug Forms in the hierarchy
         """
         self.logger.info("Processing Clinical Drug Forms")
         # Save node indices for reuse by descending classes
         cdf_nodes: list[int] = []
 
-        cdf_concept_id: int
         self.logger.info("Finding Dose Forms for Clinical Drug Forms")
-        cdf_dose_form: dict[int, dc.DoseForm[dc.ConceptId]] = {}
         cdf_to_df = self.get_class_relationships(
             class_id_1="Clinical Drug Form",
             class_id_2="Dose Form",
             relationship_id="RxNorm has dose form",
+        ).select("concept_id", dose_form_id="concept_id_target")
+
+        cdf_concepts = (
+            self.concept.data()
+            .filter(pl.col("concept_class_id") == "Clinical Drug Form")
+            .select("concept_id")
+            .join(cdf_to_df, on="concept_id", how="left")
         )
-        concept_id_idx = cdf_to_df.columns.index("concept_id")
-        concept_id_target_idx = cdf_to_df.columns.index("concept_id_target")
-        for row in cdf_to_df.iter_rows():
-            cdf_concept_id = row[concept_id_idx]
-            dose_form = self.atoms.dose_form[row[concept_id_target_idx]]
-            cdf_dose_form[cdf_concept_id] = dose_form
+
+        # Catch empty dose forms
+        cdf_no_df = cdf_concepts.filter(pl.col("dose_form_id").is_null())
+        if len(cdf_no_df):
+            self.filter_out_bad_concepts(
+                cdf_no_df["concept_id"],
+                "CDF_no_DF",
+                f"{len(cdf_no_df):,} Clinical Drug Forms had no Dose Form",
+            )
+            cdf_concepts = cdf_concepts.filter(
+                pl.col("dose_form_id").is_not_null()
+            )
+        else:
+            self.logger.info("All Clinical Drug Forms have a Dose Form")
+
+        # Catch multiple dose forms for a single Clinical Drug Form
+        cdf_mult_df = (
+            cdf_to_df.group_by("concept_id").count().filter(pl.col("count") > 1)
+        )
+        if len(cdf_mult_df):
+            self.filter_out_bad_concepts(
+                cdf_mult_df["concept_id"],
+                "CDF_Mult_DF",
+                f"{len(cdf_mult_df):,} Clinical Drug Forms had multiple "
+                "Dose Forms",
+            )
+            cdf_concepts = cdf_concepts.join(
+                cdf_mult_df, on="concept_id", how="anti"
+            )
+        else:
+            self.logger.info("All Clinical Drug Forms had a single Dose Form")
 
         self.logger.info("Finding Ingredients for Clinical Drug Forms")
-        cdf_ingredient: dict[int, list[dc.Ingredient[dc.ConceptId]]] = {}
-        cdf_to_ing = self.get_class_relationships(
+
+        # From CONCEPT_RELATIONSHIP table
+        cdf_to_ing_cr = self.get_class_relationships(
             class_id_1="Clinical Drug Form",
             class_id_2="Ingredient",
             relationship_id="RxNorm has ing",
+        ).select(["concept_id", "concept_id_target"])
+
+        cdf_ing_cr: dict[int, set[int]] = {}
+        for row in cdf_to_ing_cr.iter_rows():
+            cr_cdc_id: int = row[0]
+            cr_ingredient_id: int = row[1]
+            cdf_ing_cr.setdefault(cr_cdc_id, set()).add(cr_ingredient_id)
+
+        # From DRUG_STRENGTH table
+        cdf_to_ing_ds = (
+            self.strength.data()
+            .filter(pl.col("drug_concept_id").is_in(cdf_concepts["concept_id"]))
+            .select(["drug_concept_id", "ingredient_concept_id"])
         )
-        concept_id_idx = cdf_to_ing.columns.index("concept_id")
-        concept_id_target_idx = cdf_to_ing.columns.index("concept_id_target")
-        for row in cdf_to_ing.iter_rows():
-            cdf_concept_id = row[concept_id_idx]
-            ingredient = self.atoms.ingredient[row[concept_id_target_idx]]
-            cdf_ingredient.setdefault(cdf_concept_id, []).append(ingredient)
+        cdf_ing_ds: dict[int, set[int]] = {}
+        for row in cdf_to_ing_ds.iter_rows():
+            ds_cdc_id: int = row[0]
+            ds_ingredient_id: int = row[1]
+            cdf_ing_ds.setdefault(ds_cdc_id, set()).add(ds_ingredient_id)
 
-        self.logger.info("Creating Clinical Drug Forms")
-        cdf_concepts: pl.Series = self.concept.data().filter(
-            pl.col("concept_class_id") == "Clinical Drug Form"
-        )["concept_id"]
-        valid_cdf_count = 0
-
-        cdf_ds_ing_count = self.get_strength_counts(cdf_concepts)
-
-        cdf_no_df: list[int] = []
         cdf_no_ing: list[int] = []
-        cdf_ing_mismatch: list[int] = []
-        for cdf_concept_id in cdf_concepts:
-            if (dose_form := cdf_dose_form.get(cdf_concept_id)) is None:
-                cdf_no_df.append(cdf_concept_id)
-                self.logger.warning(
-                    f"Dose Form absent for Clinical Drug Form {cdf_concept_id}"
-                )
+        cdf_ingredient_mismatch: list[int] = []
+        cdf_bad_df: list[int] = []
+        cdf_bad_ings: list[int] = []
+        cdf_failed: list[int] = []
+        for row in cdf_concepts.iter_rows():
+            concept_id: int = row[0]
+            dose_form_id: int = row[1]
+            ingredients_ds = cdf_ing_ds.get(concept_id, set())
+            ingredients_cr = cdf_ing_cr.get(concept_id, set())
 
-            elif (ingreds := cdf_ingredient.get(cdf_concept_id)) is None:
-                cdf_no_ing.append(cdf_concept_id)
-                self.logger.warning(
-                    f"Ingredients absent for Clinical Drug Form "
-                    f"{cdf_concept_id}"
+            if len(ingredients_ds) == 0:
+                self.logger.error(
+                    f"Clinical Drug Form {concept_id} had no Ingredients"
                 )
+                cdf_no_ing.append(concept_id)
+                continue
 
-            elif not cdf_ds_ing_count.get(cdf_concept_id, 0) == len(ingreds):
-                cdf_ing_mismatch.append(cdf_concept_id)
-                self.logger.warning(
-                    f"Ingredient count mismatch for Clinical Drug Form "
-                    f"{cdf_concept_id}"
+            if ingredients_ds != ingredients_cr:
+                self.logger.error(
+                    f"Clinical Drug Form {concept_id} had mismatched "
+                    f"Ingredients between CONCEPT_RELATIONSHIP and "
+                    f"DRUG_STRENGTH tables"
                 )
+                cdf_ingredient_mismatch.append(concept_id)
+                continue
 
-            else:
+            missing_ingredient = None
+            ingreds: list[dc.Ingredient[dc.ConceptId]] = []
+            for ingredient_id in ingredients_ds:
                 try:
-                    cdf = dc.ClinicalDrugForm(
-                        identifier=dc.ConceptId(cdf_concept_id),
-                        dose_form=dose_form,
-                        ingredients=SortedTuple(ingreds),
-                    )
-                except RxConceptCreationError as e:
-                    self.logger.error(
-                        f"Failed to create Clinical Drug Form {cdf_concept_id}"
-                        f": {e}"
-                    )
-                    continue
-                valid_cdf_count += 1
-                node_idx = self.hierarchy.add_clinical_drug_form(cdf)
-                cdf_nodes.append(node_idx)
+                    ingredient = self.atoms.ingredient[
+                        dc.ConceptId(ingredient_id)
+                    ]
+                except KeyError:
+                    missing_ingredient = ingredient_id
+                    break
+                ingreds.append(ingredient)
+            if missing_ingredient is not None:
+                self.logger.error(
+                    f"Clinical Drug Form {concept_id} had missing Ingredient "
+                    f"{missing_ingredient}"
+                )
+                cdf_bad_ings.append(concept_id)
+                continue
 
-        self.logger.info(
-            f"Processed {valid_cdf_count:,} Clinical Drug Forms out of "
-            f"{len(cdf_concepts):,} possible."
-        )
+            try:
+                dose_form = self.atoms.dose_form[dc.ConceptId(dose_form_id)]
+            except KeyError:
+                self.logger.error(
+                    f"Clinical Drug Form {concept_id} had missing Dose Form "
+                    f"{dose_form_id}"
+                )
+                cdf_bad_df.append(concept_id)
+                continue
 
-        bad_cdf = pl.Series(
-            cdf_no_df + cdf_no_ing + cdf_ing_mismatch, dtype=pl.UInt32
-        )
-        if len(bad_cdf):
+            try:
+                cdf = dc.ClinicalDrugForm(
+                    identifier=dc.ConceptId(concept_id),
+                    dose_form=dose_form,
+                    ingredients=SortedTuple(ingreds),
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Clinical Drug Form {concept_id}: {e}"
+                )
+                cdf_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_clinical_drug_form(cdf)
+            cdf_nodes.append(node_idx)
+
+        if cdf_no_ing:
             self.filter_out_bad_concepts(
-                bad_cdf,
-                "CDF_Processing",
-                f"{len(bad_cdf):,} Clinical Drug Forms had failed "
-                "integrity checks",
+                pl.Series(cdf_no_ing, dtype=pl.UInt32),
+                "CDF_No_Ing",
+                f"{len(cdf_no_ing):,} Clinical Drug Forms had no Ingredients",
             )
         else:
-            self.logger.info("All Clinical Drug Forms passed integrity checks")
+            self.logger.info("All Clinical Drug Forms had Ingredients")
+
+        if cdf_ingredient_mismatch:
+            self.filter_out_bad_concepts(
+                pl.Series(cdf_ingredient_mismatch, dtype=pl.UInt32),
+                "CDF_Ing_Mismatch",
+                f"{len(cdf_ingredient_mismatch):,} Clinical Drug Forms had "
+                "mismatched Ingredients",
+            )
+        else:
+            self.logger.info("All Clinical Drug Forms had matching Ingredients")
+
+        if cdf_bad_df:
+            self.filter_out_bad_concepts(
+                pl.Series(cdf_bad_df, dtype=pl.UInt32),
+                "CDF_Bad_DF",
+                f"{len(cdf_bad_df):,} Clinical Drug Forms had bad Dose Forms",
+            )
+        else:
+            self.logger.info("All Clinical Drug Forms had valid Dose Forms")
+
+        if cdf_bad_ings:
+            self.filter_out_bad_concepts(
+                pl.Series(cdf_bad_ings, dtype=pl.UInt32),
+                "CDF_Bad_Ing",
+                f"{len(cdf_bad_ings):,} Clinical Drug Forms had bad "
+                f"Ingredients",
+            )
+        else:
+            self.logger.info("All Clinical Drug Forms had valid Ingredients")
+
+        if cdf_failed:
+            self.filter_out_bad_concepts(
+                pl.Series(cdf_failed, dtype=pl.UInt32),
+                "CDF_Failed",
+                f"{len(cdf_failed):,} Clinical Drug Forms had failed creation",
+            )
+        else:
+            self.logger.info(
+                "All Clinical Drug Forms were successfully created"
+            )
 
         return cdf_nodes
 
@@ -1055,6 +1142,9 @@ class OMOPVocabulariesV5:
         """
         Process Clinical Drug Components and link them to Ingredients and
         Precise Ingredients (if available)
+
+        Returns:
+            List of node indices for Clinical Drug Components in the hierarchy
         """
         self.logger.info("Processing Clinical Drug Components")
         # Save node indices for reuse by descending classes
@@ -1117,10 +1207,14 @@ class OMOPVocabulariesV5:
         # NOTE: This check is semantically redundant, as we already filter
         # multiple ingredients per CONCEPT_RELATIONSHIP data, but there
         # are no guarantees of consistency.
-        cdc_ds_ing_count = self.get_strength_counts(cdc_frame["concept_id"])
-        multiple_strength = pl.Series(
-            k for k, v in cdc_ds_ing_count.items() if v > 1
-        )
+        multiple_strength = (
+            self.strength.data()
+            .filter(pl.col("drug_concept_id").is_in(cdc_frame["concept_id"]))
+            .select("drug_concept_id", "ingredient_concept_id")
+            .group_by("drug_concept_id")
+            .count()
+            .filter(pl.col("count") > 1)
+        )["drug_concept_id"]
         if len(multiple_strength):
             self.filter_out_bad_concepts(
                 multiple_strength,
@@ -1419,3 +1513,29 @@ class OMOPVocabulariesV5:
             )
         else:
             self.logger.info("All strength configurations are validated")
+
+    def process_branded_drug_forms(self, cdf_nodes: list[int]) -> list[int]:
+        """
+        Process Branded Drug Forms and link them to parent Clinical Drug
+        Components and Brand Names
+
+        Args:
+            cdc_nodes: List of node indices for Clinical Drug Components in the
+                hierarchy. Required to speed up the linking process.
+
+        Returns:
+            List of node indices for Branded Drug Forms in the hierarchy
+        """
+
+        self.logger.info("Processing Branded Drug Forms")
+        bdf_nodes: list[int] = []
+
+        self.logger.info("Finding Brand Names for Branded Drug Forms")
+        bdf_to_bn = self.get_class_relationships(
+            class_id_1="Branded Drug Form",
+            class_id_2="Brand Name",
+            relationship_id="Has brand name",
+        )
+
+        del bdf_to_bn, bdf_nodes, cdf_nodes
+        raise NotImplementedError("Branded Drug Forms are not implemented yet")
