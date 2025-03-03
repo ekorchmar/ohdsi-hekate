@@ -18,29 +18,16 @@ if __name__ == "__main__":
     LOGGER.info(f"Starting processing of Athena Vocabularies from {path}")
     a = OMOPVocabulariesV5(vocab_download_path=path)
 
-    from typing import override
     import rustworkx as rx
-    from rx_model.drug_classes import ConceptId, ClinicalDrugForm
+    import matplotlib.pyplot as plt
+    from rustworkx.visualization import mpl_draw
+    from rx_model.drug_classes import ConceptId
 
-    # BUG: 43147050 has 8 valid "Ingredient" relations, one of which is
-    # actually a "Precise Ingredient", and another is invalid.
-    # Current behavior is to "accept" it as a CDC with 6(not 8) ingredients,
-    # but we may want to raise an error instead.
-
-    class IFind43147050(rx.visit.DFSVisitor):
-        @override
-        def discover_vertex(self, v: int, t: int):
-            del t  # Discover time
-            node: ClinicalDrugForm[ConceptId] = a.hierarchy.graph[v]
-            if node.identifier == ConceptId(43147050):
-                for ing in node.ingredients:
-                    print(ing)
-                raise ValueError("Found it!")
-
-    rx.dfs_search(
-        a.hierarchy.graph,
-        list(a.hierarchy.ingredients.values()),
-        IFind43147050(),
-    )
+    aspirin = a.atoms.ingredient[ConceptId(1112807)]
+    aspirin_node = a.hierarchy.ingredients[aspirin]
+    aspirin_descendants = rx.descendants(a.hierarchy.graph, aspirin_node)
+    aspirin_subgraph = a.hierarchy.graph.subgraph(list(aspirin_descendants))
+    _ = mpl_draw(aspirin_subgraph, with_labels=True)
+    plt.show()
 
     print("Done")
