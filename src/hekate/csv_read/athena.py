@@ -426,15 +426,13 @@ class OMOPVocabulariesV5:
             # TODO: save strength data to self.strengths
             # self.strengths.add_strength(row.ingredient_concept_id, strength)
 
-        if failed_concept_ids:
-            self.filter_out_bad_concepts(
-                pl.Series(failed_concept_ids, dtype=pl.UInt32),
-                "Strength_Creation",
-                f"{len(failed_concept_ids):,} drug concepts had failed "
-                "strength data creation",
-            )
-        else:
-            self.logger.info("All strength data was successfully created")
+        self.filter_out_bad_concepts(
+            pl.Series(failed_concept_ids, dtype=pl.UInt32),
+            "All strength data was successfully created",
+            "Strength_Creation",
+            f"{len(failed_concept_ids):,} drug concepts had failed "
+            "strength data creation",
+        )
 
         return strength_data
 
@@ -556,7 +554,10 @@ class OMOPVocabulariesV5:
         )
 
         # Filter implicitly deprecated concepts
-        self.filter_malformed_concepts()
+        self.filter_precise_ingredient_as_ingredient()
+        self.salvage_multiple_defining_attributes()
+        # Remove explicitly deprecated concepts and their relations
+        self.filter_explicitly_deprecated_concepts()
 
         # Now there are much less concepts to process
         self.strength: StrengthTable = StrengthTable(
@@ -576,9 +577,7 @@ class OMOPVocabulariesV5:
         self.process_precise_ingredients()
         cdf_nodes: list[int] = self.process_clinical_drug_forms()
         cdc_nodes: list[int] = self.process_clinical_drug_comps()
-        bdf_nodes: list[int] = self.process_branded_drug_forms(
-            cdf_nodes=cdf_nodes
-        )
+        bdf_nodes: list[int] = self.process_branded_drug_forms(cdf_nodes)
 
         del cdc_nodes, bdf_nodes
 
@@ -669,34 +668,31 @@ class OMOPVocabulariesV5:
 
         # Catch empty dose forms
         cdf_no_df = cdf_concepts.filter(pl.col("dose_form_id").is_null())
+        self.filter_out_bad_concepts(
+            cdf_no_df["concept_id"],
+            "All Clinical Drug Forms have a Dose Form",
+            "CDF_no_DF",
+            f"{len(cdf_no_df):,} Clinical Drug Forms had no Dose Form",
+        )
         if len(cdf_no_df):
-            self.filter_out_bad_concepts(
-                cdf_no_df["concept_id"],
-                "CDF_no_DF",
-                f"{len(cdf_no_df):,} Clinical Drug Forms had no Dose Form",
-            )
             cdf_concepts = cdf_concepts.filter(
                 pl.col("dose_form_id").is_not_null()
             )
-        else:
-            self.logger.info("All Clinical Drug Forms have a Dose Form")
 
         # Catch multiple dose forms for a single Clinical Drug Form
         cdf_mult_df = (
             cdf_to_df.group_by("concept_id").count().filter(pl.col("count") > 1)
         )
+        self.filter_out_bad_concepts(
+            cdf_mult_df["concept_id"],
+            "All Clinical Drug Forms had a single Dose Form",
+            "CDF_Mult_DF",
+            f"{len(cdf_mult_df):,} Clinical Drug Forms had multiple Dose Forms",
+        )
         if len(cdf_mult_df):
-            self.filter_out_bad_concepts(
-                cdf_mult_df["concept_id"],
-                "CDF_Mult_DF",
-                f"{len(cdf_mult_df):,} Clinical Drug Forms had multiple "
-                "Dose Forms",
-            )
             cdf_concepts = cdf_concepts.join(
                 cdf_mult_df, on="concept_id", how="anti"
             )
-        else:
-            self.logger.info("All Clinical Drug Forms had a single Dose Form")
 
         self.logger.info("Finding Ingredients for Clinical Drug Forms")
 
@@ -797,70 +793,43 @@ class OMOPVocabulariesV5:
             node_idx = self.hierarchy.add_clinical_drug_form(cdf)
             cdf_nodes.append(node_idx)
 
-        if cdf_no_ing:
-            self.filter_out_bad_concepts(
-                pl.Series(cdf_no_ing, dtype=pl.UInt32),
-                "CDF_No_Ing",
-                f"{len(cdf_no_ing):,} Clinical Drug Forms had no Ingredients",
-            )
-        else:
-            self.logger.info("All Clinical Drug Forms had Ingredients")
+        self.filter_out_bad_concepts(
+            pl.Series(cdf_no_ing, dtype=pl.UInt32),
+            "All Clinical Drug Forms had Ingredients",
+            "CDF_No_Ing",
+            f"{len(cdf_no_ing):,} Clinical Drug Forms had no Ingredients",
+        )
 
-        if cdf_ingredient_mismatch:
-            self.filter_out_bad_concepts(
-                pl.Series(cdf_ingredient_mismatch, dtype=pl.UInt32),
-                "CDF_Ing_Mismatch",
-                f"{len(cdf_ingredient_mismatch):,} Clinical Drug Forms had "
-                "mismatched Ingredients",
-            )
-        else:
-            self.logger.info("All Clinical Drug Forms had matching Ingredients")
+        self.filter_out_bad_concepts(
+            pl.Series(cdf_ingredient_mismatch, dtype=pl.UInt32),
+            "All Clinical Drug Forms had matching Ingredients",
+            "CDF_Ing_Mismatch",
+            f"{len(cdf_ingredient_mismatch):,} Clinical Drug Forms had "
+            "mismatched Ingredients",
+        )
 
-        if cdf_bad_df:
-            self.filter_out_bad_concepts(
-                pl.Series(cdf_bad_df, dtype=pl.UInt32),
-                "CDF_Bad_DF",
-                f"{len(cdf_bad_df):,} Clinical Drug Forms had bad Dose Forms",
-            )
-        else:
-            self.logger.info("All Clinical Drug Forms had valid Dose Forms")
+        self.filter_out_bad_concepts(
+            pl.Series(cdf_bad_df, dtype=pl.UInt32),
+            "All Clinical Drug Forms had valid Dose Forms",
+            "CDF_Bad_DF",
+            f"{len(cdf_bad_df):,} Clinical Drug Forms had bad Dose Forms",
+        )
 
-        if cdf_bad_ings:
-            self.filter_out_bad_concepts(
-                pl.Series(cdf_bad_ings, dtype=pl.UInt32),
-                "CDF_Bad_Ing",
-                f"{len(cdf_bad_ings):,} Clinical Drug Forms had bad "
-                f"Ingredients",
-            )
-        else:
-            self.logger.info("All Clinical Drug Forms had valid Ingredients")
+        self.filter_out_bad_concepts(
+            pl.Series(cdf_bad_ings, dtype=pl.UInt32),
+            "All Clinical Drug Forms had valid Ingredients",
+            "CDF_Bad_Ing",
+            f"{len(cdf_bad_ings):,} Clinical Drug Forms had bad Ingredients",
+        )
 
-        if cdf_failed:
-            self.filter_out_bad_concepts(
-                pl.Series(cdf_failed, dtype=pl.UInt32),
-                "CDF_Failed",
-                f"{len(cdf_failed):,} Clinical Drug Forms had failed creation",
-            )
-        else:
-            self.logger.info(
-                "All Clinical Drug Forms were successfully created"
-            )
+        self.filter_out_bad_concepts(
+            pl.Series(cdf_failed, dtype=pl.UInt32),
+            "All Clinical Drug Forms were successfully created",
+            "CDF_Failed",
+            f"{len(cdf_failed):,} Clinical Drug Forms had failed creation",
+        )
 
         return cdf_nodes
-
-    def filter_malformed_concepts(self) -> None:
-        """
-        Filter out concepts with invalid or missing data. This first performs
-        integrity checks and then removes the explicitly deprecated concepts.
-        """
-        self.logger.info("Filtering out malformed concepts")
-
-        self.filter_precise_ingredient_as_ingredient()
-
-        self.salvage_multiple_defining_attributes()
-
-        # Remove explicitly deprecated concepts and their relations
-        self.filter_explicitly_deprecated_concepts()
 
     def filter_precise_ingredient_as_ingredient(self):
         """
@@ -903,33 +872,39 @@ class OMOPVocabulariesV5:
             .select(concept_id="concept_id_2")
         )
 
-        if len(complex_pi_as_ing):
-            self.filter_out_bad_concepts(
-                complex_pi_as_ing["concept_id"],
-                "PI_as_Ing",
-                f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
-                f"Precise Ingredients as Ingredients",
-            )
-        else:
-            self.logger.info(
-                "No drug concepts that treat Precise Ingredients as "
-                "Ingredients found"
-            )
+        self.filter_out_bad_concepts(
+            complex_pi_as_ing["concept_id"],
+            "No drug concepts that treat Precise Ingredients as "
+            "Ingredients found",
+            "PI_as_Ing",
+            f"Found {len(complex_pi_as_ing):,} drug concepts that treat "
+            f"Precise Ingredients as Ingredients",
+        )
 
     def filter_out_bad_concepts(
-        self, bad_concepts: pl.Series, reason_short: str, reason_full: str
+        self,
+        bad_concepts: pl.Series,
+        message_ok: str,
+        reason_short: str,
+        reason_full: str,
     ) -> None:
         """
         Filter out concepts and their relationships from the tables.
 
         Args:
             bad_concepts: Polars Series with `concept_id` values to filter out.
+            message_ok: Message to log if no bad concepts are found.
             reason_short: Short reason for filtering out the concepts. Will be
                 used for structuring the log messages and reports.
             reason_long: Reason for filtering out the concepts. Will be used for
                 logging and/or reporting.
         """
         logger = self.logger.getChild(reason_short)
+
+        if len(bad_concepts) == 0:
+            logger.info(message_ok)
+            return
+
         logger.warning(reason_full)
         bad_concepts_df = bad_concepts.to_frame(name="concept_id")
 
@@ -1074,18 +1049,14 @@ class OMOPVocabulariesV5:
                 .filter(pl.col("count") > 1)
             )["concept_id"]
 
-            if len(concept_to_multiple_valid):
-                self.filter_out_bad_concepts(
-                    concept_to_multiple_valid,
-                    "Multiple_" + concept_class.replace(" ", "_"),
-                    f"Found {len(concept_to_multiple_valid):,} drug concepts "
-                    f"with multiple valid {concept_class} attributes",
-                )
-            else:
-                self.logger.info(
-                    f"No drug concepts with multiple valid {concept_class} "
-                    "attributes found"
-                )
+            self.filter_out_bad_concepts(
+                concept_to_multiple_valid,
+                message_ok="No drug concepts with multiple valid "
+                f"{concept_class} attributes found",
+                reason_short="Multiple_" + concept_class.replace(" ", "_"),
+                reason_full=f"Found {len(concept_to_multiple_valid):,} drug "
+                f"concepts with multiple valid {concept_class} attributes",
+            )
 
             # Second, find ones having only any amount of invalid attributes
             concept_has_valid = rel_to_attribute.filter(
@@ -1100,18 +1071,14 @@ class OMOPVocabulariesV5:
                 )
             )["concept_id"].unique()
 
-            if len(concept_has_only_invalid):
-                self.filter_out_bad_concepts(
-                    concept_has_only_invalid,
-                    "No_" + concept_class.replace(" ", "_"),
-                    f"Found {len(concept_has_only_invalid):,} drug concepts "
-                    f"with only invalid {concept_class} attributes",
-                )
-            else:
-                self.logger.info(
-                    f"No drug concepts with only invalid {concept_class} "
-                    "attributes found"
-                )
+            self.filter_out_bad_concepts(
+                concept_has_only_invalid,
+                f"No drug concepts with only invalid {concept_class} "
+                "attributes found",
+                "No_" + concept_class.replace(" ", "_"),
+                f"Found {len(concept_has_only_invalid):,} drug concepts "
+                f"with only invalid {concept_class} attributes",
+            )
 
             # Log the number of concepts salvaged
             # For this, find concepts with multiple relations
@@ -1172,20 +1139,17 @@ class OMOPVocabulariesV5:
                 .count()
                 .filter(pl.col("count") > 1)
             )["concept_id"]
+            self.filter_out_bad_concepts(
+                cdc_to_mult,
+                f"No Clinical Drug Components with multiple of {class_id} "
+                f"attributes found",
+                "CDC_Multiple_" + short,
+                f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
+                f"multiple of {class_id} attributes",
+            )
             if len(cdc_to_mult):
-                self.filter_out_bad_concepts(
-                    cdc_to_mult,
-                    "CDC_Multiple_" + short,
-                    f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
-                    f"multiple of {class_id} attributes",
-                )
                 cdc_to_attr = cdc_to_attr.filter(
                     ~pl.col("concept_id").is_in(cdc_to_mult)
-                )
-            else:
-                self.logger.info(
-                    f"No Clinical Drug Components with multiple of {class_id} "
-                    f"attributes found"
                 )
 
             attrs[short] = cdc_to_attr.select("concept_id", "concept_id_target")
@@ -1216,20 +1180,16 @@ class OMOPVocabulariesV5:
             .filter(pl.col("count") > 1)
         )["drug_concept_id"]
         if len(multiple_strength):
-            self.filter_out_bad_concepts(
-                multiple_strength,
-                "CDC_Multiple_Strength",
-                f"Found {len(multiple_strength):,} Clinical Drug Components "
-                "with multiple strength entries",
-            )
             cdc_frame = cdc_frame.filter(
                 ~pl.col("concept_id").is_in(multiple_strength)
             )
-        else:
-            self.logger.info(
-                "No Clinical Drug Components with multiple strength entries "
-                "found"
-            )
+        self.filter_out_bad_concepts(
+            multiple_strength,
+            "No Clinical Drug Components with multiple strength entries found",
+            "CDC_Multiple_Strength",
+            f"Found {len(multiple_strength):,} Clinical Drug Components "
+            "with multiple strength entries",
+        )
 
         strength_data = self.get_strength_data(cdc_frame["concept_id"])
         cdc_frame = cdc_frame.filter(
@@ -1308,55 +1268,38 @@ class OMOPVocabulariesV5:
             node_idx: int = self.hierarchy.add_clinical_drug_component(cdc)
             cdc_nodes.append(node_idx)
 
-        if len(cdc_ingredient_mismatch):
-            self.filter_out_bad_concepts(
-                pl.Series(cdc_ingredient_mismatch, dtype=pl.UInt32),
-                "CDC_Ing_Mismatch",
-                f"{len(cdc_ingredient_mismatch):,} Clinical Drug Components "
-                f"had ingredient mismatches between DRUG_STRENGTH and "
-                "CONCEPT_RELATIONSHIP",
-            )
-        else:
-            self.logger.info(
-                "All Clinical Drug Components have the same ingredient in "
-                "DRUG_STRENGTH and CONCEPT_RELATIONSHIP"
-            )
+        self.filter_out_bad_concepts(
+            pl.Series(cdc_ingredient_mismatch, dtype=pl.UInt32),
+            "All Clinical Drug Components have the same ingredient in "
+            "DRUG_STRENGTH and CONCEPT_RELATIONSHIP",
+            "CDC_Ing_Mismatch",
+            f"{len(cdc_ingredient_mismatch):,} Clinical Drug Components "
+            f"had ingredient mismatches between DRUG_STRENGTH and "
+            "CONCEPT_RELATIONSHIP",
+        )
 
-        if len(cdc_bad_ingredient):
-            self.filter_out_bad_concepts(
-                pl.Series(cdc_bad_ingredient, dtype=pl.UInt32),
-                "CDC_Bad_Ing",
-                f"{len(cdc_bad_ingredient):,} Clinical Drug Components had "
-                "bad Ingredients",
-            )
-        else:
-            self.logger.info(
-                "All Clinical Drug Components have valid Ingredients"
-            )
+        self.filter_out_bad_concepts(
+            pl.Series(cdc_bad_ingredient, dtype=pl.UInt32),
+            "All Clinical Drug Components have valid Ingredients",
+            "CDC_Bad_Ing",
+            f"{len(cdc_bad_ingredient):,} Clinical Drug Components had "
+            "bad Ingredients",
+        )
 
-        if len(cdc_bad_precise_ingredient):
-            self.filter_out_bad_concepts(
-                pl.Series(cdc_bad_precise_ingredient, dtype=pl.UInt32),
-                "CDC_Bad_PI",
-                f"{len(cdc_bad_precise_ingredient):,} Clinical Drug Components "
-                "had bad Precise Ingredients",
-            )
-        else:
-            self.logger.info(
-                "All Clinical Drug Components have valid Precise Ingredients"
-            )
+        self.filter_out_bad_concepts(
+            pl.Series(cdc_bad_precise_ingredient, dtype=pl.UInt32),
+            "All Clinical Drug Components have valid Precise Ingredients",
+            "CDC_Bad_PI",
+            f"{len(cdc_bad_precise_ingredient):,} Clinical Drug Components "
+            "had bad Precise Ingredients",
+        )
 
-        if len(cdc_failed):
-            self.filter_out_bad_concepts(
-                pl.Series(cdc_failed, dtype=pl.UInt32),
-                "CDC_Failed",
-                f"{len(cdc_failed):,} Clinical Drug Components had failed "
-                "creation",
-            )
-        else:
-            self.logger.info(
-                "All Clinical Drug Components were successfully created"
-            )
+        self.filter_out_bad_concepts(
+            pl.Series(cdc_failed, dtype=pl.UInt32),
+            "All Clinical Drug Components were successfully created",
+            "CDC_Failed",
+            f"{len(cdc_failed):,} Clinical Drug Components had failed creation",
+        )
 
         return cdc_nodes
 
@@ -1394,20 +1337,19 @@ class OMOPVocabulariesV5:
             cnt: int
             for cls, cnt in cls_counts.iter_rows():
                 msg += f"\n- {cnt:,} {cls} concepts"
-
-            self.filter_out_bad_concepts(
-                drug_strength_noning["drug_concept_id"],
-                "Non_Ing_Strength",
-                msg,
-            )
             self.strength.reader.anti_join(
                 drug_strength_noning, on=["drug_concept_id"]
             )
         else:
-            self.logger.info(
-                "No drug concepts that treat non-Ingredients as Ingredients "
-                "in DRUG_STRENGTH found"
-            )
+            msg = "Unused"
+
+        self.filter_out_bad_concepts(
+            drug_strength_noning["drug_concept_id"],
+            "No drug concepts that treat non-Ingredients as Ingredients "
+            "in DRUG_STRENGTH found",
+            "Non_Ing_Strength",
+            msg,
+        )
 
     def filter_deprecated_units_in_strength(self):
         """
@@ -1436,15 +1378,13 @@ class OMOPVocabulariesV5:
             "drug_concept_id"
         ].unique()
 
-        if len(bad_drugs):
-            self.filter_out_bad_concepts(
-                bad_drugs,
-                "Deprecated_Unit",
-                f"Found {len(bad_drugs):,} drug concepts with deprecated "
-                "units in DRUG_STRENGTH",
-            )
-        else:
-            self.logger.info("All units in DRUG_STRENGTH are valid")
+        self.filter_out_bad_concepts(
+            bad_drugs,
+            "All units in DRUG_STRENGTH are valid",
+            "Deprecated_Unit",
+            f"Found {len(bad_drugs):,} drug concepts with deprecated "
+            "units in DRUG_STRENGTH",
+        )
 
     def filter_invalid_strength_configurations(self):
         """
@@ -1499,20 +1439,14 @@ class OMOPVocabulariesV5:
         )
 
         invalid_strength = strength_with_class.filter(~valid_strength)
-
-        if len(invalid_strength):
-            # invalid_strength.write_csv(
-            #     Path("reference") / "source_errors" / "invalid_strength.csv"
-            # )
-            invalid_drugs = invalid_strength["drug_concept_id"].unique()
-            self.filter_out_bad_concepts(
-                invalid_drugs,
-                "Malformed_Strength",
-                f"Found {len(invalid_strength):,} invalid strength "
-                f"configurations for {len(invalid_drugs):,} drug concepts",
-            )
-        else:
-            self.logger.info("All strength configurations are validated")
+        invalid_drugs = invalid_strength["drug_concept_id"].unique()
+        self.filter_out_bad_concepts(
+            invalid_drugs,
+            "Malformed_Strength",
+            "All strength configurations are validated",
+            f"Found {len(invalid_strength):,} invalid strength "
+            f"configurations for {len(invalid_drugs):,} drug concepts",
+        )
 
     def process_branded_drug_forms(self, cdf_nodes: list[int]) -> list[int]:
         """
