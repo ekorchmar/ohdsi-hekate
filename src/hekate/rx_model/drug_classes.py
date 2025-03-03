@@ -251,14 +251,39 @@ class GaseousPercentage:
                 f"value not exceeding 100, not {self.numerator_value}."
             )
 
+    def unit_matches(
+        self, other: "GaseousPercentage | LiquidQuantity | LiquidConcentration"
+    ) -> None:
+        if isinstance(other, LiquidConcentration):
+            raise exception.StrengthUnitMismatchError(
+                f"Gaseous percentage {self} cannot be compared to liquid "
+                f"concentration {other}.",
+                self.numerator_unit,
+                other.numerator_unit,
+            )
+
+        if isinstance(other, LiquidQuantity):
+            if not isinstance(other.get_unquantified(), GaseousPercentage):
+                raise exception.StrengthUnitMismatchError(
+                    f"Gaseous percentage {self} cannot be compared to liquid "
+                    f"quantity {other}.",
+                    self.numerator_unit,
+                    other.numerator_unit,
+                )
+
+        return None
+
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class LiquidQuantity(LiquidConcentration):
+class LiquidQuantity:
     """
     Quantified liquid dosage with both total content and volume.
     """
 
+    numerator_value: float
+    numerator_unit: Unit
     denominator_value: float
+    denominator_unit: Unit
 
     def get_unquantified(self) -> LiquidConcentration | GaseousPercentage:
         # Gas percentage is a special case
@@ -274,9 +299,15 @@ class LiquidQuantity(LiquidConcentration):
             denominator_unit=self.denominator_unit,
         )
 
+    def unit_matches(
+        self, other: "LiquidConcentration | LiquidQuantity | GaseousPercentage"
+    ):
+        return self.get_unquantified().unit_matches(other)
+
     def __post_init__(self):
-        # Inherit checks from LiquidConcentration
-        super().__post_init__()
+        # Inherit checks from LiquidConcentration, as we are implicitly
+        # a subclass
+        LiquidConcentration.__post_init__(self)  # pyright: ignore[reportArgumentType]  # noqa: E501
 
         if self.denominator_value <= 0:
             raise exception.RxConceptCreationError(
@@ -458,16 +489,6 @@ class BoundQuantity[Id: ConceptIdentifier]:
                 f"{comp.identifier} uses ingredient "
                 f"{comp.ingredient.identifier} "
                 f"{comp.ingredient.concept_name}."
-            )
-
-        # Checking for types explicitly, as LiquidConcentration and
-        # LiquidQuantity are not subclasses, but may not be mixed
-        if type(self.strength) != type(comp.strength):  # noqa: E721
-            raise exception.RxConceptCreationError(
-                f"Error creating {self.__class__.__name__}: stated strength "
-                f"is of type {type(self.strength).__name__}, but referenced "
-                f"component {comp.identifier} uses "
-                f"{comp.strength.__class__.__name__}."
             )
 
         try:
