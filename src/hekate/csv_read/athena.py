@@ -325,17 +325,116 @@ class OMOPVocabulariesV5:
 
         return {row[0]: row[1] for row in counts_df.iter_rows()}
 
-    def get_strength_data(self, drug_ids: pl.Series) -> pl.DataFrame:
+    def get_strength_data(
+        self, drug_ids: pl.Series
+    ) -> dict[int, list[StrengthTuple]]:
         """
         Get the strength data slice for each drug concept.
+
+        This does not validate the adherence of the concept to a particular
+        strength data shape. This should be done either as a follow-up
+        integrity check or in a separate method.
+
+        The concept will be rejected only if it fails to match any of the
+        valid configurations, or if it's entries match multiple configurations.
+
+        Returns:
+            A dictionary with drug concepts as keys and strength entries as
+            values. A strength entry is a tuple with an integer concept_id and a
+            variant of strength data, in shape of `SolidStrength`,
+            `LiquidQuantity`, or `LiquidConcentration`.
         """
-        return self.strength.data().join(
+        strength_data: dict[int, list[StrengthTuple]] = {}
+        strength_df = self.strength.data().join(
             other=drug_ids.unique().to_frame(name="drug_concept_id"),
             on="drug_concept_id",
         )
 
+        # We want to be very strict about the strength data, so we will
+        # look for explicit data shapes
+        for label, expression in STRENGTH_CONFIGURATIONS.items():
+            strength_df = strength_df.with_columns(**{label: expression})
+
+        # Find drugs that match no known configuration
+        # NOTE: This is probably redundant after initial validation
+        invalid_mask = (
+            strength_df.select(*STRENGTH_CONFIGURATIONS.keys()).sum_horizontal()
+        ) == 0
+
+        if n_invalid := invalid_mask.sum():
+            self.logger.error(
+                f"{n_invalid} drug concepts have invalid strength data and "
+                f"will be excluded from the processing"
+            )
+            strength_df = strength_df.filter(~invalid_mask)
+        else:
+            self.logger.info("No invalid strength configurations found")
+
+        # Find drugs that match more than one configuration over rows
+        collapsed_df = (
+            strength_df.select(
+                "drug_concept_id", *STRENGTH_CONFIGURATIONS.keys()
+            )
+            .group_by("drug_concept_id")
+            .max()  # T > F
+        )
+        muliple_match_mask = (
+            collapsed_df.select(
+                *STRENGTH_CONFIGURATIONS.keys()
+            ).sum_horizontal()
+            > 1
+        )
+
+        if n_unmatched := muliple_match_mask.sum():
+            self.logger.error(
+                f"{n_unmatched} drug concepts have ambiguously structured "
+                f"strength data and will be excluded from the processing"
+            )
+            multiple_match_ids = collapsed_df["drug_concept_id"][
+                muliple_match_mask
+            ]
+            strength_df = strength_df.filter(
+                ~pl.col("drug_concept_id").is_in(multiple_match_ids)
+            )
+        else:
+            self.logger.info("No ambiguous strength configurations found")
+
+        # Filter out ambiguous denominator values
+        # NOTE: this check is not important for the current release,
+        # but it's future-proofing
+        drugs_with_denom_counts = (
+            strength_df.filter(
+                pl.col("denominator_unit_concept_id").is_not_null()
+            )
+            .group_by("drug_concept_id")
+            .agg(
+                pl.struct(
+                    pl.col("denominator_value"),
+                    pl.col("denominator_unit_concept_id"),
+                ).n_unique()
+            )
+        )
+        struct_column_name = drugs_with_denom_counts.columns[1]
+        ambiguous_denom_mask = drugs_with_denom_counts[struct_column_name] > 1
+
+        if n_ambiguous_denom := ambiguous_denom_mask.sum():
+            self.logger.error(
+                f"{n_ambiguous_denom} drug concepts have ambiguous "
+                f"denominator values and will be excluded from the processing"
+            )
+            ambiguous_denom_ids = drugs_with_denom_counts["drug_concept_id"][
+                ambiguous_denom_mask
+            ]
+            strength_df = strength_df.filter(
+                ~pl.col("drug_concept_id").is_in(ambiguous_denom_ids)
+            )
+        else:
+            self.logger.info("No ambiguous denominator values found")
+
+        return strength_data
+
     def __init__(self, vocab_download_path: Path):
-        self.logger: logging.Logger = LOGGER.getChild("VocabV5")
+        self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
 
         # Initiate hierarchy containers
         self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
@@ -377,8 +476,6 @@ class OMOPVocabulariesV5:
         # Also use Drug Strength for filtering other tables
         self.filter_non_ingredient_in_strength()
         self.filter_invalid_strength_configurations()
-        # TODO: filter concepts having varying denominator unit/value
-        # This does not happen in the current release, but might eventually
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
@@ -903,17 +1000,9 @@ class OMOPVocabulariesV5:
                 on="concept_id",
                 how="left",
             )
-            .join(
-                other=self.get_strength_data(
-                    self.concept.data().filter(
-                        pl.col("concept_class_id") == "Clinical Drug Comp"
-                    )["concept_id"]
-                ),
-                left_on="concept_id",
-                right_on="drug_concept_id",
-                how="left",
-            )
         )
+
+        _ = self.get_strength_data(cdc_frame["concept_id"])
 
         for row in cdc_frame.iter_rows(named=True):
             raise NotImplementedError(
