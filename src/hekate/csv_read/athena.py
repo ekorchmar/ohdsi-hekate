@@ -1469,7 +1469,59 @@ class OMOPVocabulariesV5:
             class_id_1="Branded Drug Form",
             class_id_2="Brand Name",
             relationship_id="Has brand name",
+        ).select("concept_id", brand_concept_id="concept_id_target")
+
+        bdf_concepts = (
+            self.concept.data()
+            .filter(pl.col("concept_class_id") == "Branded Drug Form")
+            .select("concept_id")
+            .join(bdf_to_bn, on="concept_id", how="left")
         )
 
-        del bdf_to_bn, bdf_nodes, cdf_nodes
+        # Catch empty brand names
+        bdf_no_bn = bdf_concepts.filter(pl.col("brand_concept_id").is_null())
+        self.filter_out_bad_concepts(
+            bdf_no_bn["concept_id"],
+            "All Branded Drug Forms have a Brand Name",
+            "BDF_no_BN",
+            f"{len(bdf_no_bn):,} Branded Drug Forms had no Brand Name",
+        )
+
+        # Catch multiple brand names for a single Branded Drug Form
+        bdf_mult_bn = (
+            bdf_to_bn.group_by("concept_id").count().filter(pl.col("count") > 1)
+        )
+        self.filter_out_bad_concepts(
+            bdf_mult_bn["concept_id"],
+            "All Branded Drug Forms had a single Brand Name",
+            "BDF_Mult_BN",
+            f"{len(bdf_mult_bn):,} Branded Drug Forms had multiple Brand Names",
+        )
+        if len(bdf_mult_bn):
+            bdf_concepts = bdf_concepts.join(
+                bdf_mult_bn, on="concept_id", how="anti"
+            )
+
+        # Find Clinical Drug Forms for Branded Drug Forms
+        bdf_to_cdf = self.get_class_relationships(
+            class_id_1="Branded Drug Form",
+            class_id_2="Clinical Drug Form",
+            relationship_id="Tradename of",
+        ).select("concept_id", cdf_concept_id="concept_id_target")
+        bdf_concepts = bdf_concepts.join(
+            bdf_to_cdf, on="concept_id", how="left"
+        )
+
+        # Catch Branded Drug Forms without Clinical Drug Forms
+        bdf_no_cdf = bdf_concepts.filter(pl.col("cdf_concept_id").is_null())
+        print(bdf_no_cdf)
+        exit(1)
+        self.filter_out_bad_concepts(
+            bdf_no_cdf["concept_id"],
+            "All Branded Drug Forms have a Clinical Drug Form",
+            "BDF_no_CDF",
+            f"{len(bdf_no_cdf):,} Branded Drug Forms had no Clinical Drug Form",
+        )
+
+        del bdf_nodes, cdf_nodes
         raise NotImplementedError("Branded Drug Forms are not implemented yet")
