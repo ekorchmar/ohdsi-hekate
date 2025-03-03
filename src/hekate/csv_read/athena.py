@@ -378,44 +378,62 @@ class OMOPVocabulariesV5:
         def get_unit(concept_id: int) -> dc.Unit:
             return self.atoms.unit[dc.ConceptId(concept_id)]
 
+        # While we try to filter the data in advance, edge cases may
+        # slip through.
+        failed_concept_ids: list[int] = []
+
         for row in strength_df.iter_rows():
             row = _StrengthDataRow(*row)
 
             # Pick a Strength variant based on the determined configuration
             strength: h.UnboundStrength
-            match True:
-                case row.amount_only:
-                    strength = dc.SolidStrength(
-                        amount_value=row.amount_value,
-                        amount_unit=get_unit(row.amount_unit_concept_id),
-                    )
-                case row.liquid_concentration:
-                    strength = dc.LiquidConcentration(
-                        numerator_value=row.numerator_value,
-                        numerator_unit=get_unit(row.numerator_unit_concept_id),
-                        denominator_unit=get_unit(
-                            row.denominator_unit_concept_id
-                        ),
-                    )
-                case row.liquid_quantity:
-                    strength = dc.LiquidQuantity(
-                        numerator_value=row.numerator_value,
-                        numerator_unit=get_unit(row.numerator_unit_concept_id),
-                        denominator_value=row.denominator_value,
-                        denominator_unit=get_unit(
-                            row.denominator_unit_concept_id
-                        ),
-                    )
-                case row.gas_concentration:
-                    strength = dc.GaseousPercentage(
-                        numerator_value=row.numerator_value,
-                        numerator_unit=get_unit(row.numerator_unit_concept_id),
-                    )
-                case _:
-                    # Should be unreachable
-                    raise ValueError(
-                        f"Wrong configuration for {row.drug_concept_id}"
-                    )
+            try:
+                match True:
+                    case row.amount_only:
+                        strength = dc.SolidStrength(
+                            amount_value=row.amount_value,
+                            amount_unit=get_unit(row.amount_unit_concept_id),
+                        )
+                    case row.liquid_concentration:
+                        strength = dc.LiquidConcentration(
+                            numerator_value=row.numerator_value,
+                            numerator_unit=get_unit(
+                                row.numerator_unit_concept_id
+                            ),
+                            denominator_unit=get_unit(
+                                row.denominator_unit_concept_id
+                            ),
+                        )
+                    case row.liquid_quantity:
+                        strength = dc.LiquidQuantity(
+                            numerator_value=row.numerator_value,
+                            numerator_unit=get_unit(
+                                row.numerator_unit_concept_id
+                            ),
+                            denominator_value=row.denominator_value,
+                            denominator_unit=get_unit(
+                                row.denominator_unit_concept_id
+                            ),
+                        )
+                    case row.gas_concentration:
+                        strength = dc.GaseousPercentage(
+                            numerator_value=row.numerator_value,
+                            numerator_unit=get_unit(
+                                row.numerator_unit_concept_id
+                            ),
+                        )
+                    case _:
+                        # Should be unreachable
+                        raise ValueError(
+                            f"Wrong configuration for {row.drug_concept_id}"
+                        )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create strength data for {row.drug_concept_id}"
+                    f": {e}"
+                )
+                failed_concept_ids.append(row.drug_concept_id)
+                continue
 
             strength_data.setdefault(row.drug_concept_id, []).append(
                 StrengthTuple(row.ingredient_concept_id, strength)
@@ -423,6 +441,16 @@ class OMOPVocabulariesV5:
 
             # TODO: save strength data to self.strengths
             # self.strengths.add_strength(row.ingredient_concept_id, strength)
+
+        if failed_concept_ids:
+            self.filter_out_bad_concepts(
+                pl.Series(failed_concept_ids, dtype=pl.UInt32),
+                "Strength_Creation",
+                f"{len(failed_concept_ids):,} drug concepts had failed "
+                "strength data creation",
+            )
+        else:
+            self.logger.info("All strength data was successfully created")
 
         return strength_data
 
