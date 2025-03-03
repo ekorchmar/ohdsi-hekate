@@ -553,9 +553,15 @@ class OMOPVocabulariesV5:
             filter_arg=all_concept_ids,
         )
 
+        # Concepts that do not have a valid Ingredient ancestor are effectively
+        # not participating in the hierarchy, so we need to avoid mapping to
+        # them
+        self.filter_orphaned_complex_drugs()
+
         # Filter implicitly deprecated concepts
         self.filter_precise_ingredient_as_ingredient()
         self.salvage_multiple_defining_attributes()
+
         # Remove explicitly deprecated concepts and their relations
         self.filter_explicitly_deprecated_concepts()
 
@@ -830,6 +836,58 @@ class OMOPVocabulariesV5:
         )
 
         return cdf_nodes
+
+    def filter_orphaned_complex_drugs(self):
+        """
+        Filter out complex drug concepts that have no valid ancestor.
+
+        Drug concepts, when they participate in a concept set, are included
+        based on their hierarchical relationship. If a drug concept has no
+        valid Ingredient ancestor, it is effectively not participating in the
+        hierarchy. Mapping to such a concept would be a mistake.
+        """
+
+        self.logger.info("Filtering out orphaned complex drug concepts")
+
+        ingredient_descendants = (
+            self.concept.data()
+            .filter(
+                pl.col("standard_concept") == "S",
+                pl.col("concept_class_id") == "Ingredient",
+            )
+            .join(
+                other=self.ancestor.data(),
+                left_on="concept_id",
+                right_on="ancestor_concept_id",
+            )
+            .select(concept_id="descendant_concept_id")
+        )
+
+        orphaned_complex_concepts = (
+            self.concept.data()
+            .filter(
+                pl.col("standard_concept") == "S",
+                pl.col("concept_class_id") != "Ingredient",
+                pl.col("concept_class_id") != "Unit",
+            )
+            .join(
+                other=ingredient_descendants,
+                on="concept_id",
+                how="anti",
+            )
+        )
+
+        self.filter_out_bad_concepts(
+            orphaned_complex_concepts["concept_id"],
+            "All complex drug concepts have a valid Ingredient ancestor",
+            "Orphaned_Complex",
+            f"{len(orphaned_complex_concepts):,} complex drug concepts have "
+            f"no ancestor Ingredient",
+        )
+
+        # NOTE: We should also check for broken hierarchy links in between the
+        # complex drug concepts themselves, but it is not as important for
+        # practical applications.
 
     def filter_precise_ingredient_as_ingredient(self):
         """
