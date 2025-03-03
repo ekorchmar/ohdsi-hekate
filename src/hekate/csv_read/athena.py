@@ -23,7 +23,23 @@ from utils.logger import LOGGER
 
 class StrengthTuple(NamedTuple):
     ingredient_concept_id: int
-    strength: dc.SolidStrength | dc.LiquidQuantity | dc.LiquidConcentration
+    strength: h.UnboundStrength
+
+
+class _StrengthDataRow(NamedTuple):
+    drug_concept_id: int
+    ingredient_concept_id: int
+    amount_value: float
+    amount_unit_concept_id: int
+    numerator_value: float
+    numerator_unit_concept_id: int
+    denominator_value: float
+    denominator_unit_concept_id: int
+    amount_only: bool
+    liquid_concentration: bool
+    liquid_quantity: bool
+    gas_concentration: bool
+    # TODO: box_size and other strength data
 
 
 class OMOPTable[FilterArg](ABC):
@@ -354,11 +370,75 @@ class OMOPVocabulariesV5:
         # look for explicit data shapes
         for label, expression in STRENGTH_CONFIGURATIONS.items():
             strength_df = strength_df.with_columns(**{label: expression})
+        rejected_drugs: pl.Series = self.filter_strength_chunk(strength_df)
+        strength_df = strength_df.filter(
+            ~pl.col("drug_concept_id").is_in(rejected_drugs)
+        )
+
+        def get_unit(concept_id: int) -> dc.Unit:
+            return self.atoms.unit[dc.ConceptId(concept_id)]
+
+        for row in strength_df.iter_rows():
+            row = _StrengthDataRow(*row)
+
+            # Pick a Strength variant based on the determined configuration
+            strength: h.UnboundStrength
+            match True:
+                case row.amount_only:
+                    strength = dc.SolidStrength(
+                        amount_value=row.amount_value,
+                        amount_unit=get_unit(row.amount_unit_concept_id),
+                    )
+                case row.liquid_concentration:
+                    strength = dc.LiquidConcentration(
+                        numerator_value=row.numerator_value,
+                        numerator_unit=get_unit(row.numerator_unit_concept_id),
+                        denominator_unit=get_unit(
+                            row.denominator_unit_concept_id
+                        ),
+                    )
+                case row.liquid_quantity:
+                    strength = dc.LiquidQuantity(
+                        numerator_value=row.numerator_value,
+                        numerator_unit=get_unit(row.numerator_unit_concept_id),
+                        denominator_value=row.denominator_value,
+                        denominator_unit=get_unit(
+                            row.denominator_unit_concept_id
+                        ),
+                    )
+                case row.gas_concentration:
+                    strength = dc.GaseousPercentage(
+                        numerator_value=row.numerator_value,
+                        numerator_unit=get_unit(row.numerator_unit_concept_id),
+                    )
+                case _:
+                    # Should be unreachable
+                    raise ValueError(
+                        f"Invalid strength configuration for {row.drug_concept_id}"
+                    )
+
+            strength_data.setdefault(row.drug_concept_id, []).append(
+                StrengthTuple(row.ingredient_concept_id, strength)
+            )
+
+            # TODO: save strength data to self.strengths
+            # self.strengths.add_strength(row.ingredient_concept_id, strength)
+
+        return strength_data
+
+    def filter_strength_chunk(self, strength_chunk: pl.DataFrame) -> pl.Series:
+        """
+        Apply integrity checks to a strength chunk. Intended to be only called
+        from `filter_invalid_strength_configurations` method. This method will
+        return a pl.Series of only passing concept_ids.
+        """
 
         # Find drugs that match no known configuration
         # NOTE: This is probably redundant after initial validation
         invalid_mask = (
-            strength_df.select(*STRENGTH_CONFIGURATIONS.keys()).sum_horizontal()
+            strength_chunk.select(
+                *STRENGTH_CONFIGURATIONS.keys()
+            ).sum_horizontal()
         ) == 0
 
         if n_invalid := invalid_mask.sum():
@@ -366,13 +446,13 @@ class OMOPVocabulariesV5:
                 f"{n_invalid} drug concepts have invalid strength data and "
                 f"will be excluded from the processing"
             )
-            strength_df = strength_df.filter(~invalid_mask)
+            strength_chunk = strength_chunk.filter(~invalid_mask)
         else:
             self.logger.info("No invalid strength configurations found")
 
         # Find drugs that match more than one configuration over rows
         collapsed_df = (
-            strength_df.select(
+            strength_chunk.select(
                 "drug_concept_id", *STRENGTH_CONFIGURATIONS.keys()
             )
             .group_by("drug_concept_id")
@@ -393,7 +473,7 @@ class OMOPVocabulariesV5:
             multiple_match_ids = collapsed_df["drug_concept_id"][
                 muliple_match_mask
             ]
-            strength_df = strength_df.filter(
+            strength_chunk = strength_chunk.filter(
                 ~pl.col("drug_concept_id").is_in(multiple_match_ids)
             )
         else:
@@ -403,7 +483,7 @@ class OMOPVocabulariesV5:
         # NOTE: this check is not important for the current release,
         # but it's future-proofing
         drugs_with_denom_counts = (
-            strength_df.filter(
+            strength_chunk.filter(
                 pl.col("denominator_unit_concept_id").is_not_null()
             )
             .group_by("drug_concept_id")
@@ -425,13 +505,13 @@ class OMOPVocabulariesV5:
             ambiguous_denom_ids = drugs_with_denom_counts["drug_concept_id"][
                 ambiguous_denom_mask
             ]
-            strength_df = strength_df.filter(
+            strength_chunk = strength_chunk.filter(
                 ~pl.col("drug_concept_id").is_in(ambiguous_denom_ids)
             )
         else:
             self.logger.info("No ambiguous denominator values found")
 
-        return strength_data
+        return strength_chunk["drug_concept_id"]
 
     def __init__(self, vocab_download_path: Path):
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
