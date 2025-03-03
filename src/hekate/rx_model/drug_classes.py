@@ -1,5 +1,13 @@
 """
 Contains the individual RxNorm and RxNorm Extension drug classes.
+
+The classes do not implement any external integrity checks, e.g. verifying
+consistency between DRUG_STRENGTH data for a Branded Drug and its Clinical Drug
+ancestor.
+
+However, if any checks can operate on class attributes themselves, they are
+implemented. For example, the `SolidStrength` class checks that the values are
+non-negative and not NaN.
 """
 
 import math  # For NaN checks
@@ -528,27 +536,9 @@ class BrandedDrug[Id: ConceptIdentifier, S: UnquantifiedStrength]:
     identifier: Id
     clinical_drug: ClinicalDrug[Id, S]
     brand_name: BrandName[Id]
-    # Redundant fields
-    branded_form: BrandedDrugForm[Id]
-    # TODO: Check if strength is consistent
-    content: BrandedDrugComponent[Id, S]
-
-    def __post_init__(self):
-        if self.clinical_drug.form != self.branded_form.clinical_drug_form:
-            raise exception.RxConceptCreationError(
-                f"Error creating {self.__class__.__name__} with "
-                f"{self.identifier}: Parent clinical drug form contributes "
-                f"form {self.clinical_drug.form.identifier}, but parent "
-                f"branded drug contributes form "
-                f"{self.branded_form.clinical_drug_form.identifier}."
-            )
-
-        # TODO: strength consistency check between explicit contents and
-        # branded form. Need to check Vocabularies to determine source of truth
 
 
-# TODO: implement checks
-# # Quantified liquid forms
+# Quantified liquid forms
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedClinicalDrug[Id: ConceptIdentifier]:
     identifier: Id

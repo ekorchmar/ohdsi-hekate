@@ -1156,6 +1156,8 @@ class OMOPVocabulariesV5:
             ds_ingredient_concept_id: int = str_tuple.ingredient_concept_id
             strength: h.UnboundStrength = str_tuple.strength
 
+            assert not isinstance(strength, dc.LiquidQuantity)
+
             # I really hope this check is redundant
             if ingredient_concept_id != ds_ingredient_concept_id:
                 self.logger.error(
