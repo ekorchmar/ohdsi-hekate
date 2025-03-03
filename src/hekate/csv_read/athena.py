@@ -370,9 +370,9 @@ class OMOPVocabulariesV5:
         # look for explicit data shapes
         for label, expression in STRENGTH_CONFIGURATIONS.items():
             strength_df = strength_df.with_columns(**{label: expression})
-        rejected_drugs: pl.Series = self.filter_strength_chunk(strength_df)
+        confirmed_drugs: pl.Series = self.filter_strength_chunk(strength_df)
         strength_df = strength_df.filter(
-            ~pl.col("drug_concept_id").is_in(rejected_drugs)
+            pl.col("drug_concept_id").is_in(confirmed_drugs)
         )
 
         def get_unit(concept_id: int) -> dc.Unit:
@@ -414,7 +414,7 @@ class OMOPVocabulariesV5:
                 case _:
                     # Should be unreachable
                     raise ValueError(
-                        f"Invalid strength configuration for {row.drug_concept_id}"
+                        f"Wrong configuration for {row.drug_concept_id}"
                     )
 
             strength_data.setdefault(row.drug_concept_id, []).append(
