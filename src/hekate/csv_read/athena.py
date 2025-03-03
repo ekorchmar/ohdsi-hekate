@@ -554,6 +554,7 @@ class OMOPVocabulariesV5:
         )
 
         # Also use Drug Strength for filtering other tables
+        self.filter_deprecated_units_in_strength()
         self.filter_non_ingredient_in_strength()
         self.filter_invalid_strength_configurations()
 
@@ -1138,6 +1139,43 @@ class OMOPVocabulariesV5:
                 "No drug concepts that treat non-Ingredients as Ingredients "
                 "in DRUG_STRENGTH found"
             )
+
+    def filter_deprecated_units_in_strength(self):
+        """
+        Remove drugs that have deprecated units in DRUG_STRENGTH
+        """
+
+        self.logger.info("Filtering out deprecated units in DRUG_STRENGTH")
+
+        # Exhausive list of valid unit ids
+        valid_units = self.concept.data().filter(
+            pl.col("concept_class_id") == "Unit",
+            pl.col("standard_concept") == "S",
+        )["concept_id"]
+
+        unit_fields = [
+            "amount_unit_concept_id",
+            "numerator_unit_concept_id",
+            "denominator_unit_concept_id",
+        ]
+
+        bad_units_expr = False
+        for field in unit_fields:
+            bad_units_expr |= ~pl.col(field).is_in(valid_units)
+
+        bad_drugs = (self.strength.data().filter(bad_units_expr))[
+            "drug_concept_id"
+        ].unique()
+
+        if len(bad_drugs):
+            self.filter_out_bad_concepts(
+                bad_drugs,
+                "Deprecated_Unit",
+                f"Found {len(bad_drugs):,} drug concepts with deprecated "
+                "units in DRUG_STRENGTH",
+            )
+        else:
+            self.logger.info("All units in DRUG_STRENGTH are valid")
 
     def filter_invalid_strength_configurations(self):
         """
