@@ -5,17 +5,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
 from collections.abc import Iterable
-from typing import Protocol, override
-
-
-class Comparable(Protocol):
-    # Only use methods implemented by dataclasses
-    @override
-    def __eq__(self, other: object) -> bool: ...
-
-    def __gt__(self, other: object) -> bool: ...
-
-    def __ge__(self, other: object) -> bool: ...
+from typing import override
 
 
 class SortedTuple[T: SupportsRichComparison](tuple[T]):
