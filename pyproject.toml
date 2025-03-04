@@ -59,6 +59,7 @@ include = ["src"]
 reportImplicitStringConcatenation = false  # Intentionally using it
 reportUninitializedInstanceVariable = false  # Pyright doesn't understand dataclasses
 reportImplicitRelativeImport = false  # Importing in python is a headache
+reportImportCycles = false  # Impossible to resolve for TYPE_CHECKING cond
 
 [tool.ruff]
 line-length = 80
