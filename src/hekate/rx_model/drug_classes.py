@@ -723,10 +723,13 @@ class ClinicalDrug[Id: ConceptIdentifier, S: UnquantifiedStrength](
         # implement it; but this entire block should be parametrized to not run
         # at all if passed_hierarchy_checks is True -- as a run parameter
 
+        if len(self.contents) != len(other_data := other.get_strength_data()):
+            return False
+
         shared_iter = enumerate(
             zip(
                 self.contents,
-                other.get_strength_data(),
+                other_data,
                 self.precise_ingredients,
             )
         )
@@ -826,12 +829,120 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: _Concentration](
             )
 
         # Check consistency against the unquantified form
+        if len(self.contents) != len(self.unquantified.contents):
+            raise exception.RxConceptCreationError(
+                f"Quantified clinical drug {self.identifier} must have the "
+                f"same number of components as its unquantified counterpart."
+            )
+
         shared_iter = zip(self.contents, self.unquantified.contents)
-        del shared_iter
-        raise NotImplementedError("TODO: Implement consistency checks")
+        for (ing, quantity), (u_ing, strength) in shared_iter:
+            if ing != u_ing:
+                raise exception.RxConceptCreationError(
+                    f"Quantified clinical drug {self.identifier} must have "
+                    f"same ingredients as its unquantified counterpart."
+                )
+
+            if not quantity.matches(strength):
+                raise exception.RxConceptCreationError(
+                    f"Quantified clinical drug {self.identifier} must have "
+                    f"same strength data as its unquantified counterpart for "
+                    f"ingredient {ing.identifier} {ing.concept_name}."
+                )
 
     @override
     def get_strength_data(
         self,
     ) -> SortedTuple[BoundStrength[Id, LiquidQuantity]]:
         return self.contents
+
+    @override
+    def is_superclass_of(
+        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+    ) -> bool:
+        if not passed_hierarchy_checks:
+            if not self.unquantified.is_superclass_of(
+                other, passed_hierarchy_checks=False
+            ):
+                return False
+
+        if not self.get_dose_form() == other.get_dose_form():
+            return False
+
+        # Check all components regardless of passed_hierarchy_checks, as we have
+        # quantified data
+        if len(self.contents) != len(other_data := other.get_strength_data()):
+            return False
+
+        # Test if the other node has the same denominator unit and value
+        if not isinstance(other_data[0][1], LiquidQuantity):
+            # NOTE: By all rules, none of others are Quantities
+            return False
+
+        own_v, own_u = (
+            self.contents[0][1].denominator_value,
+            self.contents[0][1].denominator_unit,
+        )
+        other_v, other_u = (
+            other_data[0][1].denominator_value,
+            other_data[0][1].denominator_unit,
+        )
+        diff = own_v / other_v
+        if not (_LOW <= diff <= _HIGH) or own_u != other_u:
+            return False
+
+        shared_iter = zip(self.contents, other_data)
+        for (ing, quantity), (o_ing, o_strength) in shared_iter:
+            assert o_strength is not None
+
+            if ing != o_ing:
+                return False
+
+            if not quantity.matches(o_strength):
+                return False
+
+            # Precise ingredients are checked in the unquantified form
+
+        return True
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: _Concentration](
+    DrugNode[Id],
+):
+    identifier: Id
+    unbranded: QuantifiedClinicalDrug[Id, C]
+    brand_name: BrandName[Id]
+    # Redundant, hierarchy builder should check for ancestor consistency
+    # unquantified: BrandedDrug[Id, C]
+    # contents: SortedTuple[BoundStrength[Id, LiquidQuantity]]
+
+    @override
+    def get_dose_form(self) -> DoseForm[Id]:
+        return self.unbranded.get_dose_form()
+
+    @override
+    def get_precise_ingredients(self) -> tuple[PreciseIngredient | None]:
+        return self.unbranded.get_precise_ingredients()
+
+    @override
+    def get_brand_name(self) -> BrandName[Id]:
+        return self.brand_name
+
+    @override
+    def get_strength_data(
+        self,
+    ) -> SortedTuple[BoundStrength[Id, LiquidQuantity]]:
+        return self.unbranded.get_strength_data()
+
+    @override
+    def is_superclass_of(
+        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+    ) -> bool:
+        if not passed_hierarchy_checks:
+            if not self.unbranded.is_superclass_of(
+                other, passed_hierarchy_checks=False
+            ):
+                return False
+
+        return self.brand_name == other.get_brand_name()
