@@ -30,7 +30,7 @@ from rx_model.drug_classes.strength import (
     SolidStrength,
     LiquidConcentration,
     LiquidQuantity,
-    GaseousPercentage,
+    GasPercentage,
     Strength,
     UnquantifiedStrength,
 )
@@ -60,7 +60,7 @@ __all__ = [
     "SolidStrength",
     "LiquidConcentration",
     "LiquidQuantity",
-    "GaseousPercentage",
+    "GasPercentage",
     "Strength",
     "UnquantifiedStrength",
     "ClinicalDrugComponent",

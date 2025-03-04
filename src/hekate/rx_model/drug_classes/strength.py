@@ -147,7 +147,7 @@ class LiquidConcentration(_StrengthMeta):
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class GaseousPercentage(_StrengthMeta):
+class GasPercentage(_StrengthMeta):
     """
     Special case of concentration for gases. Only specifies numerator value
     and unit.
@@ -174,18 +174,18 @@ class GaseousPercentage(_StrengthMeta):
             )
 
     @override
-    def get_unquantified(self) -> "GaseousPercentage":
+    def get_unquantified(self) -> "GasPercentage":
         return self
 
     @override
     def _unit_matches(self, other: _StrengthMeta) -> bool:
         # There is only one valid unit for gaseous percentages
-        return isinstance(other.get_unquantified(), GaseousPercentage)
+        return isinstance(other.get_unquantified(), GasPercentage)
 
     @override
     def _values_match(self, other: _StrengthMeta) -> bool:
         other = other.get_unquantified()
-        assert isinstance(other, GaseousPercentage)
+        assert isinstance(other, GasPercentage)
         diff = self.numerator_value / other.numerator_value
         return LOW <= diff <= HIGH
 
@@ -205,11 +205,11 @@ class LiquidQuantity(_StrengthMeta):
     denominator_unit: a.Unit
 
     @override
-    def get_unquantified(self) -> LiquidConcentration | GaseousPercentage:
+    def get_unquantified(self) -> LiquidConcentration | GasPercentage:
         # Gas percentage is a special case
         if self.numerator_unit.identifier == ConceptId(PERCENT_CONCEPT_ID):
             # Same without denominator
-            return GaseousPercentage(
+            return GasPercentage(
                 numerator_value=self.numerator_value,
                 numerator_unit=self.numerator_unit,
             )
@@ -265,9 +265,7 @@ class LiquidQuantity(_StrengthMeta):
 
 
 # Shorthand for unquantified strength types
-type UnquantifiedStrength = (
-    SolidStrength | LiquidConcentration | GaseousPercentage
-)
+type UnquantifiedStrength = SolidStrength | LiquidConcentration | GasPercentage
 
 # Exhaustive list of strength types
 type Strength = UnquantifiedStrength | LiquidQuantity

@@ -409,7 +409,7 @@ class OMOPVocabulariesV5:
                             ),
                         )
                     case row.gas_concentration:
-                        strength = dc.GaseousPercentage(
+                        strength = dc.GasPercentage(
                             numerator_value=row.numerator_value,
                             numerator_unit=get_unit(
                                 row.numerator_unit_concept_id
@@ -489,9 +489,9 @@ class OMOPVocabulariesV5:
                 f"{n_unmatched} drug concepts have ambiguously structured "
                 f"strength data and will be excluded from the processing"
             )
-            multiple_match_ids = collapsed_df["drug_concept_id"][
+            multiple_match_ids = collapsed_df["drug_concept_id"].filter(
                 muliple_match_mask
-            ]
+            )
             strength_chunk = strength_chunk.filter(
                 ~pl.col("drug_concept_id").is_in(multiple_match_ids)
             )
@@ -521,9 +521,9 @@ class OMOPVocabulariesV5:
                 f"{n_ambiguous_denom} drug concepts have ambiguous "
                 f"denominator values and will be excluded from the processing"
             )
-            ambiguous_denom_ids = drugs_with_denom_counts["drug_concept_id"][
-                ambiguous_denom_mask
-            ]
+            ambiguous_denom_ids = drugs_with_denom_counts[
+                "drug_concept_id"
+            ].filter(ambiguous_denom_mask)
             strength_chunk = strength_chunk.filter(
                 ~pl.col("drug_concept_id").is_in(ambiguous_denom_ids)
             )
@@ -1674,7 +1674,16 @@ class OMOPVocabulariesV5:
                 bdf_bad_cdf.append(concept_id)
                 continue
 
-            cdf = self.hierarchy.graph[cdf_node_idx]
+            try:
+                cdf = self.hierarchy.graph[cdf_node_idx]
+            except IndexError:
+                self.logger.error(
+                    f"Branded Drug Form {concept_id} had Clinical Drug Form "
+                    f"{cdf_concept_id} not found in the hierarchy"
+                )
+                bdf_bad_cdf.append(concept_id)
+                continue
+
             if not isinstance(cdf, dc.ClinicalDrugForm):
                 # This should never happen, but we will catch it anyway
                 self.logger.error(
@@ -1803,17 +1812,189 @@ class OMOPVocabulariesV5:
             )
 
         # Find Clinical Drug Components for Branded Drug Components
-        bdc_to_cdc = self.get_class_relationships(
-            class_id_1="Branded Drug Comp",
-            class_id_2="Clinical Drug Comp",
-            relationship_id="Tradename of",
-        ).select("concept_id", cdc_concept_id="concept_id_target")
+        bdc_to_cdc = (
+            self.get_class_relationships(
+                class_id_1="Branded Drug Comp",
+                class_id_2="Clinical Drug Comp",
+                relationship_id="Tradename of",
+            )
+            .select("concept_id", cdc_concept_id="concept_id_target")
+            .group_by("concept_id")
+            .all()
+        )
+
+        # Catch Branded Drug Components without Clinical Drug Components
+        bdc_no_cdc = bdc_concepts.join(
+            other=bdc_to_cdc, on="concept_id", how="anti"
+        )["concept_id"]
+
+        self.filter_out_bad_concepts(
+            bdc_no_cdc,
+            "All Branded Drug Comps have a Clinical Drug Comp",
+            "BDC_no_CDC",
+            f"{len(bdc_no_cdc):,} Branded Drug Comps had no Clinical Drug Comp",
+        )
+
+        # Attach CDC data to BDC concepts (and filter out missing)
+        bdc_concepts = bdc_concepts.join(bdc_to_cdc, on="concept_id")
 
         # Get drug strength data for BDCs
+        # NOTE: BDC strength data is defined by it's parent CDC,
+        # but we will cross-check it against the explicit DRUG_STRENGTH data
+        # to ensure consistency
         bdc_strength = self.get_strength_data(bdc_concepts["concept_id"])
 
-        # NOTE: BDC constructor has a built-in check for strength consistency
-        # with the contributing CDCs, so we do not perform this check here.
+        bdc_bad_cdc: list[int] = []
+        bdc_bad_bn: list[int] = []
+        bdc_bad_ingred: list[int] = []
+        bdc_cdc_strength_mismatch: list[int] = []
+        bdc_failed: list[int] = []
+        for row in bdc_concepts.iter_rows():
+            concept_id: int = row[0]
+            brand_concept_id: int = row[1]
+            cdc_concept_ids: list[int] = row[2]
+            strength_data = {ing: stg for ing, stg in bdc_strength[concept_id]}
 
-        del bdc_to_cdc, bdc_strength, bdc_nodes, cdc_nodes
-        raise NotImplementedError("Branded Drug Components are not implemented")
+            try:
+                brand_name = self.atoms.brand_name[
+                    dc.ConceptId(brand_concept_id)
+                ]
+            except KeyError:
+                self.logger.error(
+                    f"Brand Name {brand_concept_id} not found for "
+                    f"Branded Drug Comp {concept_id}"
+                )
+                bdc_bad_bn.append(concept_id)
+                continue
+
+            cdcs: list[
+                dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength]
+            ] = []
+
+            if not len(cdc_concept_ids) == len(strength_data):
+                self.logger.error(
+                    f"Branded Drug Comp {concept_id} had {len(cdc_concept_ids)} "
+                    f"Clinical Drug Comps, but {len(strength_data)} strength "
+                    f"entries"
+                )
+                bdc_cdc_strength_mismatch.append(concept_id)
+                continue
+
+            for cdc_concept_id in sorted(cdc_concept_ids):
+                if (cdc_node_idx := cdc_nodes.get(cdc_concept_id)) is None:
+                    self.logger.error(
+                        f"Branded Drug Comp {concept_id} had no registered "
+                        f"Clinical Drug Comp {cdc_concept_id}"
+                    )
+                    bdc_bad_cdc.append(concept_id)
+                    continue
+
+                try:
+                    cdc = self.hierarchy.graph[cdc_node_idx]
+                except IndexError:
+                    self.logger.error(
+                        f"Branded Drug Comp {concept_id} had Clinical Drug "
+                        f"Comp {cdc_concept_id} not found in the hierarchy"
+                    )
+                    bdc_bad_cdc.append(concept_id)
+                    continue
+
+                if not isinstance(cdc, dc.ClinicalDrugComponent):
+                    # This should never happen, but we will catch it anyway
+                    self.logger.error(
+                        f"Branded Drug Comp {concept_id} specified a non-CDC "
+                        f"{cdc_concept_id} as Clinical Drug Comp"
+                    )
+                    bdc_bad_cdc.append(concept_id)
+                    continue
+
+                # Find the strength data for the current CDC
+                if (
+                    ingredient_strength := strength_data.get(
+                        cdc.ingredient.identifier
+                    )
+                ) is None:
+                    self.logger.error(
+                        f"Ingredient {cdc.ingredient.identifier} not found for "
+                        f"Branded Drug Component {concept_id}, but found in "
+                        f"CDC {cdc_concept_id}"
+                    )
+                    bdc_bad_ingred.append(concept_id)
+                    continue
+
+                if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
+                    ingredient_strength
+                ):
+                    self.logger.error(
+                        f"Strength mismatch for Branded Drug Component "
+                        f"{concept_id}: expected {cdc.strength} matching "  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
+                        f"Ingredient {cdc.ingredient.identifier} from CDC "
+                        f"{cdc_concept_id}, got {ingredient_strength}"
+                    )
+                    bdc_cdc_strength_mismatch.append(concept_id)
+                    continue
+
+                assert isinstance(cdc, dc.ClinicalDrugComponent)
+                cdcs.append(cdc)  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+
+            try:
+                bdc: dc.BrandedDrugComponent[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ] = dc.BrandedDrugComponent(
+                    identifier=dc.ConceptId(concept_id),
+                    brand_name=brand_name,
+                    clinical_drug_components=SortedTuple(cdcs),
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Branded Drug Component {concept_id}: {e}"
+                )
+                bdc_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_branded_drug_component(
+                bdc, cdc_nodes.values()
+            )
+            bdc_nodes[concept_id] = node_idx
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdc_bad_bn, dtype=pl.UInt32),
+            "All Branded Drug Comps have valid Brand Names",
+            "BDC_Bad_BN",
+            f"{len(bdc_bad_bn):,} Branded Drug Comps had bad Brand Names",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdc_bad_cdc, dtype=pl.UInt32),
+            "All Branded Drug Comps have valid Clinical Drug Comps",
+            "BDC_Bad_CDC",
+            f"{len(bdc_bad_cdc):,} Branded Drug Comps had bad Clinical Drug "
+            f"Comps",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdc_bad_ingred, dtype=pl.UInt32),
+            "All Branded Drug Comps have matching Ingredients with their "
+            "Clinical Drug Comps",
+            "BDC_Ing_Mismatch",
+            f"{len(bdc_bad_ingred):,} Branded Drug Comps had mismatched "
+            "Ingredients with their Clinical Drug Comps",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdc_cdc_strength_mismatch, dtype=pl.UInt32),
+            "All Branded Drug Comps have matching Strengths with their "
+            "Clinical Drug Comps",
+            "BDC_Strength_Mismatch",
+            f"{len(bdc_cdc_strength_mismatch):,} Branded Drug Comps had "
+            "mismatched Strengths with their Clinical Drug Comps",
+        )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bdc_failed, dtype=pl.UInt32),
+            "All Branded Drug Comps were successfully created",
+            "BDC_Failed",
+            f"{len(bdc_failed):,} Branded Drug Comps had failed creation",
+        )
+
+        return bdc_nodes

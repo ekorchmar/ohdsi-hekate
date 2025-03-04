@@ -15,28 +15,76 @@ from utils.utils import invert_merge_dict, keep_multiple_values
 
 class __MulticomponentMixin[
     Id: ConceptIdentifier,
-    S: "st.UnquantifiedStrength",
+    S: st.UnquantifiedStrength,
 ]:
     """Mixin for classes to implement checks with multiple components."""
 
     identifier: Id
 
     def check_multiple_components(
-        self, container: SortedTuple["ClinicalDrugComponent[Id, S]"]
+        self,
+        container: SortedTuple["ClinicalDrugComponent[Id, S]"],
+        pi_are_i: bool = False,
     ) -> None:
+        """
+        Test consistency of multiple components against each other. Intended
+        to be called in __post_init__ of classes that contain multiple
+        components, whether implicit or explicit.
+
+        Args:
+            container: Container of components to test.
+            pi_are_i: bool
+                If True, treat all precise ingredients as ingredients. Currently
+                should not be used.
+        """
         if len(container) == 0:
             raise exception.RxConceptCreationError(
                 f"{self.__class__.__name__} {self.identifier} must "
                 f"have at least one component."
             )
 
-        # Check for duplicate ingredients
+        # Container of length 1 is always valid
+        if len(container) == 1:
+            return
+
+        # Check for strength type mismatch
+        if len(set(cdc.strength.__class__ for cdc in container)) > 1:
+            msg = (
+                f"{self.__class__.__name__} {self.identifier} contains "
+                f"components with different strength types."
+            )
+            raise exception.RxConceptCreationError(msg)
+
+        # For LiquidConcentration, check that the denominators are the same
+        if isinstance(container[0].strength, st.LiquidConcentration):
+            denominators: set[a.Unit] = set()
+
+            for cdc in container:
+                assert isinstance(cdc.strength, st.LiquidConcentration)
+                denominators.add(cdc.strength.denominator_unit)
+
+            if len(denominators) > 1:
+                msg = (
+                    f"{self.__class__.__name__} {self.identifier} contains "
+                    f"components with different denominator units."
+                )
+                raise exception.RxConceptCreationError(msg)
+
         duplicate_ingredients: dict[
             ClinicalDrugComponent[Id, S],
-            "a.Ingredient[Id] | a.PreciseIngredient",
-        ] = keep_multiple_values({
-            cdc: cdc.precise_ingredient or cdc.ingredient for cdc in container
-        })
+            a.Ingredient[Id] | a.PreciseIngredient,
+        ]
+
+        if pi_are_i:
+            # Check for duplicate ingredients, allowing for precise ingredients
+            duplicate_ingredients = keep_multiple_values({
+                cdc: cdc.precise_ingredient or cdc.ingredient
+                for cdc in container
+            })
+        else:
+            duplicate_ingredients = keep_multiple_values({
+                cdc: cdc.ingredient for cdc in container
+            })
 
         if duplicate_ingredients:
             msg = (
@@ -332,6 +380,8 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
     identifier: Id
     clinical_drug: ClinicalDrug[Id, S]
     brand_name: a.BrandName[Id]
+    # Redundant, hierarchy builder should check for ancestor consistency
+    # form: BrandedDrugForm[Id]
 
     @override
     def get_dose_form(self) -> a.DoseForm[Id]:
@@ -364,7 +414,7 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 
 # Quantified liquid forms
-type _Concentration = st.LiquidConcentration | st.GaseousPercentage
+type _Concentration = st.LiquidConcentration | st.GasPercentage
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)

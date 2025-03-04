@@ -2,11 +2,12 @@
 Contains the class that hosts the drug concept hierarchy.
 """
 
-from rx_model import drug_classes as dc
-import rustworkx as rx
-import polars as pl
+from collections.abc import Iterable
 from typing import Annotated
 
+import polars as pl
+import rustworkx as rx
+from rx_model import drug_classes as dc
 
 # Generic types
 type _AtomicConcept[Id: dc.ConceptIdentifier] = (
@@ -127,7 +128,7 @@ class KnownStrengths[Id: dc.ConceptIdentifier]:
         # Associate strength components with units
         self.solid_stength: dict[dc.Unit, dc.SolidStrength] = {}
         self.liquid_concentration: dict[_NumDenomU, dc.LiquidConcentration] = {}
-        self.gaseous_percentage: dict[dc.Unit, dc.GaseousPercentage] = {}
+        self.gaseous_percentage: dict[dc.Unit, dc.GasPercentage] = {}
         self.liquid_quantity: dict[dc.Unit, dc.LiquidQuantity] = {}
 
         # Associate strength components with ingredients
@@ -212,4 +213,20 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         _ = self.graph.add_edge(  # Discard edge index
             clinical_drug_form_idx, node_idx, None
         )
+        return node_idx
+
+    def add_branded_drug_component[S: dc.UnquantifiedStrength](
+        self,
+        branded_drug_component: dc.BrandedDrugComponent[Id, S],
+        clinical_drug_component_idxs: Iterable[int],
+    ) -> int:
+        """
+        Add a branded drug component to the hierarchy. Returns the index of
+        the added node in the graph.
+        """
+        node_idx = self.graph.add_node(branded_drug_component)
+        for cdc_idx in clinical_drug_component_idxs:
+            _ = self.graph.add_edge(  # Discard edge index
+                cdc_idx, node_idx, None
+            )
         return node_idx
