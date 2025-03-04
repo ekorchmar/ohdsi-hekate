@@ -1843,6 +1843,12 @@ class OMOPVocabulariesV5:
         # but we will cross-check it against the explicit DRUG_STRENGTH data
         # to ensure consistency
         bdc_strength = self.get_strength_data(bdc_concepts["concept_id"])
+        # Filter out BDCs with no strength data
+        bdc_concepts = bdc_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(bdc_strength.keys(), dtype=pl.UInt32)
+            )
+        )
 
         bdc_bad_cdc: list[int] = []
         bdc_bad_bn: list[int] = []
@@ -1880,6 +1886,9 @@ class OMOPVocabulariesV5:
                 bdc_cdc_strength_mismatch.append(concept_id)
                 continue
 
+            # Starting nested loop: if it breaks, we need to skip to the next
+            # Branded Drug Component
+            nested_break: bool = False
             for cdc_concept_id in sorted(cdc_concept_ids):
                 if (cdc_node_idx := cdc_nodes.get(cdc_concept_id)) is None:
                     self.logger.error(
@@ -1887,7 +1896,8 @@ class OMOPVocabulariesV5:
                         f"Clinical Drug Comp {cdc_concept_id}"
                     )
                     bdc_bad_cdc.append(concept_id)
-                    continue
+                    nested_break = True
+                    break
 
                 try:
                     cdc = self.hierarchy.graph[cdc_node_idx]
@@ -1897,7 +1907,8 @@ class OMOPVocabulariesV5:
                         f"Comp {cdc_concept_id} not found in the hierarchy"
                     )
                     bdc_bad_cdc.append(concept_id)
-                    continue
+                    nested_break = True
+                    break
 
                 if not isinstance(cdc, dc.ClinicalDrugComponent):
                     # This should never happen, but we will catch it anyway
@@ -1906,7 +1917,8 @@ class OMOPVocabulariesV5:
                         f"{cdc_concept_id} as Clinical Drug Comp"
                     )
                     bdc_bad_cdc.append(concept_id)
-                    continue
+                    nested_break = True
+                    break
 
                 # Find the strength data for the current CDC
                 if (
@@ -1920,7 +1932,8 @@ class OMOPVocabulariesV5:
                         f"CDC {cdc_concept_id}"
                     )
                     bdc_bad_ingred.append(concept_id)
-                    continue
+                    nested_break = True
+                    break
 
                 if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
                     ingredient_strength
@@ -1932,10 +1945,14 @@ class OMOPVocabulariesV5:
                         f"{cdc_concept_id}, got {ingredient_strength}"
                     )
                     bdc_cdc_strength_mismatch.append(concept_id)
-                    continue
+                    nested_break = True
+                    break
 
                 assert isinstance(cdc, dc.ClinicalDrugComponent)
                 cdcs.append(cdc)  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+
+            if nested_break:
+                continue
 
             try:
                 bdc: dc.BrandedDrugComponent[
@@ -1953,7 +1970,7 @@ class OMOPVocabulariesV5:
                 continue
 
             node_idx = self.hierarchy.add_branded_drug_component(
-                bdc, cdc_nodes.values()
+                bdc, [cdc_nodes[cdc.identifier] for cdc in cdcs]
             )
             bdc_nodes[concept_id] = node_idx
 

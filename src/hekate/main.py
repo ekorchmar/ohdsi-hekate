@@ -5,7 +5,7 @@ from utils.logger import LOGGER
 
 def main():
     print("""\
-With tail of newt and wing of toad,
+With wing of bat and eye of toad,
 Avoiding legacy code bloat,
 With twig of fern and QA checks,
 Hekate starts another hex!
