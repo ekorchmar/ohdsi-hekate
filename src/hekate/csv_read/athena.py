@@ -348,7 +348,7 @@ class OMOPVocabulariesV5:
         valid configurations, or if it's entries match multiple configurations.
 
         Returns:
-            A dictionary with drug concepts as keys and strength entries as
+            A dictionary with drug concept_ids as keys and strength entries as
             values. A strength entry is a tuple with an integer concept_id and a
             variant of strength data, in shape of `SolidStrength`,
             `LiquidQuantity`, or `LiquidConcentration`.
@@ -594,8 +594,11 @@ class OMOPVocabulariesV5:
         cdc_nodes: _TempNodeView = self.process_clinical_drug_comps()
         bdf_nodes: _TempNodeView = self.process_branded_drug_forms(cdf_nodes)
         bdc_nodes: _TempNodeView = self.process_branded_drug_comps(cdc_nodes)
+        cd_nodes: _TempNodeView = self.process_clinical_drugs(
+            cdc_nodes, cdf_nodes
+        )
 
-        del bdc_nodes, bdf_nodes
+        del bdc_nodes, bdf_nodes, cd_nodes
 
     def process_atoms(self) -> None:
         """
@@ -659,7 +662,7 @@ class OMOPVocabulariesV5:
 
     def process_clinical_drug_forms(self) -> _TempNodeView:
         """
-        Process Clinical Drug Forms and link them to Dose Forms and Ingredients
+        Process Clinical Drug Forms and link them to Ingredients
 
         Returns:
             Dictionary of node indices for Clinical Drug Forms in the hierarchy
@@ -1527,8 +1530,9 @@ class OMOPVocabulariesV5:
         Components and Brand Names
 
         Args:
-            cdc_nodes: List of node indices for Clinical Drug Components in the
-                hierarchy. Required to speed up the linking process.
+            cdf_nodes: Dict of node indices for Clinical Drug Forms in the
+                hierarchy indexed by concept_id. Required for linking BDFs to
+                their parent CDFs.
 
         Returns:
             Dictionary of node indices for Branded Drug Forms in the hierarchy
@@ -1761,9 +1765,9 @@ class OMOPVocabulariesV5:
         Components and Brand Names
 
         Args:
-            cdc_nodes: List of node indices for Clinical Drug Components in the
-                hierarchy. Required to speed up the linking process.
-
+            cdc_nodes: Dict of node indices for Clinical Drug Components in the
+                hierarchy indexed by concept_id. Required for linking BDCs to
+                their parent CDCs.
         Returns:
             Dictionary of Branded Drug Component node indices indexed by
             concept_id
@@ -2015,3 +2019,111 @@ class OMOPVocabulariesV5:
         )
 
         return bdc_nodes
+
+    def process_clinical_drugs(
+        self, cdc_nodes: _TempNodeView, cdf_nodes: _TempNodeView
+    ) -> _TempNodeView:
+        """
+        Process Clinical Drugs and link them to parent Clinical Drug Components
+        and Clinical Drug Forms.
+
+        Args:
+            cdc_nodes: Dict of node indices for Clinical Drug Components in the
+                hierarchy indexed by concept_id. Required for linking CDs to
+                their parent CDCs.
+            cdf_nodes: Dict of node indices for Clinical Drug Forms in the
+                hierarchy indexed by concept_id. Required for linking CDs to
+                their parent CDFs.
+
+        Returns:
+            Dictionary of Clinical Drug node indices indexed by concept_id
+        """
+
+        self.logger.info("Processing Clinical Drugs")
+        cd_nodes: _TempNodeView = {}
+
+        # CDs are expected to have a direct relationship to:
+        # - Clinical Drug Form 1..1
+        # - Dose Form          1..1
+        # - Clinical Drug Comp 1..n
+
+        attribute_relations = [
+            ("RxNorm has dose form", "Dose Form", True),
+            ("RxNorm is a", "Clinical Drug Form", True),
+            ("Consists of", "Clinical Drug Comp", False),
+        ]
+
+        cd_concepts = (
+            self.concept.data()
+            .filter(pl.col("concept_class_id") == "Clinical Drug")
+            .select("concept_id")
+        )
+
+        for rel_id, concept_class_id, one_to_one in attribute_relations:
+            abbrev = "".join(char[0] for char in concept_class_id.split())
+
+            self.logger.info(f"Finding {concept_class_id} for Clinical Drugs")
+            cd_to_attr = (
+                self.get_class_relationships(
+                    class_id_1="Clinical Drug",
+                    class_id_2=concept_class_id,
+                    relationship_id=rel_id,
+                )
+                .select("concept_id", "concept_id_target")
+                .rename({"concept_id_target": f"{abbrev}_concept_id"})
+            )
+
+            # Catch empty attributes
+            cd_no_attr = cd_concepts.join(
+                cd_to_attr, on="concept_id", how="anti"
+            )
+            self.filter_out_bad_concepts(
+                cd_no_attr["concept_id"],
+                f"All Clinical Drugs have a {concept_class_id}",
+                f"CD_no_{abbrev}",
+                f"{len(cd_no_attr):,} Clinical Drugs had no {concept_class_id}",
+            )
+
+            if one_to_one:
+                # Catch multiple attributes
+                cd_mult_attr = (
+                    cd_to_attr.group_by("concept_id")
+                    .count()
+                    .filter(pl.col("count") > 1)
+                )
+                self.filter_out_bad_concepts(
+                    cd_mult_attr["concept_id"],
+                    f"All Clinical Drugs had a single {concept_class_id}",
+                    f"CD_Mult_{abbrev}",
+                    f"{len(cd_mult_attr):,} Clinical Drugs had multiple "
+                    f"{concept_class_id} attributes",
+                )
+                if len(cd_mult_attr):
+                    cd_concepts = cd_concepts.join(
+                        cd_mult_attr, on="concept_id", how="anti"
+                    )
+
+                # Attach the attribute
+                cd_concepts = cd_concepts.join(
+                    other=cd_to_attr, on="concept_id"
+                )
+            else:
+                # Attach grouped
+                cd_concepts = cd_concepts.join(
+                    other=(
+                        cd_to_attr.group_by("concept_id")
+                        .all()
+                        .rename({
+                            f"{abbrev}_concept_id": f"{abbrev}_concept_ids"
+                        })
+                    ),
+                    on="concept_id",
+                )
+
+        print(cd_concepts)
+
+        # TODO: Attach DS data to CD concepts
+
+        del cdc_nodes, cdf_nodes
+        raise NotImplementedError("CD processing not implemented")
+        return cd_nodes
