@@ -23,10 +23,14 @@ from utils.logger import LOGGER
 
 class _StrengthTuple(NamedTuple):
     ingredient_concept_id: int
-    strength: h.UnboundStrength
+    strength: dc.Strength
 
 
 class _StrengthDataRow(NamedTuple):
+    """
+    Shape of the row data for the StrengthTable
+    """
+
     drug_concept_id: int
     ingredient_concept_id: int
     amount_value: float
@@ -375,7 +379,7 @@ class OMOPVocabulariesV5:
             row = _StrengthDataRow(*row)
 
             # Pick a Strength variant based on the determined configuration
-            strength: h.UnboundStrength
+            strength: dc.Strength
             try:
                 match True:
                     case row.amount_only:
@@ -533,7 +537,7 @@ class OMOPVocabulariesV5:
 
         # Initiate hierarchy containers
         self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
-        self.strengths: h.KnownStrength[dc.ConceptId] = h.KnownStrength()
+        self.strengths: h.KnownStrengths[dc.ConceptId] = h.KnownStrengths()
         self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
 
         # Vocabulary table readers
@@ -1270,7 +1274,7 @@ class OMOPVocabulariesV5:
             precise_ingredient_concept_id: int | None = row[2]
             (str_tuple,) = strength_data[concept_id]
             ds_ingredient_concept_id: int = str_tuple.ingredient_concept_id
-            strength: h.UnboundStrength = str_tuple.strength
+            strength: dc.Strength = str_tuple.strength
 
             assert not isinstance(strength, dc.LiquidQuantity)
 
@@ -1313,7 +1317,9 @@ class OMOPVocabulariesV5:
                 precise_ingredient = None
 
             try:
-                cdc = dc.ClinicalDrugComponent(
+                cdc: dc.ClinicalDrugComponent[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ] = dc.ClinicalDrugComponent(
                     identifier=dc.ConceptId(concept_id),
                     ingredient=ingredient,
                     precise_ingredient=precise_ingredient,

@@ -5,7 +5,7 @@ Contains the class that hosts the drug concept hierarchy.
 from rx_model import drug_classes as dc
 import rustworkx as rx
 import polars as pl
-from typing import Annotated, Final, Protocol
+from typing import Annotated
 
 
 # Generic types
@@ -22,26 +22,7 @@ type _AtomicConcept[Id: dc.ConceptIdentifier] = (
     # UCUM atomic concepts
     dc.Unit
 )
-type NumDenomU = tuple[dc.Unit, dc.Unit]
-type UnboundStrength = (
-    dc.SolidStrength
-    | dc.LiquidConcentration
-    | dc.LiquidQuantity
-    | dc.GaseousPercentage
-)
-type _BoundStrength[Id: dc.ConceptIdentifier, S: dc.UnquantifiedStrength] = (
-    dc.BoundStrength[Id, S] | dc.BoundQuantity[Id]
-)
-
-
-class DrugClassNode[Id: dc.ConceptIdentifier](Protocol):
-    """
-    Protocol for the nodes in the drug concept hierarchy.
-    """
-
-    identifier: Final[Id]
-
-    # TODO: Add a shared generic method for transitive closure
+type _NumDenomU = tuple[dc.Unit, dc.Unit]
 
 
 class Atoms[Id: dc.ConceptIdentifier]:
@@ -133,7 +114,7 @@ class Atoms[Id: dc.ConceptIdentifier]:
         )
 
 
-class KnownStrength[Id: dc.ConceptIdentifier]:
+class KnownStrengths[Id: dc.ConceptIdentifier]:
     """
     Container to store known ingredient strengths and concentrations to avoid
     creating de-facto duplicates with minor differences.
@@ -144,17 +125,19 @@ class KnownStrength[Id: dc.ConceptIdentifier]:
 
     def __init__(self):
         self.solid_stength: dict[dc.Unit, dc.SolidStrength] = {}
-        self.liquid_concentration: dict[NumDenomU, dc.LiquidConcentration] = {}
+        self.liquid_concentration: dict[_NumDenomU, dc.LiquidConcentration] = {}
         self.gaseous_percentage: dict[dc.Unit, dc.GaseousPercentage] = {}
         self.liquid_quantity: dict[dc.Unit, dc.LiquidQuantity] = {}
-        self.bound_strength_graph: rx.PyDAG = rx.PyDAG(
+        self.bound_strength_graph: rx.PyDAG[
+            dc.BoundStrength[Id, dc.Strength], None
+        ] = rx.PyDAG(
             check_cycle=False,  # Will be really hard to create a cycle
             multigraph=False,  # Hierarchical structure
             # node_count_hint = 1000,  # TODO: Estimate the number of nodes
             # edge_count_hint = 1000,  # TODO: Estimate the number of edges
         )
 
-    def add_strength(self, strength: UnboundStrength) -> None:
+    def add_strength(self, strength: dc.Strength) -> None:
         del strength
         raise NotImplementedError
 
@@ -171,7 +154,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     """
 
     def __init__(self):
-        self.graph: rx.PyDAG[DrugClassNode[Id], None] = rx.PyDAG(
+        self.graph: rx.PyDAG[dc.DrugNode[Id], None] = rx.PyDAG(
             check_cycle=False,  # Will be really hard to create a cycle
             multigraph=False,  # Hierarchical structure
             # node_count_hint = 1000,  # TODO: Estimate the number of nodes

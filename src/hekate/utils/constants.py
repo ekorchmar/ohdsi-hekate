@@ -2,15 +2,15 @@
 
 import polars as pl
 
-from typing import Literal
+from typing import Final, Literal
 
-VALID_CONCEPT_END_DATE = 2099_12_31
+VALID_CONCEPT_END_DATE: Literal[2099_12_31] = 2099_12_31
 
 # List of all concept_relationship_ids that are relevant to the project.
 # See `reference/distinct_concept_relationship.*` for the source.
 # PERF: We need to deduplicate this list and use the semantic child to semantic
 # parent relationship
-ALL_CONCEPT_RELATIONSHIP_IDS: pl.Series = pl.Series(
+ALL_CONCEPT_RELATIONSHIP_IDS: Final[pl.Series] = pl.Series(
     [
         "Available as box",
         "Box of",
@@ -50,25 +50,25 @@ ALL_CONCEPT_RELATIONSHIP_IDS: pl.Series = pl.Series(
     dtype=pl.Utf8,
 )
 
-type DefiningMonoAttributeClass = Literal["Dose Form", "Brand Name", "Supplier"]
+type DefiningMonoAttribute = Literal["Dose Form", "Brand Name", "Supplier"]
 
-DEFINING_ATTRIBUTE_RELATIONSHIP: dict[DefiningMonoAttributeClass, str] = {
+DEFINING_ATTRIBUTE_RELATIONSHIP: Final[dict[DefiningMonoAttribute, str]] = {
     "Dose Form": "RxNorm has dose form",
     "Brand Name": "Has brand name",
     "Supplier": "Has supplier",
 }
 
-REPLACEMENT_RELATIONSHIP = [
+REPLACEMENT_RELATIONSHIP: Final[list[str]] = [
     "Maps to",
     "Mapped from",
     "Concept replaced by",
     "Concept replaces",
 ]
 
-PERCENT_CONCEPT_ID = 8554
+PERCENT_CONCEPT_ID: Literal[8554] = 8554
 
 
-STRENGTH_CONFIGURATIONS: dict[str, pl.Expr] = {
+STRENGTH_CONFIGURATIONS: Final[dict[str, pl.Expr]] = {
     # - Amount value and unit are present, rest of the fields are null
     "amount_only": (
         pl.col("amount_value").is_not_null()
@@ -108,3 +108,7 @@ STRENGTH_CONFIGURATIONS: dict[str, pl.Expr] = {
     ),
     # TODO: Box size variations, once we start using them
 }
+
+_STRENGTH_CORRIDOR: Final[float] = 0.05
+STRENGTH_CLOSURE_BOUNDARY_LOW: Final[float] = 1 - _STRENGTH_CORRIDOR
+STRENGTH_CLOSURE_BOUNDARY_HIGH: Final[float] = 1 / (1 - _STRENGTH_CORRIDOR)
