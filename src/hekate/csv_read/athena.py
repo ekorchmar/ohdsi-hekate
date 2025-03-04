@@ -593,8 +593,9 @@ class OMOPVocabulariesV5:
         cdf_nodes: _TempNodeView = self.process_clinical_drug_forms()
         cdc_nodes: _TempNodeView = self.process_clinical_drug_comps()
         bdf_nodes: _TempNodeView = self.process_branded_drug_forms(cdf_nodes)
+        bdc_nodes: _TempNodeView = self.process_branded_drug_comps(cdc_nodes)
 
-        del cdc_nodes, bdf_nodes
+        del bdc_nodes, bdf_nodes
 
     def process_atoms(self) -> None:
         """
@@ -661,7 +662,8 @@ class OMOPVocabulariesV5:
         Process Clinical Drug Forms and link them to Dose Forms and Ingredients
 
         Returns:
-            List of node indices for Clinical Drug Forms in the hierarchy
+            Dictionary of node indices for Clinical Drug Forms in the hierarchy
+            indexed by concept_id
         """
         self.logger.info("Processing Clinical Drug Forms")
         # Save node indices for reuse by descending classes
@@ -1177,7 +1179,8 @@ class OMOPVocabulariesV5:
         Precise Ingredients (if available)
 
         Returns:
-            List of node indices for Clinical Drug Components in the hierarchy
+            Dictionary of node indices for Clinical Drug Components in the
+            hierarchy indexed by concept_id
         """
         self.logger.info("Processing Clinical Drug Components")
         # Save node indices for reuse by descending classes
@@ -1528,7 +1531,8 @@ class OMOPVocabulariesV5:
                 hierarchy. Required to speed up the linking process.
 
         Returns:
-            List of node indices for Branded Drug Forms in the hierarchy
+            Dictionary of node indices for Branded Drug Forms in the hierarchy
+            indexed by concept_id
         """
 
         self.logger.info("Processing Branded Drug Forms")
@@ -1739,3 +1743,77 @@ class OMOPVocabulariesV5:
         )
 
         return bdf_nodes
+
+    def process_branded_drug_comps(
+        self, cdc_nodes: _TempNodeView
+    ) -> _TempNodeView:
+        """
+        Process Branded Drug Components and link them to parent Clinical Drug
+        Components and Brand Names
+
+        Args:
+            cdc_nodes: List of node indices for Clinical Drug Components in the
+                hierarchy. Required to speed up the linking process.
+
+        Returns:
+            Dictionary of Branded Drug Component node indices indexed by
+            concept_id
+        """
+
+        self.logger.info("Processing Branded Drug Components")
+        bdc_nodes: _TempNodeView = {}
+
+        self.logger.info("Finding Brand Names for Branded Drug Components")
+
+        bdc_to_bn = self.get_class_relationships(
+            class_id_1="Branded Drug Comp",
+            class_id_2="Brand Name",
+            relationship_id="Has brand name",
+        ).select("concept_id", brand_concept_id="concept_id_target")
+
+        bdc_concepts = (
+            self.concept.data()
+            .filter(pl.col("concept_class_id") == "Branded Drug Comp")
+            .select("concept_id")
+            .join(bdc_to_bn, on="concept_id", how="left")
+        )
+
+        # Catch empty brand names
+        bdc_no_bn = bdc_concepts.filter(pl.col("brand_concept_id").is_null())
+        self.filter_out_bad_concepts(
+            bdc_no_bn["concept_id"],
+            "All Branded Drug Comps have a Brand Name",
+            "BDC_no_BN",
+            f"{len(bdc_no_bn):,} Branded Drug Forms had no Brand Name",
+        )
+
+        # Catch multiple brand names for a single Branded Drug Form
+        bdc_mult_bn = (
+            bdc_to_bn.group_by("concept_id").count().filter(pl.col("count") > 1)
+        )
+        self.filter_out_bad_concepts(
+            bdc_mult_bn["concept_id"],
+            "All Branded Drug Comps had a single Brand Name",
+            "BDC_Mult_BN",
+            f"{len(bdc_mult_bn):,} Branded Drug Forms had multiple Brand Names",
+        )
+        if len(bdc_mult_bn):
+            bdc_concepts = bdc_concepts.join(
+                bdc_mult_bn, on="concept_id", how="anti"
+            )
+
+        # Find Clinical Drug Components for Branded Drug Components
+        bdc_to_cdc = self.get_class_relationships(
+            class_id_1="Branded Drug Comp",
+            class_id_2="Clinical Drug Comp",
+            relationship_id="Tradename of",
+        ).select("concept_id", cdc_concept_id="concept_id_target")
+
+        # Get drug strength data for BDCs
+        bdc_strength = self.get_strength_data(bdc_concepts["concept_id"])
+
+        # NOTE: BDC constructor has a built-in check for strength consistency
+        # with the contributing CDCs, so we do not perform this check here.
+
+        del bdc_to_cdc, bdc_strength, bdc_nodes, cdc_nodes
+        raise NotImplementedError("Branded Drug Components are not implemented")
