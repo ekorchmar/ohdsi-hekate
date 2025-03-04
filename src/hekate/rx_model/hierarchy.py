@@ -124,18 +124,15 @@ class KnownStrengths[Id: dc.ConceptIdentifier]:
     """
 
     def __init__(self):
+        # Associate strength components with units
         self.solid_stength: dict[dc.Unit, dc.SolidStrength] = {}
         self.liquid_concentration: dict[_NumDenomU, dc.LiquidConcentration] = {}
         self.gaseous_percentage: dict[dc.Unit, dc.GaseousPercentage] = {}
         self.liquid_quantity: dict[dc.Unit, dc.LiquidQuantity] = {}
-        self.bound_strength_graph: rx.PyDAG[
-            dc.BoundStrength[Id, dc.Strength], None
-        ] = rx.PyDAG(
-            check_cycle=False,  # Will be really hard to create a cycle
-            multigraph=False,  # Hierarchical structure
-            # node_count_hint = 1000,  # TODO: Estimate the number of nodes
-            # edge_count_hint = 1000,  # TODO: Estimate the number of edges
-        )
+
+        # Associate strength components with ingredients
+        self.known_associations_graph: dict[dc.Ingredient[Id], dc.Strength] = {}
+        self.ingredients: dict[dc.Ingredient[Id], int] = {}
 
     def add_strength(self, strength: dc.Strength) -> None:
         del strength
