@@ -250,3 +250,25 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
                 cdc_idx, node_idx, None
             )
         return node_idx
+
+    def add_branded_drug[S: dc.UnquantifiedStrength](
+        self,
+        branded_drug: dc.BrandedDrug[Id, S],
+        clinical_drug_idx: int,
+        branded_drug_form_idx: int,
+        branded_drug_component_idx: int,
+    ) -> int:
+        """
+        Add a branded drug to the hierarchy. Returns the index of the added
+        node in the graph.
+        """
+        node_idx = self.graph.add_node(branded_drug)
+        for idx in [
+            clinical_drug_idx,
+            branded_drug_form_idx,
+            branded_drug_component_idx,
+        ]:
+            _ = self.graph.add_edge(  # Discard edge index
+                idx, node_idx, None
+            )
+        return node_idx

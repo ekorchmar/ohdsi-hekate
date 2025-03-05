@@ -884,8 +884,11 @@ class OMOPVocabulariesV5:
         cd_nodes: _TempNodeView = self.process_clinical_drugs(
             cdc_nodes, cdf_nodes
         )
-
-        del bdc_nodes, bdf_nodes, cd_nodes
+        bd_nodes: _TempNodeView = self.process_branded_drugs(
+            bdc_nodes, bdf_nodes, cd_nodes
+        )
+        del bd_nodes
+        # TODO: Quant Clinical Drug and Quant Branded Drug
 
     def process_atoms(self) -> None:
         """
@@ -1534,7 +1537,7 @@ class OMOPVocabulariesV5:
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Clinical Drug Components have valid {cls}",
                 "CDC_Bad_" + "".join(w[0] for w in cls.split()),
-                f"{len(lst_bad):,} Clinical Drugs had bad {cls}",
+                f"{len(lst_bad):,} Clinical Drugs Components had bad {cls}",
             )
 
         self.filter_out_bad_concepts(
@@ -2144,7 +2147,6 @@ class OMOPVocabulariesV5:
         cd_cdc_strength_mismatch: list[int] = []
         cd_bad_ingred: list[int] = []
         cdc_failed: list[int] = []
-        print(cd_concepts)
         for row in cd_concepts.iter_rows():
             concept_id: int = row[0]
             dose_form_concept_id: int = row[1]
@@ -2351,3 +2353,329 @@ class OMOPVocabulariesV5:
             f"{len(cdc_failed):,} Clinical Drugs had failed creation",
         )
         return cd_nodes
+
+    def process_branded_drugs(
+        self,
+        bdc_nodes: _TempNodeView,
+        bdf_nodes: _TempNodeView,
+        cd_nodes: _TempNodeView,
+    ) -> _TempNodeView:
+        """
+        Process Branded Drugs and link them to parent Branded Drug Components,
+        Branded Drug Forms and Clinical Drugs.
+
+        Args:
+            bdc_nodes: Dict of node indices for Branded Drug Components in the
+                hierarchy indexed by concept_id. Required for linking BDs to
+                their parent BDCs.
+            bdf_nodes: Dict of node indices for Branded Drug Forms in the
+                hierarchy indexed by concept_id. Required for linking BDs to
+                their parent BDFs.
+            cd_nodes: Dict of node indices for Clinical Drugs in the hierarchy
+                indexed by concept_id. Required for linking BDs to their parent
+                CDs.
+
+        Returns:
+            Dictionary of Branded Drug node indices indexed by concept_id
+        """
+        self.logger.info("Processing Branded Drugs")
+        bd_nodes: _TempNodeView = {}
+
+        bd_concepts = self.get_validated_relationships_view(
+            source_class="Branded Drug",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="Has brand name",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Brand Name",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Tradename of",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Clinical Drug",
+                ),
+                _RelationshipDescription(
+                    relationship_id="RxNorm is a",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Branded Drug Form",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Consists of",
+                    cardinality=_Cardinality.ONE,  # BDC is multicomponent
+                    target_class="Branded Drug Comp",
+                ),
+            ],
+        )
+
+        bdc_strength = self.get_strength_data(
+            bd_concepts["concept_id"],
+            expect_cardinality=_Cardinality.NONZERO,
+            accepted_configurations=(
+                dc.SolidStrength,
+                dc.LiquidConcentration,
+                dc.GasPercentage,
+            ),
+        )
+
+        bd_concepts = bd_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(bdc_strength.keys(), dtype=pl.UInt32)
+            )
+        )
+
+        bd_bad_bn: list[int] = []
+        bd_bad_cd: list[int] = []
+        bd_bad_bdf: list[int] = []
+        bd_bad_bdc: list[int] = []
+        bd_bad_ingred: list[int] = []
+
+        bd_bdf_bn_mismatch: list[int] = []
+        bd_bdc_bn_mismatch: list[int] = []
+
+        bd_bdf_ing_mismatch: list[int] = []
+        bd_bdc_strength_mismatch: list[int] = []
+        bd_cd_strength_mismatch: list[int] = []
+
+        bd_failed: list[int] = []
+
+        for row in bd_concepts.iter_rows():
+            concept_id: int = row[0]
+            brand_concept_id: int = row[1]
+            cd_concept_id: int = row[2]
+            bdf_concept_id: int = row[3]
+            bdc_concept_id: int = row[4]
+            strength_data = {ing: stg for ing, stg in bdc_strength[concept_id]}
+
+            # Find brand name
+            try:
+                brand_name = self.atoms.brand_name[
+                    dc.ConceptId(brand_concept_id)
+                ]
+            except KeyError:
+                self.logger.error(
+                    f"Brand Name {brand_concept_id} not found for Branded Drug "
+                    f"{concept_id}"
+                )
+                bd_bad_bn.append(concept_id)
+                continue
+
+            # Find ingredients
+            missing_ingredients = False
+            own_ingredients: dict[int, dc.Ingredient[dc.ConceptId]] = {}
+            for ing_id in strength_data.keys():
+                try:
+                    ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
+                except KeyError:
+                    self.logger.error(
+                        f"Ingredient {ing_id} not found for Branded Drug "
+                        f"{concept_id}"
+                    )
+                    bd_bad_ingred.append(concept_id)
+                    missing_ingredients = True
+                    break
+                own_ingredients[ing_id] = ing
+
+            if missing_ingredients:
+                continue
+
+            # Find all parent nodes
+            parent_concepts: dict[str, dc.DrugNode[dc.ConceptId]] = {}
+            lookup = [
+                (
+                    "Clinical Drug",
+                    cd_concept_id,
+                    cd_nodes,
+                    bd_bad_cd,
+                    dc.ClinicalDrug,
+                ),
+                (
+                    "Branded Drug Form",
+                    bdf_concept_id,
+                    bdf_nodes,
+                    bd_bad_bdf,
+                    dc.BrandedDrugForm,
+                ),
+                (
+                    "Branded Drug Comp",
+                    bdc_concept_id,
+                    bdc_nodes,
+                    bd_bad_bdc,
+                    dc.BrandedDrugComponent,
+                ),
+            ]
+            for cls, parent_id, parent_nodes, bad_lst, cnstr in lookup:
+                try:
+                    parent_node_idx = parent_nodes[parent_id]
+                except KeyError:
+                    self.logger.error(
+                        f"Branded Drug {concept_id} had no registered {cls} "
+                        f"{parent_id}"
+                    )
+                    bad_lst.append(concept_id)
+                    continue
+
+                try:
+                    parent_concepts[cls] = self.hierarchy.graph[parent_node_idx]
+                except IndexError:
+                    self.logger.error(
+                        f"Branded Drug {concept_id} had {cls} {parent_id} not "
+                        f"found in the hierarchy"
+                    )
+                    bad_lst.append(concept_id)
+                    continue
+
+                if not isinstance(parent_concepts[cls], cnstr):
+                    # This should never happen, but we will catch it anyway
+                    self.logger.error(
+                        f"Branded Drug {concept_id} specified a non-{cls} "
+                        f"{parent_id} as parent"
+                    )
+                    bad_lst.append(concept_id)
+                    continue
+
+            # Test attribute matches
+            parent: dc.DrugNode[dc.ConceptId]
+            brand_match = [
+                ("Branded Drug Form", bd_bdf_bn_mismatch),
+                ("Branded Drug Comp", bd_bdc_bn_mismatch),
+            ]
+
+            mismatched = False
+            for cls, bad_lst in brand_match:
+                parent = parent_concepts[cls]
+                parent_name = parent.get_brand_name()
+                if parent_name != brand_name:
+                    self.logger.error(
+                        f"Brand Name mismatch for Branded Drug {concept_id}: "
+                        f"{brand_name} != {parent_name} in {cls} "
+                        f"{parent.identifier}"
+                    )
+                    bad_lst.append(concept_id)
+                    mismatched = True
+            if mismatched:
+                continue
+
+            # Test strength/ingredient matches
+            strength_match = [
+                ("Branded Drug Comp", bd_bdc_strength_mismatch, "Strength"),
+                ("Clinical Drug", bd_cd_strength_mismatch, "Strength"),
+                ("Branded Drug Form", bd_bdf_ing_mismatch, "Ingredient"),
+            ]
+
+            own_strength = SortedTuple(
+                (ing_obj, strength_data[ing])
+                for ing, ing_obj in own_ingredients.items()
+            )
+
+            nested_break: bool = False
+            for cls, bad_lst, what in strength_match:
+                parent = parent_concepts[cls]
+                parent_strength = parent.get_strength_data()
+
+                if len(parent_strength) != len(own_strength):
+                    self.logger.error(
+                        f"{what} mismatch for Branded Drug {concept_id}: "
+                        f"{len(parent_strength)} != {len(own_strength)} in "
+                        f"{cls} {parent.identifier}"
+                    )
+                    bad_lst.append(concept_id)
+                    nested_break = True
+                    break
+
+                shared_iter = zip(parent_strength, own_strength)
+                for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
+                    if p_ing != o_ing:
+                        self.logger.error(
+                            f"{what} mismatch for Branded Drug {concept_id}: "
+                            f"{p_ing} != {o_ing} in {cls} {parent.identifier}"
+                        )
+                        bad_lst.append(concept_id)
+                        nested_break = True
+                        break
+
+                    if what == "Strength":
+                        assert p_stg is not None
+                        if not p_stg.matches(o_stg):
+                            self.logger.error(
+                                f"{what} mismatch for Branded Drug "
+                                f"{concept_id}: {p_stg} != {o_stg} in {cls} "
+                                f" {parent.identifier}"
+                            )
+                            bad_lst.append(concept_id)
+                            nested_break = True
+                            break
+
+            if nested_break:
+                continue
+
+            clinical_drug = parent_concepts["Clinical Drug"]
+            branded_form = parent_concepts["Branded Drug Form"]
+            branded_component = parent_concepts["Branded Drug Comp"]
+
+            assert isinstance(clinical_drug, dc.ClinicalDrug)
+            assert isinstance(branded_form, dc.BrandedDrugForm)
+            assert isinstance(branded_component, dc.BrandedDrugComponent)
+
+            try:
+                bd: dc.BrandedDrug[dc.ConceptId, dc.UnquantifiedStrength] = (
+                    dc.BrandedDrug(
+                        identifier=dc.ConceptId(concept_id),
+                        clinical_drug=clinical_drug,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                        branded_form=branded_form,
+                        branded_component=branded_component,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                    )
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Branded Drug {concept_id}: {e}"
+                )
+                bd_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_branded_drug(
+                bd,
+                cd_nodes[cd_concept_id],
+                bdf_nodes[bdf_concept_id],
+                bdc_nodes[bdc_concept_id],
+            )
+            bd_nodes[concept_id] = node_idx
+
+        # Cleanup
+        reason_bad_concept = [
+            (bd_bad_bn, "Brand Name"),
+            (bd_bad_cd, "Clinical Drug"),
+            (bd_bad_bdf, "Branded Drug Form"),
+            (bd_bad_bdc, "Branded Drug Component"),
+            (bd_bad_ingred, "Ingredient"),
+        ]
+
+        for lst_bad, cls in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Branded Drugs ave valid {cls}",
+                "BD_Bad_" + "".join(w[0] for w in cls.split()),
+                f"{len(lst_bad):,} Clinical Drugs had bad {cls}",
+            )
+
+        reason_mismatch = [
+            ("Branded Drug Form", bd_bdf_bn_mismatch, "Brand Name"),
+            ("Branded Drug Comp", bd_bdc_bn_mismatch, "Brand Name"),
+            ("Branded Drug Form", bd_bdf_ing_mismatch, "Ingredient"),
+            ("Branded Drug Comp", bd_bdc_strength_mismatch, "Strength"),
+            ("Clinical Drug", bd_cd_strength_mismatch, "Strength"),
+        ]
+        for cls, lst_bad, what in reason_mismatch:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Branded Drugs have matching {what}s with their {cls}s",
+                "_".join(["BD", what, cls, "Mismatch"]),
+                f"{len(lst_bad):,} Branded Drugs had mismatched {what}s with "
+                f"their {cls}s",
+            )
+
+        self.filter_out_bad_concepts(
+            pl.Series(bd_failed, dtype=pl.UInt32),
+            "All Branded Drugs were successfully created",
+            "BD_Failed",
+            f"{len(bd_failed):,} Branded Drugs had failed creation",
+        )
