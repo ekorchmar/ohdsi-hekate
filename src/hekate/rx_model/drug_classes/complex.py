@@ -349,12 +349,12 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
     DrugNode[Id]
 ):
-    # TODO: Check if dosage may be different from CD counterpart
     identifier: Id
+    # NOTE: BDs are redundant in their definition, as any 2 of 3 get all the
+    # data.
     clinical_drug: ClinicalDrug[Id, S]
-    brand_name: a.BrandName[Id]
-    # Redundant, hierarchy builder should check for ancestor consistency
-    # form: BrandedDrugForm[Id]
+    branded_form: BrandedDrugForm[Id]
+    branded_component: BrandedDrugComponent[Id, S]
 
     @override
     def get_dose_form(self) -> a.DoseForm[Id]:
@@ -362,7 +362,10 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
     @override
     def get_brand_name(self) -> a.BrandName[Id]:
-        return self.brand_name
+        # NOTE: can be taken from either branded ancestor
+
+        # return self.branded_form.brand_name
+        return self.branded_component.brand_name
 
     @override
     def is_superclass_of(
@@ -375,7 +378,7 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
             ):
                 return False
 
-        return self.brand_name == other.get_brand_name()
+        return self.get_brand_name() == other.get_brand_name()
 
     @override
     def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
