@@ -451,7 +451,10 @@ class OMOPVocabulariesV5:
 
                 # Attach the attribute
                 source_concepts = source_concepts.join(
-                    other=source_to_target, on="concept_id"
+                    other=source_to_target,
+                    on="concept_id",
+                    # NOTE: Empty targets must be caught earlier by cardinality
+                    how="left",
                 )
             else:  # expected_cardinality in __CARDINALITY_MULTIPLE
                 # Attach grouped attributes
@@ -462,6 +465,7 @@ class OMOPVocabulariesV5:
                         .rename({target_colname: target_colname + "s"})
                     ),
                     on="concept_id",
+                    how="left",
                 )
 
         return source_concepts
@@ -895,8 +899,12 @@ class OMOPVocabulariesV5:
         self.process_precise_ingredients()
         cdf_nodes: _TempNodeView = self.process_clinical_drug_forms()
         cdc_nodes: _TempNodeView = self.process_clinical_drug_comps()
-        bdf_nodes: _TempNodeView = self.process_branded_drug_forms(cdf_nodes)
-        bdc_nodes: _TempNodeView = self.process_branded_drug_comps(cdc_nodes)
+        bdf_nodes: _TempNodeView = self.process_branded_drug_forms(
+            cdf_nodes=cdf_nodes,
+        )
+        bdc_nodes: _TempNodeView = self.process_branded_drug_comps(
+            cdc_nodes=cdc_nodes,
+        )
         cd_nodes: _TempNodeView = self.process_clinical_drugs(
             cdc_nodes=cdc_nodes,
             cdf_nodes=cdf_nodes,
@@ -1253,7 +1261,8 @@ class OMOPVocabulariesV5:
             if len(bad_concepts) / total_count > ATHENA_OVERFILTERING_TRESHOLD:
                 logger.warning(
                     f"Overfiltering detected: {len(bad_concepts):,} concepts "
-                    f"out of {total_count:,} will be removed"
+                    f"out of {total_count:,} will be removed. Reason: "
+                    f"{reason_full}"
                 )
                 answer = input("Continue? [y/N] ")
                 if answer.lower() != "y":
@@ -2040,10 +2049,13 @@ class OMOPVocabulariesV5:
             # Branded Drug Component
             nested_break: bool = False
             for cdc_concept_id in sorted(cdc_concept_ids):
-                if (cdc_node_idx := cdc_nodes.get(cdc_concept_id)) is None:
+                try:
+                    # Should not happen
+                    cdc_node_idx = cdc_nodes[cdc_concept_id]
+                except KeyError:
                     self.logger.debug(
-                        f"Branded Drug Comp {concept_id} had no registered "
-                        f"Clinical Drug Comp {cdc_concept_id}"
+                        f"Branded Drug Comp {concept_id} had Clinical Drug Comp "
+                        f"{cdc_concept_id} not found in the hierarchy"
                     )
                     bdc_bad_cdc.append(concept_id)
                     nested_break = True
