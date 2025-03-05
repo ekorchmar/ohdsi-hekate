@@ -391,6 +391,8 @@ class OMOPVocabulariesV5:
 
         for rel in relationships:
             rel_id, expected_cardinality, target_class = rel
+            if source_class == target_class:
+                raise ValueError("Source and target classes must be different")
             target_abbr = "".join(char[0] for char in target_class.split())
             target_colname = "_".join(target_class.lower().split())
             target_colname += "_concept_id"
@@ -890,8 +892,10 @@ class OMOPVocabulariesV5:
         bd_nodes: _TempNodeView = self.process_branded_drugs(
             bdc_nodes, bdf_nodes, cd_nodes
         )
-        del bd_nodes
-        # TODO: Quant Clinical Drug and Quant Branded Drug
+        qcd_nodes: _TempNodeView = self.process_quant_clinical_drugs(cd_nodes)
+        # qbd_nodes: _TempNodeView =
+
+        del qcd_nodes, bd_nodes
 
     def process_atoms(self) -> None:
         """
@@ -2501,7 +2505,6 @@ class OMOPVocabulariesV5:
                     missing_ingredients = True
                     break
                 own_ingredients[ing_id] = ing
-
             if missing_ingredients:
                 continue
 
@@ -2708,3 +2711,248 @@ class OMOPVocabulariesV5:
         )
 
         return bd_nodes
+
+    def process_quant_clinical_drugs(
+        self, cd_nodes: _TempNodeView
+    ) -> _TempNodeView:
+        """
+        Process Quant Clinical Drugs and link them to parent Clinical Drugs.
+
+        Args:
+            cd_nodes: Dict of node indices for Clinical Drugs in the hierarchy
+            indexed by concept_id. Required for linking QCDs to
+            their parent CDs.
+
+        Returns:
+            Dictionary of Quant Clinical Drug node indices indexed by concept_id
+        """
+
+        self.logger.info("Processing Quantified Clinical Drugs")
+        qcd_nodes: _TempNodeView = {}
+
+        qcd_concepts = self.get_validated_relationships_view(
+            source_class="Quant Clinical Drug",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="RxNorm has dose form",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Dose Form",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Quantified form of",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Clinical Drug",
+                ),
+            ],
+        )
+
+        # Attach DS data to QCD concepts
+        qcd_strength = self.get_strength_data(
+            qcd_concepts["concept_id"],
+            expect_cardinality=_Cardinality.NONZERO,
+            accepted_configurations=(dc.LiquidQuantity,),
+        )
+        qcd_concepts = qcd_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(qcd_strength.keys(), dtype=pl.UInt32)
+            )
+        )
+
+        qcd_bad_df: list[int] = []
+        qcd_bad_ingred: list[int] = []
+        qcd_bad_cd: list[int] = []
+
+        qcd_df_mismatch: list[int] = []
+        qcd_cd_strength_mismatch: list[int] = []
+
+        qcd_failed: list[int] = []
+
+        for row in qcd_concepts.iter_rows():
+            concept_id: int = row[0]
+            dose_form_concept_id: int = row[1]
+            cd_concept_id: int = row[2]
+            strength_data = {ing: stg for ing, stg in qcd_strength[concept_id]}
+
+            # Find dose form
+            try:
+                dose_form = self.atoms.dose_form[
+                    dc.ConceptId(dose_form_concept_id)
+                ]
+            except KeyError:
+                self.logger.error(
+                    f"Dose Form {dose_form_concept_id} not found for "
+                    f"Quantified Clinical Drug {concept_id}"
+                )
+                qcd_bad_df.append(concept_id)
+                continue
+
+            # Find ingredients
+            missing_ingredients = False
+            own_ingredients: dict[int, dc.Ingredient[dc.ConceptId]] = {}
+            for ing_id in strength_data.keys():
+                try:
+                    ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
+                except KeyError:
+                    self.logger.error(
+                        f"Ingredient {ing_id} not found for Quantified Clinical "
+                        f"Drug {concept_id}"
+                    )
+                    qcd_bad_ingred.append(concept_id)
+                    missing_ingredients = True
+                    break
+                own_ingredients[ing_id] = ing
+            if missing_ingredients:
+                continue
+
+            # Find parend CD
+            try:
+                cd_idx = cd_nodes[cd_concept_id]
+            except KeyError:
+                self.logger.error(
+                    f"Quant Clinical Drug {concept_id} had no registered "
+                    f"Clinical Drug {cd_concept_id}"
+                )
+                qcd_bad_cd.append(concept_id)
+                continue
+
+            try:
+                cd = self.hierarchy.graph[cd_idx]
+            except IndexError:
+                self.logger.error(
+                    f"Quant Clinical Drug {concept_id} had Clinical Drug "
+                    f"{cd_concept_id} not found in the hierarchy"
+                )
+                qcd_bad_cd.append(concept_id)
+                continue
+
+            if not isinstance(cd, dc.ClinicalDrug):
+                # This should never happen, but we will catch it anyway
+                self.logger.error(
+                    f"Quant Clinical Drug {concept_id} specified a non-CD "
+                    f"{cd_concept_id} as Clinical Drug parent"
+                )
+                qcd_bad_cd.append(concept_id)
+                continue
+
+            # Compare dose form against the parent CD
+            if (cd_form := cd.get_dose_form()) != dose_form:
+                self.logger.error(
+                    f"Dose Form mismatch for Quantified Clinical Drug "
+                    f"{concept_id}: {dose_form} != {cd_form} in Clinical Drug "
+                    f"{cd_concept_id}"
+                )
+                qcd_df_mismatch.append(concept_id)
+                continue
+
+            # Compare strength/ingredient matches
+            strength_entries: list[
+                tuple[dc.Ingredient[dc.ConceptId], dc.LiquidQuantity]
+            ] = []
+            for ing, ing_obj in own_ingredients.items():
+                strength = strength_data[ing]
+                assert isinstance(strength, dc.LiquidQuantity)
+                strength_entries.append((ing_obj, strength))
+
+            own_strength: SortedTuple[
+                tuple[dc.Ingredient[dc.ConceptId], dc.LiquidQuantity]
+            ] = SortedTuple(strength_entries)
+
+            assert isinstance(cd, dc.ClinicalDrug)
+
+            parent_strength: SortedTuple[
+                tuple[dc.Ingredient[dc.ConceptId], dc.Strength]
+            ] = cd.get_strength_data()
+
+            if len(parent_strength) != len(own_strength):
+                self.logger.error(
+                    f"Strength mismatch for Quant Clinical Drug {concept_id}: "
+                    f"{len(parent_strength)} != {len(own_strength)} in "
+                    f"Clinical Drug {cd_concept_id}"
+                )
+                qcd_cd_strength_mismatch.append(concept_id)
+                continue
+
+            shared_iter = zip(parent_strength, own_strength)
+            nested_break: bool = False
+            for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
+                if p_ing != o_ing:
+                    self.logger.error(
+                        f"Strength mismatch for Quant Clinical Drug "
+                        f"{concept_id}: {p_ing} != {o_ing} in Clinical Drug "
+                        f"{cd_concept_id}"
+                    )
+                    qcd_cd_strength_mismatch.append(concept_id)
+                    nested_break = True
+                    break
+
+                if not p_stg.matches(o_stg):
+                    self.logger.error(
+                        f"Strength mismatch for Quant Clinical Drug "
+                        f"{concept_id}: {p_stg} != {o_stg} in Clinical Drug "
+                        f"{cd_concept_id}"
+                    )
+                    qcd_cd_strength_mismatch.append(concept_id)
+                    nested_break = True
+                    break
+
+            if nested_break:
+                continue
+
+            try:
+                qdc: dc.QuantifiedClinicalDrug[
+                    dc.ConceptId, dc.LiquidConcentration | dc.GasPercentage
+                ] = dc.QuantifiedClinicalDrug(
+                    identifier=dc.ConceptId(concept_id),
+                    contents=own_strength,
+                    unquantified=cd,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Quantified Clinical Drug {concept_id}: "
+                    f"{e}"
+                )
+                qcd_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_quantified_clinical_drug(qdc, cd_idx)
+
+            qcd_nodes[concept_id] = node_idx
+
+        # Cleanup
+        reason_bad_concept = [
+            (qcd_bad_df, "Dose Form"),
+            (qcd_bad_ingred, "Ingredient"),
+            (qcd_bad_cd, "Clinical Drug"),
+        ]
+        for lst_bad, cls in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Quantified Clinical Drugs have valid {cls}",
+                "QCD_Bad_" + "".join(cls.split()),
+                f"{len(lst_bad):,} Quantified Clinical Drugs had bad {cls}",
+            )
+
+        reason_mismatch = [
+            (qcd_df_mismatch, "Dose Form", "Clinical Drug"),
+            (qcd_cd_strength_mismatch, "Strength", "Clinical Drug"),
+        ]
+
+        for lst_bad, what, cls in reason_mismatch:
+            w_abbv = "".join([w[0] for w in what.split()])
+            c_abbv = "".join([c[0] for c in cls.split()])
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Quantified Clinical Drugs have matching {what}s with their "
+                f"{cls}s",
+                "_".join(["QCD", w_abbv, c_abbv, "Mismatch"]),
+                f"{len(lst_bad):,} Quantified Clinical Drugs had mismatched {what}s "
+                f"with their {cls}s",
+            )
+
+        self.filter_out_bad_concepts(
+            pl.Series(qcd_failed, dtype=pl.UInt32),
+            "All Quantified Clinical Drugs were successfully created",
+            "QCD_Failed",
+            f"{len(qcd_failed):,} Quantified Clinical Drugs had failed creation",
+        )
+        return qcd_nodes
