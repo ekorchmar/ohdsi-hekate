@@ -390,11 +390,11 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 
 # Quantified liquid forms
-type _Concentration = st.LiquidConcentration | st.GasPercentage
+type Concentration = st.LiquidConcentration | st.GasPercentage
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: _Concentration](
+class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
     DrugNode[Id,]
 ):
     identifier: Id
@@ -509,7 +509,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: _Concentration](
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: _Concentration](
+class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: Concentration](
     DrugNode[Id],
 ):
     identifier: Id

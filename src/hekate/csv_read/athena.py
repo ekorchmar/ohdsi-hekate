@@ -2,10 +2,10 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
+import enum
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-import enum
 from pathlib import Path
 from typing import NamedTuple, override
 
@@ -14,14 +14,17 @@ from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from rx_model.exception import RxConceptCreationError
+
+# TODO: reexport this properly
+from rx_model.hierarchy.hosts import NodeIndex
 from utils.classes import SortedTuple
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
-    ATHENA_OVERFILTERING_WARNING,
     ATHENA_OVERFILTERING_TRESHOLD,
+    ATHENA_OVERFILTERING_WARNING,
     DEFINING_ATTRIBUTE_RELATIONSHIP,
-    STRENGTH_CONFIGURATIONS,
     PERCENT_CONCEPT_ID,
+    STRENGTH_CONFIGURATIONS,
 )
 from utils.logger import LOGGER
 
@@ -53,7 +56,7 @@ class _StrengthDataRow(NamedTuple):
 
 # Type hint for a dictionary linking int concept_ids to indices in the hierarchy
 # graph. This serves as a temporary cache to speed up the hierarchy building
-type _TempNodeView = dict[int, int]
+type _TempNodeView = dict[int, NodeIndex]
 
 
 class _Cardinality(enum.Enum):
