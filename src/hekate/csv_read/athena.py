@@ -1131,7 +1131,8 @@ class OMOPVocabulariesV5:
 
         # NOTE: We should also check for broken hierarchy links in between the
         # complex drug concepts themselves, but it is not as important for
-        # practical applications.
+        # practical applications. If such breakages exist, they will be caught
+        # by the lack of path to ingredients.
 
     def filter_precise_ingredient_as_ingredient(self):
         """
@@ -1523,6 +1524,19 @@ class OMOPVocabulariesV5:
             node_idx: int = self.hierarchy.add_clinical_drug_component(cdc)
             cdc_nodes[concept_id] = node_idx
 
+        # Cleanup
+        reason_bad_concept = [
+            (cdc_bad_ingredient, "Ingredient"),
+            (cdc_bad_precise_ingredient, "Precise Ingredient"),
+        ]
+        for lst_bad, cls in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Clinical Drug Components have valid {cls}",
+                "CDC_Bad_" + "".join(w[0] for w in cls.split()),
+                f"{len(lst_bad):,} Clinical Drugs had bad {cls}",
+            )
+
         self.filter_out_bad_concepts(
             pl.Series(cdc_ingredient_mismatch, dtype=pl.UInt32),
             "All Clinical Drug Components have the same ingredient in "
@@ -1531,22 +1545,6 @@ class OMOPVocabulariesV5:
             f"{len(cdc_ingredient_mismatch):,} Clinical Drug Components "
             f"had ingredient mismatches between DRUG_STRENGTH and "
             "CONCEPT_RELATIONSHIP",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cdc_bad_ingredient, dtype=pl.UInt32),
-            "All Clinical Drug Components have valid Ingredients",
-            "CDC_Bad_Ing",
-            f"{len(cdc_bad_ingredient):,} Clinical Drug Components had "
-            "bad Ingredients",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cdc_bad_precise_ingredient, dtype=pl.UInt32),
-            "All Clinical Drug Components have valid Precise Ingredients",
-            "CDC_Bad_PI",
-            f"{len(cdc_bad_precise_ingredient):,} Clinical Drug Components "
-            "had bad Precise Ingredients",
         )
 
         self.filter_out_bad_concepts(
@@ -1723,111 +1721,35 @@ class OMOPVocabulariesV5:
         self.logger.info("Processing Branded Drug Forms")
         bdf_nodes: _TempNodeView = {}
 
-        self.logger.info("Finding Brand Names for Branded Drug Forms")
-        bdf_to_bn = self.get_class_relationships(
-            class_id_1="Branded Drug Form",
-            class_id_2="Brand Name",
-            relationship_id="Has brand name",
-        ).select("concept_id", brand_concept_id="concept_id_target")
-
-        bdf_concepts = (
-            self.concept.data()
-            .filter(pl.col("concept_class_id") == "Branded Drug Form")
-            .select("concept_id")
-            .join(bdf_to_bn, on="concept_id", how="left")
+        bdf_concepts = self.get_validated_relationships_view(
+            source_class="Branded Drug Form",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="Has brand name",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Brand Name",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Tradename of",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Clinical Drug Form",
+                ),
+            ],
         )
 
-        # Catch empty brand names
-        bdf_no_bn = bdf_concepts.filter(pl.col("brand_concept_id").is_null())
-        self.filter_out_bad_concepts(
-            bdf_no_bn["concept_id"],
-            "All Branded Drug Forms have a Brand Name",
-            "BDF_no_BN",
-            f"{len(bdf_no_bn):,} Branded Drug Forms had no Brand Name",
+        ing_data = self.get_ds_ingredient_data(
+            bdf_concepts["concept_id"], _Cardinality.NONZERO
         )
 
-        # Catch multiple brand names for a single Branded Drug Form
-        bdf_mult_bn = (
-            bdf_to_bn.group_by("concept_id").count().filter(pl.col("count") > 1)
-        )
-        self.filter_out_bad_concepts(
-            bdf_mult_bn["concept_id"],
-            "All Branded Drug Forms had a single Brand Name",
-            "BDF_Mult_BN",
-            f"{len(bdf_mult_bn):,} Branded Drug Forms had multiple Brand Names",
-        )
-        if len(bdf_mult_bn):
-            bdf_concepts = bdf_concepts.join(
-                bdf_mult_bn, on="concept_id", how="anti"
-            )
-
-        # Find Clinical Drug Forms for Branded Drug Forms
-        bdf_to_cdf = self.get_class_relationships(
-            class_id_1="Branded Drug Form",
-            class_id_2="Clinical Drug Form",
-            relationship_id="Tradename of",
-        ).select("concept_id", cdf_concept_id="concept_id_target")
-        bdf_concepts = bdf_concepts.join(
-            bdf_to_cdf, on="concept_id", how="left"
-        )
-
-        # Catch Branded Drug Forms without Clinical Drug Forms
-        bdf_no_cdf = bdf_concepts.filter(pl.col("cdf_concept_id").is_null())
-        self.filter_out_bad_concepts(
-            bdf_no_cdf["concept_id"],
-            "All Branded Drug Forms have a Clinical Drug Form",
-            "BDF_no_CDF",
-            f"{len(bdf_no_cdf):,} Branded Drug Forms had no Clinical Drug Form",
-        )
-        if len(bdf_no_cdf):
-            bdf_concepts = bdf_concepts.filter(
-                pl.col("cdf_concept_id").is_not_null()
-            )
-
-        # Catch multiple Clinical Drug Forms for a single Branded Drug Form
-        bdf_mult_cdf = (
-            bdf_to_cdf.group_by("concept_id")
-            .count()
-            .filter(pl.col("count") > 1)
-        )
-        self.filter_out_bad_concepts(
-            bdf_mult_cdf["concept_id"],
-            "All Branded Drug Forms had a single Clinical Drug Form",
-            "BDF_Mult_CDF",
-            f"{len(bdf_mult_cdf):,} Branded Drug Forms had multiple "
-            "Clinical Drug Forms",
-        )
-        if len(bdf_mult_cdf):
-            bdf_concepts = bdf_concepts.join(
-                bdf_mult_cdf, on="concept_id", how="anti"
-            )
-
-        # We do not need the ingredient data to construct the BDF concept, but
-        # we will cross-check it against CDF data to ensure consistency
-        bdf_ing_ds = (
-            self.strength.data()
-            .join(
-                other=bdf_concepts,
-                left_on="drug_concept_id",
-                right_on="concept_id",
-            )
-            .select(["drug_concept_id", "ingredient_concept_id"])
-            .group_by("drug_concept_id")
-            .all()
-            .select(
-                concept_id="drug_concept_id",
-                ingredient_concept_ids="ingredient_concept_id",
+        bdf_concepts = bdf_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(ing_data.keys(), dtype=pl.UInt32)
             )
         )
 
         # NOTE: We skip internal consistency checks. There is only one way for
         # a BDF to be correct, and that is to have a single CDF with the same
         # data.
-
-        bdf_concepts = bdf_concepts.join(
-            other=bdf_ing_ds,
-            on="concept_id",
-        )
 
         bdf_bad_cdf: list[int] = []
         bdf_cdf_ing_mismatch: list[int] = []
@@ -1837,7 +1759,7 @@ class OMOPVocabulariesV5:
             concept_id: int = row[0]
             brand_concept_id: int = row[1]
             cdf_concept_id: int = row[2]
-            ingredient_concept_ids: list[int] = row[3]
+            ingredient_concept_ids: list[int] = ing_data[concept_id]
 
             try:
                 brand_name = self.atoms.brand_name[
@@ -1905,29 +1827,33 @@ class OMOPVocabulariesV5:
             node_idx = self.hierarchy.add_branded_drug_form(bdf, cdf_node_idx)
             bdf_nodes[concept_id] = node_idx
 
-        self.filter_out_bad_concepts(
-            pl.Series(bdf_bad_bn, dtype=pl.UInt32),
-            "All Branded Drug Forms have valid Brand Names",
-            "BDF_Bad_BN",
-            f"{len(bdf_bad_bn):,} Branded Drug Forms had bad Brand Names",
-        )
+        # Cleanup
+        reason_bad_concept = [
+            (bdf_bad_bn, "Brand Name"),
+            (bdf_bad_cdf, "Clinical Drug Form"),
+        ]
+        for lst_bad, cls in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Branded Drug Forms have valid {cls}",
+                "BDF_Bad_" + "".join(cls.split()),
+                f"{len(lst_bad):,} Branded Drug Forms had bad {cls}",
+            )
 
-        self.filter_out_bad_concepts(
-            pl.Series(bdf_bad_cdf, dtype=pl.UInt32),
-            "All Branded Drug Forms have valid Clinical Drug Forms",
-            "BDF_Bad_CDF",
-            f"{len(bdf_bad_cdf):,} Branded Drug Forms had bad Clinical Drug "
-            f"Forms",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(bdf_cdf_ing_mismatch, dtype=pl.UInt32),
-            "All Branded Drug Forms have matching Ingredients with their "
-            "Clinical Drug Forms",
-            "BDF_Ing_Mismatch",
-            f"{len(bdf_cdf_ing_mismatch):,} Branded Drug Forms had mismatched "
-            "Ingredients with their Clinical Drug Forms",
-        )
+        reason_mismatch = [
+            (bdf_cdf_ing_mismatch, "Ingredient", "Clinical Drug Form"),
+        ]
+        for lst_bad, what, cls in reason_mismatch:
+            w_abbv = "".join([w[0] for w in what.split()])
+            c_abbv = "".join([c[0] for c in cls.split()])
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Branded Drug Forms have matching {what}s with their "
+                f"{cls}s",
+                "_".join(["bdc", w_abbv, c_abbv, "Mismatch"]),
+                f"{len(lst_bad):,} Branded Drug Forms had mismatched {what}s "
+                f"with their {cls}s",
+            )
 
         self.filter_out_bad_concepts(
             pl.Series(bdf_failed, dtype=pl.UInt32),
@@ -2113,38 +2039,34 @@ class OMOPVocabulariesV5:
             )
             bdc_nodes[concept_id] = node_idx
 
-        self.filter_out_bad_concepts(
-            pl.Series(bdc_bad_bn, dtype=pl.UInt32),
-            "All Branded Drug Comps have valid Brand Names",
-            "BDC_Bad_BN",
-            f"{len(bdc_bad_bn):,} Branded Drug Comps had bad Brand Names",
-        )
+        # Cleanup
+        reason_bad_concept = [
+            (bdc_bad_bn, "Brand Name"),
+            (bdc_bad_ingred, "Ingredient"),
+            (bdc_bad_cdc, "Clinical Drug Component"),
+        ]
+        for lst_bad, cls in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Branded Drug Components have valid {cls}",
+                "bdc_Bad_" + "".join(cls.split()),
+                f"{len(lst_bad):,} Branded Drug Components had bad {cls}",
+            )
 
-        self.filter_out_bad_concepts(
-            pl.Series(bdc_bad_cdc, dtype=pl.UInt32),
-            "All Branded Drug Comps have valid Clinical Drug Comps",
-            "BDC_Bad_CDC",
-            f"{len(bdc_bad_cdc):,} Branded Drug Comps had bad Clinical Drug "
-            f"Comps",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(bdc_bad_ingred, dtype=pl.UInt32),
-            "All Branded Drug Comps have matching Ingredients with their "
-            "Clinical Drug Comps",
-            "BDC_Ing_Mismatch",
-            f"{len(bdc_bad_ingred):,} Branded Drug Comps had mismatched "
-            "Ingredients with their Clinical Drug Comps",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(bdc_cdc_strength_mismatch, dtype=pl.UInt32),
-            "All Branded Drug Comps have matching Strengths with their "
-            "Clinical Drug Comps",
-            "BDC_Strength_Mismatch",
-            f"{len(bdc_cdc_strength_mismatch):,} Branded Drug Comps had "
-            "mismatched Strengths with their Clinical Drug Comps",
-        )
+        reason_mismatch = [
+            (bdc_cdc_strength_mismatch, "Strength", "Clinical Drug Component"),
+        ]
+        for lst_bad, what, cls in reason_mismatch:
+            w_abbv = "".join([w[0] for w in what.split()])
+            c_abbv = "".join([c[0] for c in cls.split()])
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Branded Drug Components have matching {what}s with their "
+                f"{cls}s",
+                "_".join(["BDC", w_abbv, c_abbv, "Mismatch"]),
+                f"{len(lst_bad):,} Branded Drug Components had mismatched "
+                f"{what}s with their {cls}s",
+            )
 
         self.filter_out_bad_concepts(
             pl.Series(bdc_failed, dtype=pl.UInt32),
@@ -2391,63 +2313,36 @@ class OMOPVocabulariesV5:
 
             cd_nodes[concept_id] = node_idx
 
-        self.filter_out_bad_concepts(
-            pl.Series(cd_bad_df, dtype=pl.UInt32),
-            "All Clinical Drugs have valid Dose Forms",
-            "CD_Bad_DF",
-            f"{len(cd_bad_df):,} Clinical Drugs had bad Dose Forms",
-        )
+        # Cleanup
+        reason_bad_concept = [
+            (cd_bad_df, "Dose Form"),
+            (cd_bad_cdf, "Clinical Drug Form"),
+            (cd_bad_cdc, "Clinical Drug Component"),
+            (cd_bad_ingred, "Ingredient"),
+        ]
+        for lst_bad, cls in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Clinical Drugs have valid {cls}",
+                "CD_Bad_" + "".join(cls.split()),
+                f"{len(lst_bad):,} Clinical Drugs had bad {cls}",
+            )
 
-        self.filter_out_bad_concepts(
-            pl.Series(cd_bad_cdf, dtype=pl.UInt32),
-            "All Clinical Drugs have valid Clinical Drug Forms",
-            "CD_Bad_CDF",
-            f"{len(cd_bad_cdf):,} Clinical Drugs had bad Clinical Drug Forms",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cd_bad_cdc, dtype=pl.UInt32),
-            "All Clinical Drugs have valid Clinical Drug Components",
-            "CD_Bad_CDC",
-            f"{len(cd_bad_cdc):,} Clinical Drugs had bad Clinical Drug "
-            "Components",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cd_cdf_form_mismatch, dtype=pl.UInt32),
-            "All Clinical Drugs have matching Dose Forms with their "
-            "Clinical Drug Forms",
-            "CD_Form_Mismatch",
-            f"{len(cd_cdf_form_mismatch):,} Clinical Drugs had mismatched "
-            "Dose Forms with their Clinical Drug Forms",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cd_cdf_ing_mismatch, dtype=pl.UInt32),
-            "All Clinical Drugs have matching Ingredients with their "
-            "Clinical Drug Forms",
-            "CD_Ing_Mismatch",
-            f"{len(cd_cdf_ing_mismatch):,} Clinical Drugs had mismatched "
-            "Ingredients with their Clinical Drug Forms",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cd_cdc_strength_mismatch, dtype=pl.UInt32),
-            "All Clinical Drugs have matching Strengths with their "
-            "Clinical Drug Components",
-            "CD_Strength_Mismatch",
-            f"{len(cd_cdc_strength_mismatch):,} Clinical Drugs had mismatched "
-            "Strengths with their Clinical Drug Components",
-        )
-
-        self.filter_out_bad_concepts(
-            pl.Series(cd_bad_ingred, dtype=pl.UInt32),
-            "All Clinical Drugs have matching Ingredients with their "
-            "Clinical Drug Components",
-            "CD_Ing_Mismatch",
-            f"{len(cd_bad_ingred):,} Clinical Drugs had mismatched "
-            "Ingredients with their Clinical Drug Components",
-        )
+        reason_mismatch = [
+            (cd_cdf_form_mismatch, "Dose Form", "Clinical Drug Form"),
+            (cd_cdf_ing_mismatch, "Ingredient", "Clinical Drug Form"),
+            (cd_cdc_strength_mismatch, "Strength", "Clinical Drug Component"),
+        ]
+        for lst_bad, what, cls in reason_mismatch:
+            w_abbv = "".join([w[0] for w in what.split()])
+            c_abbv = "".join([c[0] for c in cls.split()])
+            self.filter_out_bad_concepts(
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Clinical Drugs have matching {what}s with their {cls}s",
+                "_".join(["CD", w_abbv, c_abbv, "Mismatch"]),
+                f"{len(lst_bad):,} Clinical Drugs had mismatched {what}s with "
+                f"their {cls}s",
+            )
 
         self.filter_out_bad_concepts(
             pl.Series(cdc_failed, dtype=pl.UInt32),
