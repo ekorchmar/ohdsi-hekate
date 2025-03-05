@@ -236,6 +236,13 @@ class LiquidQuantity(_StrengthMeta):
 
         return self.get_unquantified()._values_match(other)  # pyright: ignore[reportPrivateUsage]  # noqa: E501
 
+    def denominator_matches(self, other: "LiquidQuantity") -> bool:
+        if self.denominator_unit != other.denominator_unit:
+            return False
+
+        diff = self.denominator_value / other.denominator_value
+        return LOW <= diff <= HIGH
+
     def __post_init__(self):
         # Inherit checks from LiquidConcentration, as we are implicitly
         # a subclass

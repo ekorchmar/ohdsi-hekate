@@ -250,8 +250,6 @@ class RelationshipTable(OMOPTable[pl.Series]):
             # Only care about valid internal relationships
             pl.col("invalid_reason").is_null(),
             pl.col("relationship_id").is_in(ALL_CONCEPT_RELATIONSHIP_IDS),
-            # TODO: Parametrize these joins; maybe it's not worth the
-            # performance hit
             pl.col("concept_id_1").is_in(concept),
             pl.col("concept_id_2").is_in(concept),
         )
@@ -366,8 +364,175 @@ class OMOPVocabulariesV5:
 
         return joined
 
+    def get_validated_relationships_view(
+        self,
+        source_class: str,
+        relationships: Sequence[_RelationshipDescription],
+        include_name: bool = False,
+    ) -> pl.DataFrame:
+        """
+        Get a DataFrame view of the relationships between a source class and
+        target classes, with additional validation checks.
+        """
+
+        self.logger.info(f"Finding relationships for {source_class}")
+
+        source_abbr = "".join(char[0] for char in source_class.split())
+        source_concepts = (
+            self.concept.data()
+            .filter(pl.col("concept_class_id") == source_class)
+            .select(
+                ["concept_id", "concept_name"] if include_name else "concept_id"
+            )
+        )
+
+        for rel in relationships:
+            rel_id, expected_cardinality, target_class = rel
+            target_abbr = "".join(char[0] for char in target_class.split())
+            target_colname = "_".join(target_class.lower().split())
+            target_colname += "_concept_id"
+
+            self.logger.info(f"Finding {target_class} for {source_class}")
+            source_to_target = (
+                self.get_class_relationships(
+                    class_id_1=source_class,
+                    class_id_2=target_class,
+                    relationship_id=rel_id,
+                )
+                .select("concept_id", "concept_id_target")
+                .rename({"concept_id_target": target_colname})
+            )
+
+            # Catch empty attributes
+            if expected_cardinality in _CARDINALITY_REQUIRED:
+                source_no_target = source_concepts.join(
+                    source_to_target, on="concept_id", how="anti"
+                )
+                self.filter_out_bad_concepts(
+                    source_no_target["concept_id"],
+                    f"All {source_class} have a {target_class}",
+                    f"{source_abbr}_no_{target_abbr}",
+                    f"{len(source_no_target):,} {source_class} had no "
+                    f"{target_class}",
+                )
+                if len(source_no_target):
+                    source_concepts = source_concepts.join(
+                        source_no_target, on="concept_id", how="anti"
+                    )
+
+            if expected_cardinality in _CARDINALITY_SINGLE:
+                # Catch multiple attributes
+                source_mult_target = (
+                    source_to_target["concept_id"]
+                    .value_counts()
+                    .filter(pl.col("count") > 1)
+                )
+
+                self.filter_out_bad_concepts(
+                    source_mult_target["concept_id"],
+                    f"All {source_class} had a single {target_class}",
+                    f"{source_abbr}_Mult_{target_abbr}",
+                    f"{len(source_mult_target):,} {source_class} had multiple "
+                    f"{target_class} attributes",
+                )
+                if len(source_mult_target):
+                    source_concepts = source_concepts.join(
+                        source_mult_target, on="concept_id", how="anti"
+                    )
+
+                # Attach the attribute
+                source_concepts = source_concepts.join(
+                    other=source_to_target, on="concept_id"
+                )
+            else:  # expected_cardinality in __CARDINALITY_MULTIPLE
+                # Attach grouped attributes
+                source_concepts = source_concepts.join(
+                    other=(
+                        source_to_target.group_by("concept_id")
+                        .all()
+                        .rename({target_colname: target_colname + "s"})
+                    ),
+                    on="concept_id",
+                )
+
+        return source_concepts
+
+    def get_ds_ingredient_data(
+        self, drug_ids: pl.Series, expect_cardinality: _Cardinality
+    ) -> dict[int, list[int]]:
+        """
+        Get the ingredient data slice for each drug concept per the
+        DRUG_STRENGTH table.
+
+        Args:
+            drug_ids: Series of drug concept_ids to filter the data.
+            expect_cardinality: Expected cardinality of the relationship, as
+                defined in the _Cardinality enum. Note that only ONE and NONZERO
+                are valid here. Return type is always a dictionary of lists,
+                regardless of the cardinality.
+
+        Returns:
+            A dictionary with drug concept_ids as keys and lists of
+            correpsonding ingredient concept_ids as values.
+        """
+
+        if expect_cardinality not in _CARDINALITY_REQUIRED:
+            raise ValueError(
+                "Expected cardinality must be ONE or NONZERO for this method"
+            )
+
+        ing_data: dict[int, list[int]] = {}
+        ing_df = self.strength.data().join(
+            other=drug_ids.unique().to_frame(name="drug_concept_id"),
+            on="drug_concept_id",
+            how="left",
+        )
+
+        # Filter out drugs with no ingredients
+        no_ingredients = ing_df.filter(
+            pl.col("ingredient_concept_id").is_null()
+        )
+        self.filter_out_bad_concepts(
+            no_ingredients["drug_concept_id"],
+            "All drugs have ingredients",
+            "DS_No_Ing",
+            f"{len(no_ingredients):,} drugs had no ingredients",
+        )
+        if len(no_ingredients):
+            ing_df = ing_df.filter(
+                pl.col("ingredient_concept_id").is_not_null()
+            )
+
+        if expect_cardinality is _Cardinality.ONE:
+            # Filter out drugs with multiple ingredients
+            multiple_ingredients = (
+                ing_df["drug_concept_id"]
+                .value_counts()
+                .filter(pl.col("count") > 1)
+            )
+            self.filter_out_bad_concepts(
+                multiple_ingredients["drug_concept_id"],
+                "All drugs have a single ingredient",
+                "DS_Mult_Ing",
+                f"{len(multiple_ingredients):,} drugs had multiple ingredients",
+            )
+            if len(multiple_ingredients):
+                ing_df = ing_df.join(
+                    multiple_ingredients, on="drug_concept_id", how="anti"
+                )
+
+        for row in ing_df.iter_rows():
+            drug_id: int = row[0]
+            ingredient_id: int = row[1]
+            ing_data.setdefault(drug_id, []).append(ingredient_id)
+
+        return ing_data
+
     def get_strength_data(
-        self, drug_ids: pl.Series
+        self,
+        drug_ids: pl.Series,
+        expect_cardinality: _Cardinality,
+        accepted_configurations: tuple[type[dc.Strength], ...],
     ) -> dict[int, list[_StrengthTuple]]:
         """
         Get the strength data slice for each drug concept.
@@ -379,18 +544,69 @@ class OMOPVocabulariesV5:
         The concept will be rejected only if it fails to match any of the
         valid configurations, or if it's entries match multiple configurations.
 
+        Args:
+            drug_ids: Series of drug concept_ids to filter the data.
+            expect_cardinality: Expected cardinality of the relationship, as
+                defined in the _Cardinality enum. Note that only ONE and NONZERO
+                are valid here. REturn type is always a dictionary of lists,
+                regardless of the cardinality.
+            accepted_configurations: Iterable of strength data classes that are
+                accepted for the provided drug_ids.
+
         Returns:
             A dictionary with drug concept_ids as keys and strength entries as
             values. A strength entry is a tuple with an integer concept_id and a
             variant of strength data, in shape of `SolidStrength`,
             `LiquidQuantity`, or `LiquidConcentration`.
         """
+        if expect_cardinality not in _CARDINALITY_REQUIRED:
+            raise ValueError(
+                "Expected cardinality must be ONE or NONZERO for this method"
+            )
+
+        concepts = drug_ids.unique().to_frame(name="drug_concept_id")
+
         strength_data: dict[int, list[_StrengthTuple]] = {}
-        strength_df = self.strength.data().join(
-            other=drug_ids.unique().to_frame(name="drug_concept_id"),
+        strength_df = concepts.join(
+            other=self.strength.data(),
             on="drug_concept_id",
+            how="left",
         )
 
+        # Filter out drugs with no strength data
+        # NOTE: Due to design of OMOP, this is highly unlikely
+        no_strength = strength_df.filter(
+            pl.col("ingredient_concept_id").is_null()
+        )
+        self.filter_out_bad_concepts(
+            no_strength["drug_concept_id"],
+            "All drugs have strength data",
+            "DS_No_Strength",
+            f"{len(no_strength):,} drugs had no strength data",
+        )
+        if len(no_strength):
+            strength_df = strength_df.filter(
+                pl.col("ingredient_concept_id").is_not_null()
+            )
+
+        if expect_cardinality is _Cardinality.ONE:
+            # Filter out drugs with multiple strength data
+            multiple_strength = (
+                strength_df["drug_concept_id"]
+                .value_counts()
+                .filter(pl.col("count") > 1)
+            )
+            self.filter_out_bad_concepts(
+                multiple_strength["drug_concept_id"],
+                "All drugs have a single strength data entry",
+                "DS_Mult_Strength",
+                f"{len(multiple_strength):,} drugs had multiple strength data "
+                "entries",
+            )
+            if len(multiple_strength):
+                strength_df = strength_df.join(
+                    multiple_strength, on="drug_concept_id", how="anti"
+                )
         # We want to be very strict about the strength data, so we will
         # look for explicit data shapes
         for label, expression in STRENGTH_CONFIGURATIONS.items():
@@ -409,6 +625,10 @@ class OMOPVocabulariesV5:
 
         for row in strength_df.iter_rows():
             row = _StrengthDataRow(*row)
+
+            if row.drug_concept_id in failed_concept_ids:
+                # We already know this concept is bad
+                continue
 
             # Pick a Strength variant based on the determined configuration
             strength: dc.Strength
@@ -448,10 +668,13 @@ class OMOPVocabulariesV5:
                             ),
                         )
                     case _:
-                        # Should be unreachable
-                        raise ValueError(
-                            f"Wrong configuration for {row.drug_concept_id}"
+                        self.logger.error(
+                            f"Strength data for {row.drug_concept_id} had "
+                            f"unexpected value configuration for "
+                            f"{row.ingredient_concept_id}"
                         )
+                        failed_concept_ids.append(row.drug_concept_id)
+                        continue
             except RxConceptCreationError as e:
                 self.logger.error(
                     f"Failed to create strength data for {row.drug_concept_id}"
@@ -460,9 +683,41 @@ class OMOPVocabulariesV5:
                 failed_concept_ids.append(row.drug_concept_id)
                 continue
 
-            strength_data.setdefault(row.drug_concept_id, []).append(
-                _StrengthTuple(row.ingredient_concept_id, strength)
-            )
+            if not isinstance(strength, accepted_configurations):
+                self.logger.error(
+                    f"Strength data {strength} for {row.drug_concept_id} did "
+                    f"not match any of the accepted configurations of its class"
+                )
+                failed_concept_ids.append(row.drug_concept_id)
+
+            if (existing := strength_data.get(row.drug_concept_id)) is None:
+                strength_data[row.drug_concept_id] = [
+                    _StrengthTuple(row.ingredient_concept_id, strength)
+                ]
+            else:
+                # Assert that the configuration matches the other rows
+                if not isinstance(strength, type(existing[0].strength)):
+                    self.logger.error(
+                        f"Strength data for {row.drug_concept_id} had "
+                        f"inconsistent configurations between "
+                        f"{row.ingredient_concept_id} "
+                        f"and {existing[0].ingredient_concept_id}"
+                    )
+                    failed_concept_ids.append(row.drug_concept_id)
+                    continue
+
+                # Assert that the denominator values match for LiquidQuantity
+                if isinstance(strength, dc.LiquidQuantity):
+                    assert isinstance(existing[0].strength, dc.LiquidQuantity)
+                    if not strength.denominator_matches(existing[0].strength):
+                        self.logger.error(
+                            f"Strength data for {row.drug_concept_id} had "
+                            f"inconsistent denominator values between "
+                            f"{row.ingredient_concept_id} "
+                            f"and {existing[0].ingredient_concept_id}"
+                        )
+                        failed_concept_ids.append(row.drug_concept_id)
+                        continue
 
             # TODO: save strength data to self.strengths
             # self.strengths.add_strength(row.ingredient_concept_id, strength)
@@ -709,76 +964,28 @@ class OMOPVocabulariesV5:
         self.logger.info("Processing Clinical Drug Forms")
         # Save node indices for reuse by descending classes
         cdf_nodes: _TempNodeView = {}
-        self.logger.info("Finding Dose Forms for Clinical Drug Forms")
-        cdf_to_df = self.get_class_relationships(
-            class_id_1="Clinical Drug Form",
-            class_id_2="Dose Form",
-            relationship_id="RxNorm has dose form",
-        ).select("concept_id", dose_form_id="concept_id_target")
 
-        cdf_concepts = (
-            self.concept.data()
-            .filter(pl.col("concept_class_id") == "Clinical Drug Form")
-            .select("concept_id")
-            .join(cdf_to_df, on="concept_id", how="left")
+        cdf_concepts = self.get_validated_relationships_view(
+            source_class="Clinical Drug Form",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="RxNorm has dose form",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Dose Form",
+                ),
+                _RelationshipDescription(
+                    relationship_id="RxNorm has ing",
+                    cardinality=_Cardinality.NONZERO,
+                    target_class="Ingredient",
+                ),
+            ],
         )
 
-        # Catch empty dose forms
-        cdf_no_df = cdf_concepts.filter(pl.col("dose_form_id").is_null())
-        self.filter_out_bad_concepts(
-            cdf_no_df["concept_id"],
-            "All Clinical Drug Forms have a Dose Form",
-            "CDF_no_DF",
-            f"{len(cdf_no_df):,} Clinical Drug Forms had no Dose Form",
+        # Get ingredients from DRUG_STRENGTH table for cross-validation
+        cdf_ing_ds: dict[int, list[int]] = self.get_ds_ingredient_data(
+            cdf_concepts["concept_id"], _Cardinality.NONZERO
         )
-        if len(cdf_no_df):
-            cdf_concepts = cdf_concepts.filter(
-                pl.col("dose_form_id").is_not_null()
-            )
 
-        # Catch multiple dose forms for a single Clinical Drug Form
-        cdf_mult_df = (
-            cdf_to_df.group_by("concept_id").count().filter(pl.col("count") > 1)
-        )
-        self.filter_out_bad_concepts(
-            cdf_mult_df["concept_id"],
-            "All Clinical Drug Forms had a single Dose Form",
-            "CDF_Mult_DF",
-            f"{len(cdf_mult_df):,} Clinical Drug Forms had multiple Dose Forms",
-        )
-        if len(cdf_mult_df):
-            cdf_concepts = cdf_concepts.join(
-                cdf_mult_df, on="concept_id", how="anti"
-            )
-
-        self.logger.info("Finding Ingredients for Clinical Drug Forms")
-
-        # From CONCEPT_RELATIONSHIP table
-        cdf_to_ing_cr = self.get_class_relationships(
-            class_id_1="Clinical Drug Form",
-            class_id_2="Ingredient",
-            relationship_id="RxNorm has ing",
-        ).select(["concept_id", "concept_id_target"])
-
-        cdf_ing_cr: dict[int, set[int]] = {}
-        for row in cdf_to_ing_cr.iter_rows():
-            cr_cdc_id: int = row[0]
-            cr_ingredient_id: int = row[1]
-            cdf_ing_cr.setdefault(cr_cdc_id, set()).add(cr_ingredient_id)
-
-        # From DRUG_STRENGTH table
-        cdf_to_ing_ds = (
-            self.strength.data()
-            .filter(pl.col("drug_concept_id").is_in(cdf_concepts["concept_id"]))
-            .select(["drug_concept_id", "ingredient_concept_id"])
-        )
-        cdf_ing_ds: dict[int, set[int]] = {}
-        for row in cdf_to_ing_ds.iter_rows():
-            ds_cdc_id: int = row[0]
-            ds_ingredient_id: int = row[1]
-            cdf_ing_ds.setdefault(ds_cdc_id, set()).add(ds_ingredient_id)
-
-        cdf_no_ing: list[int] = []
         cdf_ingredient_mismatch: list[int] = []
         cdf_bad_df: list[int] = []
         cdf_bad_ings: list[int] = []
@@ -786,17 +993,10 @@ class OMOPVocabulariesV5:
         for row in cdf_concepts.iter_rows():
             concept_id: int = row[0]
             dose_form_id: int = row[1]
-            ingredients_ds = cdf_ing_ds.get(concept_id, set())
-            ingredients_cr = cdf_ing_cr.get(concept_id, set())
+            ingredients_cr: list[int] = row[2]
+            ingredients_ds: list[int] = cdf_ing_ds[concept_id]
 
-            if len(ingredients_ds) == 0:
-                self.logger.error(
-                    f"Clinical Drug Form {concept_id} had no Ingredients"
-                )
-                cdf_no_ing.append(concept_id)
-                continue
-
-            if ingredients_ds != ingredients_cr:
+            if sorted(ingredients_ds) != sorted(ingredients_cr):
                 self.logger.error(
                     f"Clinical Drug Form {concept_id} had mismatched "
                     f"Ingredients between CONCEPT_RELATIONSHIP and "
@@ -849,13 +1049,6 @@ class OMOPVocabulariesV5:
 
             node_idx = self.hierarchy.add_clinical_drug_form(cdf)
             cdf_nodes[concept_id] = node_idx
-
-        self.filter_out_bad_concepts(
-            pl.Series(cdf_no_ing, dtype=pl.UInt32),
-            "All Clinical Drug Forms had Ingredients",
-            "CDF_No_Ing",
-            f"{len(cdf_no_ing):,} Clinical Drug Forms had no Ingredients",
-        )
 
         self.filter_out_bad_concepts(
             pl.Series(cdf_ingredient_mismatch, dtype=pl.UInt32),
@@ -1227,84 +1420,34 @@ class OMOPVocabulariesV5:
         # Save node indices for reuse by descending classes
         cdc_nodes: _TempNodeView = {}
 
-        self.logger.info("Finding Ingredients for Clinical Drug Components")
-
-        # We could stick to DRUG_STRENGTH only, but we need to validate
-        # the data
-        tuples_to_check = [
-            ("Ingredient", "RxNorm has ing", "Ing"),
-            ("Precise Ingredient", "Has precise ing", "PI"),
-        ]
-
-        attrs: dict[str, pl.DataFrame] = {}
-        for class_id, relationship_id, short in tuples_to_check:
-            self.logger.info(f"Finding {class_id} for Clinical Drug Components")
-            cdc_to_attr = self.get_class_relationships(
-                class_id_1="Clinical Drug Comp",
-                class_id_2=class_id,
-                relationship_id=relationship_id,
-            )
-            cdc_to_mult = (
-                cdc_to_attr.group_by("concept_id")
-                .count()
-                .filter(pl.col("count") > 1)
-            )["concept_id"]
-            self.filter_out_bad_concepts(
-                cdc_to_mult,
-                f"No Clinical Drug Components with multiple of {class_id} "
-                f"attributes found",
-                "CDC_Multiple_" + short,
-                f"Found {len(cdc_to_mult):,} Clinical Drug Components with "
-                f"multiple of {class_id} attributes",
-            )
-            if len(cdc_to_mult):
-                cdc_to_attr = cdc_to_attr.filter(
-                    ~pl.col("concept_id").is_in(cdc_to_mult)
-                )
-
-            attrs[short] = cdc_to_attr.select("concept_id", "concept_id_target")
-
-        cdc_frame = (
-            attrs["Ing"]
-            .rename({"concept_id_target": "ingredient_concept_id"})
-            .join(
-                other=attrs["PI"].rename({
-                    "concept_id_target": "precise_ingredient_concept_id"
-                }),
-                on="concept_id",
-                how="left",
-            )
+        cdc_concepts = self.get_validated_relationships_view(
+            source_class="Clinical Drug Comp",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="RxNorm has ing",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Ingredient",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Has precise ing",
+                    cardinality=_Cardinality.OPTIONAL,
+                    target_class="Precise Ingredient",
+                ),
+            ],
         )
 
-        # As we are working with CDC, only one strength entry is expected
-        # per concept
-        # NOTE: This check is semantically redundant, as we already filter
-        # multiple ingredients per CONCEPT_RELATIONSHIP data, but there
-        # are no guarantees of consistency.
-        multiple_strength = (
-            self.strength.data()
-            .filter(pl.col("drug_concept_id").is_in(cdc_frame["concept_id"]))
-            .select("drug_concept_id", "ingredient_concept_id")
-            .group_by("drug_concept_id")
-            .count()
-            .filter(pl.col("count") > 1)
-        )["drug_concept_id"]
-        if len(multiple_strength):
-            cdc_frame = cdc_frame.filter(
-                ~pl.col("concept_id").is_in(multiple_strength)
-            )
-        self.filter_out_bad_concepts(
-            multiple_strength,
-            "No Clinical Drug Components with multiple strength entries found",
-            "CDC_Multiple_Strength",
-            f"Found {len(multiple_strength):,} Clinical Drug Components "
-            "with multiple strength entries",
+        cdc_strength = self.get_strength_data(
+            cdc_concepts["concept_id"],
+            expect_cardinality=_Cardinality.ONE,
+            accepted_configurations=(
+                dc.SolidStrength,
+                dc.LiquidConcentration,
+                dc.GasPercentage,
+            ),
         )
-
-        strength_data = self.get_strength_data(cdc_frame["concept_id"])
-        cdc_frame = cdc_frame.filter(
+        cdc_concepts = cdc_concepts.filter(
             pl.col("concept_id").is_in(
-                pl.Series(strength_data.keys(), dtype=pl.UInt32)
+                pl.Series(cdc_strength.keys(), dtype=pl.UInt32)
             )
         )
 
@@ -1312,11 +1455,11 @@ class OMOPVocabulariesV5:
         cdc_bad_ingredient: list[int] = []
         cdc_bad_precise_ingredient: list[int] = []
         cdc_failed: list[int] = []
-        for row in cdc_frame.iter_rows():
+        for row in cdc_concepts.iter_rows():
             concept_id: int = row[0]
             ingredient_concept_id: int = row[1]
             precise_ingredient_concept_id: int | None = row[2]
-            (str_tuple,) = strength_data[concept_id]
+            (str_tuple,) = cdc_strength[concept_id]
             ds_ingredient_concept_id: int = str_tuple.ingredient_concept_id
             strength: dc.Strength = str_tuple.strength
 
@@ -1814,77 +1957,31 @@ class OMOPVocabulariesV5:
         self.logger.info("Processing Branded Drug Components")
         bdc_nodes: _TempNodeView = {}
 
-        self.logger.info("Finding Brand Names for Branded Drug Components")
-
-        bdc_to_bn = self.get_class_relationships(
-            class_id_1="Branded Drug Comp",
-            class_id_2="Brand Name",
-            relationship_id="Has brand name",
-        ).select("concept_id", brand_concept_id="concept_id_target")
-
-        bdc_concepts = (
-            self.concept.data()
-            .filter(pl.col("concept_class_id") == "Branded Drug Comp")
-            .select("concept_id")
-            .join(bdc_to_bn, on="concept_id", how="left")
+        bdc_concepts = self.get_validated_relationships_view(
+            source_class="Branded Drug Comp",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="Has brand name",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Brand Name",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Tradename of",
+                    cardinality=_Cardinality.NONZERO,
+                    target_class="Clinical Drug Comp",
+                ),
+            ],
         )
 
-        # Catch empty brand names
-        bdc_no_bn = bdc_concepts.filter(pl.col("brand_concept_id").is_null())
-        self.filter_out_bad_concepts(
-            bdc_no_bn["concept_id"],
-            "All Branded Drug Comps have a Brand Name",
-            "BDC_no_BN",
-            f"{len(bdc_no_bn):,} Branded Drug Forms had no Brand Name",
+        bdc_strength = self.get_strength_data(
+            bdc_concepts["concept_id"],
+            expect_cardinality=_Cardinality.NONZERO,
+            accepted_configurations=(
+                dc.SolidStrength,
+                dc.LiquidConcentration,
+                dc.GasPercentage,
+            ),
         )
-
-        # Catch multiple brand names for a single Branded Drug Form
-        bdc_mult_bn = (
-            bdc_to_bn.group_by("concept_id").count().filter(pl.col("count") > 1)
-        )
-        self.filter_out_bad_concepts(
-            bdc_mult_bn["concept_id"],
-            "All Branded Drug Comps had a single Brand Name",
-            "BDC_Mult_BN",
-            f"{len(bdc_mult_bn):,} Branded Drug Forms had multiple Brand Names",
-        )
-        if len(bdc_mult_bn):
-            bdc_concepts = bdc_concepts.join(
-                bdc_mult_bn, on="concept_id", how="anti"
-            )
-
-        # Find Clinical Drug Components for Branded Drug Components
-        bdc_to_cdc = (
-            self.get_class_relationships(
-                class_id_1="Branded Drug Comp",
-                class_id_2="Clinical Drug Comp",
-                relationship_id="Tradename of",
-            )
-            .select("concept_id", cdc_concept_id="concept_id_target")
-            .group_by("concept_id")
-            .all()
-        )
-
-        # Catch Branded Drug Components without Clinical Drug Components
-        bdc_no_cdc = bdc_concepts.join(
-            other=bdc_to_cdc, on="concept_id", how="anti"
-        )["concept_id"]
-
-        self.filter_out_bad_concepts(
-            bdc_no_cdc,
-            "All Branded Drug Comps have a Clinical Drug Comp",
-            "BDC_no_CDC",
-            f"{len(bdc_no_cdc):,} Branded Drug Comps had no Clinical Drug Comp",
-        )
-
-        # Attach CDC data to BDC concepts (and filter out missing)
-        bdc_concepts = bdc_concepts.join(bdc_to_cdc, on="concept_id")
-
-        # Get drug strength data for BDCs
-        # NOTE: BDC strength data is defined by it's parent CDC,
-        # but we will cross-check it against the explicit DRUG_STRENGTH data
-        # to ensure consistency
-        bdc_strength = self.get_strength_data(bdc_concepts["concept_id"])
         # Filter out BDCs with no strength data
         bdc_concepts = bdc_concepts.filter(
             pl.col("concept_id").is_in(
@@ -2080,183 +2177,282 @@ class OMOPVocabulariesV5:
         self.logger.info("Processing Clinical Drugs")
         cd_nodes: _TempNodeView = {}
 
-        # CDs are expected to have a direct relationship to:
-        # - Clinical Drug Form 1..1
-        # - Dose Form          1..1
-        # - Clinical Drug Comp 1..n
-
-        attribute_relations = [
-            ("RxNorm has dose form", "Dose Form", True),
-            ("RxNorm is a", "Clinical Drug Form", True),
-            ("Consists of", "Clinical Drug Comp", False),
-        ]
-
-        cd_concepts = (
-            self.concept.data()
-            .filter(pl.col("concept_class_id") == "Clinical Drug")
-            .select("concept_id")
+        cd_concepts = self.get_validated_relationships_view(
+            source_class="Clinical Drug",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="RxNorm has dose form",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Dose Form",
+                ),
+                _RelationshipDescription(
+                    relationship_id="RxNorm is a",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Clinical Drug Form",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Consists of",
+                    cardinality=_Cardinality.NONZERO,
+                    target_class="Clinical Drug Comp",
+                ),
+            ],
         )
 
-        for rel_id, concept_class_id, one_to_one in attribute_relations:
-            abbrev = "".join(char[0] for char in concept_class_id.split())
-
-            self.logger.info(f"Finding {concept_class_id} for Clinical Drugs")
-            cd_to_attr = (
-                self.get_class_relationships(
-                    class_id_1="Clinical Drug",
-                    class_id_2=concept_class_id,
-                    relationship_id=rel_id,
-                )
-                .select("concept_id", "concept_id_target")
-                .rename({"concept_id_target": f"{abbrev}_concept_id"})
+        # Attach DS data to CD concepts
+        cd_strength = self.get_strength_data(
+            cd_concepts["concept_id"],
+            expect_cardinality=_Cardinality.NONZERO,
+            accepted_configurations=(
+                dc.SolidStrength,
+                dc.LiquidConcentration,
+                dc.GasPercentage,
+            ),
+        )
+        cd_concepts = cd_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(cd_strength.keys(), dtype=pl.UInt32)
             )
+        )
 
-            # Catch empty attributes
-            cd_no_attr = cd_concepts.join(
-                cd_to_attr, on="concept_id", how="anti"
-            )
-            self.filter_out_bad_concepts(
-                cd_no_attr["concept_id"],
-                f"All Clinical Drugs have a {concept_class_id}",
-                f"CD_no_{abbrev}",
-                f"{len(cd_no_attr):,} Clinical Drugs had no {concept_class_id}",
-            )
-
-            if one_to_one:
-                # Catch multiple attributes
-                cd_mult_attr = (
-                    cd_to_attr.group_by("concept_id")
-                    .count()
-                    .filter(pl.col("count") > 1)
-                )
-                self.filter_out_bad_concepts(
-                    cd_mult_attr["concept_id"],
-                    f"All Clinical Drugs had a single {concept_class_id}",
-                    f"CD_Mult_{abbrev}",
-                    f"{len(cd_mult_attr):,} Clinical Drugs had multiple "
-                    f"{concept_class_id} attributes",
-                )
-                if len(cd_mult_attr):
-                    cd_concepts = cd_concepts.join(
-                        cd_mult_attr, on="concept_id", how="anti"
-                    )
-
-                # Attach the attribute
-                cd_concepts = cd_concepts.join(
-                    other=cd_to_attr, on="concept_id"
-                )
-            else:
-                # Attach grouped
-                cd_concepts = cd_concepts.join(
-                    other=(
-                        cd_to_attr.group_by("concept_id")
-                        .all()
-                        .rename({
-                            f"{abbrev}_concept_id": f"{abbrev}_concept_ids"
-                        })
-                    ),
-                    on="concept_id",
-                )
-
+        cd_bad_df: list[int] = []
+        cd_bad_cdf: list[int] = []
+        cd_bad_cdc: list[int] = []
+        cd_cdf_form_mismatch: list[int] = []
+        cd_cdf_ing_mismatch: list[int] = []
+        cd_cdc_strength_mismatch: list[int] = []
+        cd_bad_ingred: list[int] = []
+        cdc_failed: list[int] = []
         print(cd_concepts)
+        for row in cd_concepts.iter_rows():
+            concept_id: int = row[0]
+            dose_form_concept_id: int = row[1]
+            cdf_concept_id: int = row[2]
+            cdc_concept_ids: list[int] = row[3]
+            strength_data = {ing: stg for ing, stg in cd_strength[concept_id]}
 
-        # TODO: Attach DS data to CD concepts
+            try:
+                dose_form = self.atoms.dose_form[
+                    dc.ConceptId(dose_form_concept_id)
+                ]
+            except KeyError:
+                self.logger.error(
+                    f"Dose Form {dose_form_concept_id} not found for "
+                    f"Clinical Drug {concept_id}"
+                )
+                cd_bad_df.append(concept_id)
+                continue
 
-        del cdc_nodes, cdf_nodes
-        raise NotImplementedError("CD processing not implemented")
-        return cd_nodes
+            try:
+                cdf_node_idx = cdf_nodes[cdf_concept_id]
+            except KeyError:
+                self.logger.error(
+                    f"Clinical Drug {concept_id} had no registered Clinical "
+                    f"Drug Form {cdf_concept_id}"
+                )
+                cd_bad_cdf.append(concept_id)
+                continue
 
-    def get_validated_relationships_view(
-        self,
-        source_class: str,
-        relationships: Sequence[_RelationshipDescription],
-        include_name: bool = False,
-    ) -> pl.DataFrame:
-        """
-        Get a DataFrame view of the relationships between a source class and
-        target classes, with additional validation checks.
-        """
+            try:
+                cdf = self.hierarchy.graph[cdf_node_idx]
+            except IndexError:
+                self.logger.error(
+                    f"Clinical Drug {concept_id} had Clinical Drug Form "
+                    f"{cdf_concept_id} not found in the hierarchy"
+                )
+                cd_bad_cdf.append(concept_id)
+                continue
 
-        self.logger.info(f"Finding relationships for {source_class}")
+            if not isinstance(cdf, dc.ClinicalDrugForm):
+                # This should never happen, but we will catch it anyway
+                self.logger.error(
+                    f"Clinical Drug {concept_id} specified a non-CDF "
+                    f"{cdf_concept_id} as Clinical Drug Form"
+                )
+                cd_bad_cdf.append(concept_id)
+                continue
 
-        source_abbr = "".join(char[0] for char in source_class.split())
-        source_concepts = (
-            self.concept.data()
-            .filter(pl.col("concept_class_id") == source_class)
-            .select(
-                ["concept_id", "concept_name"] if include_name else "concept_id"
+            if cdf.dose_form != dose_form:
+                self.logger.error(
+                    f"Dose Form mismatch for Clinical Drug {concept_id}: "
+                    f"{dose_form} != {cdf.dose_form}"
+                )
+                cd_cdf_form_mismatch.append(concept_id)
+                continue
+
+            # Compare ingredients to CDF
+            cdf_ing_ids = SortedTuple(ing.identifier for ing in cdf.ingredients)
+            if cdf_ing_ids != SortedTuple(strength_data.keys()):
+                self.logger.error(
+                    f"Ingredients mismatch for Clinical Drug {concept_id} and "
+                    f"Clinical Drug Form {cdf_concept_id}"
+                )
+                cd_cdf_ing_mismatch.append(concept_id)
+                continue
+
+            cdcs: list[
+                dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength]
+            ] = []
+
+            if not len(cdc_concept_ids) == len(strength_data):
+                self.logger.error(
+                    f"Clinical Drug {concept_id} had {len(cdc_concept_ids)} "
+                    f"Clinical Drug Comps, but {len(strength_data)} strength "
+                    f"entries"
+                )
+                cd_cdc_strength_mismatch.append(concept_id)
+                continue
+
+            # Starting nested loop: if it breaks, we need to skip to the next
+            # Clinical Drug
+            nested_break: bool = False
+            for cdc_concept_id in sorted(cdc_concept_ids):
+                if (cdc_node_idx := cdc_nodes.get(cdc_concept_id)) is None:
+                    self.logger.error(
+                        f"Clinical Drug {concept_id} had no registered "
+                        f"Clinical Drug Comp {cdc_concept_id}"
+                    )
+                    cd_bad_cdc.append(concept_id)
+                    nested_break = True
+                    break
+
+                try:
+                    cdc = self.hierarchy.graph[cdc_node_idx]
+                except IndexError:
+                    self.logger.error(
+                        f"Clinical Drug {concept_id} had Clinical Drug "
+                        f"Comp {cdc_concept_id} not found in the hierarchy"
+                    )
+                    cd_bad_cdc.append(concept_id)
+                    nested_break = True
+                    break
+
+                if not isinstance(cdc, dc.ClinicalDrugComponent):
+                    # This should never happen, but we will catch it anyway
+                    self.logger.error(
+                        f"Clinical Drug {concept_id} specified a non-CDC "
+                        f"{cdc_concept_id} as Clinical Drug Comp"
+                    )
+                    cd_bad_cdc.append(concept_id)
+                    nested_break = True
+                    break
+
+                # Find the strength data for the current CDC
+                if (
+                    ingredient_strength := strength_data.get(
+                        cdc.ingredient.identifier
+                    )
+                ) is None:
+                    self.logger.error(
+                        f"Ingredient {cdc.ingredient.identifier} not found for "
+                        f"Clinical Drug {concept_id}, but found in "
+                        f"CDC {cdc_concept_id}"
+                    )
+                    cd_bad_ingred.append(concept_id)
+                    nested_break = True
+                    break
+
+                if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
+                    ingredient_strength
+                ):
+                    self.logger.error(
+                        f"Strength mismatch for Clinical Drug "
+                        f"{concept_id}: expected {cdc.strength} matching "  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
+                        f"Ingredient {cdc.ingredient.identifier} from CDC "
+                        f"{cdc_concept_id}, got {ingredient_strength}"
+                    )
+                    cd_cdc_strength_mismatch.append(concept_id)
+                    nested_break = True
+                    break
+
+                assert isinstance(cdc, dc.ClinicalDrugComponent)
+                cdcs.append(cdc)  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+
+            if nested_break:
+                continue
+
+            try:
+                cd: dc.ClinicalDrug[dc.ConceptId, dc.UnquantifiedStrength] = (
+                    dc.ClinicalDrug(
+                        identifier=dc.ConceptId(concept_id),
+                        form=cdf,
+                        clinical_drug_components=SortedTuple(cdcs),
+                    )
+                )
+            except RxConceptCreationError as e:
+                self.logger.error(
+                    f"Failed to create Clinical Drug {concept_id}: {e}"
+                )
+                cdc_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_clinical_drug(
+                cd, cdf_node_idx, [cdc_nodes[cdc.identifier] for cdc in cdcs]
             )
+
+            cd_nodes[concept_id] = node_idx
+
+        self.filter_out_bad_concepts(
+            pl.Series(cd_bad_df, dtype=pl.UInt32),
+            "All Clinical Drugs have valid Dose Forms",
+            "CD_Bad_DF",
+            f"{len(cd_bad_df):,} Clinical Drugs had bad Dose Forms",
         )
 
-        for rel in relationships:
-            rel_id, expected_cardinality, target_class = rel
-            target_abbr = "".join(char[0] for char in target_class.split())
-            target_colname = "_".join(target_class.lower().split())
-            target_colname += "_concept_id"
+        self.filter_out_bad_concepts(
+            pl.Series(cd_bad_cdf, dtype=pl.UInt32),
+            "All Clinical Drugs have valid Clinical Drug Forms",
+            "CD_Bad_CDF",
+            f"{len(cd_bad_cdf):,} Clinical Drugs had bad Clinical Drug Forms",
+        )
 
-            self.logger.info(f"Finding {target_class} for {source_class}")
-            source_to_target = (
-                self.get_class_relationships(
-                    class_id_1=source_class,
-                    class_id_2=target_class,
-                    relationship_id=rel_id,
-                )
-                .select("concept_id", "concept_id_target")
-                .rename({"concept_id_target": target_colname})
-            )
+        self.filter_out_bad_concepts(
+            pl.Series(cd_bad_cdc, dtype=pl.UInt32),
+            "All Clinical Drugs have valid Clinical Drug Components",
+            "CD_Bad_CDC",
+            f"{len(cd_bad_cdc):,} Clinical Drugs had bad Clinical Drug "
+            "Components",
+        )
 
-            # Catch empty attributes
-            if expected_cardinality in _CARDINALITY_REQUIRED:
-                source_no_target = source_concepts.join(
-                    source_to_target, on="concept_id", how="anti"
-                )
-                self.filter_out_bad_concepts(
-                    source_no_target["concept_id"],
-                    f"All {source_class} have a {target_class}",
-                    f"{source_abbr}_no_{target_abbr}",
-                    f"{len(source_no_target):,} {source_class} had no "
-                    f"{target_class}",
-                )
-                if len(source_no_target):
-                    source_concepts = source_concepts.join(
-                        source_no_target, on="concept_id", how="anti"
-                    )
+        self.filter_out_bad_concepts(
+            pl.Series(cd_cdf_form_mismatch, dtype=pl.UInt32),
+            "All Clinical Drugs have matching Dose Forms with their "
+            "Clinical Drug Forms",
+            "CD_Form_Mismatch",
+            f"{len(cd_cdf_form_mismatch):,} Clinical Drugs had mismatched "
+            "Dose Forms with their Clinical Drug Forms",
+        )
 
-            source_to_target_cnt = source_to_target.select(
-                "concept_id", count=pl.col("concept_id").unique_counts()
-            ).unique()
+        self.filter_out_bad_concepts(
+            pl.Series(cd_cdf_ing_mismatch, dtype=pl.UInt32),
+            "All Clinical Drugs have matching Ingredients with their "
+            "Clinical Drug Forms",
+            "CD_Ing_Mismatch",
+            f"{len(cd_cdf_ing_mismatch):,} Clinical Drugs had mismatched "
+            "Ingredients with their Clinical Drug Forms",
+        )
 
-            if expected_cardinality in _CARDINALITY_SINGLE:
-                # Catch multiple attributes
-                source_mult_target = source_to_target_cnt.filter(
-                    pl.col("count") > 1
-                )
+        self.filter_out_bad_concepts(
+            pl.Series(cd_cdc_strength_mismatch, dtype=pl.UInt32),
+            "All Clinical Drugs have matching Strengths with their "
+            "Clinical Drug Components",
+            "CD_Strength_Mismatch",
+            f"{len(cd_cdc_strength_mismatch):,} Clinical Drugs had mismatched "
+            "Strengths with their Clinical Drug Components",
+        )
 
-                self.filter_out_bad_concepts(
-                    source_mult_target["concept_id"],
-                    f"All {source_class} had a single {target_class}",
-                    f"{source_abbr}_Mult_{target_abbr}",
-                    f"{len(source_mult_target):,} {source_class} had multiple "
-                    f"{target_class} attributes",
-                )
-                if len(source_mult_target):
-                    source_concepts = source_concepts.join(
-                        source_mult_target, on="concept_id", how="anti"
-                    )
+        self.filter_out_bad_concepts(
+            pl.Series(cd_bad_ingred, dtype=pl.UInt32),
+            "All Clinical Drugs have matching Ingredients with their "
+            "Clinical Drug Components",
+            "CD_Ing_Mismatch",
+            f"{len(cd_bad_ingred):,} Clinical Drugs had mismatched "
+            "Ingredients with their Clinical Drug Components",
+        )
 
-                # Attach the attribute
-                source_concepts = source_concepts.join(
-                    other=source_to_target, on="concept_id"
-                )
-            else:  # expected_cardinality in __CARDINALITY_MULTIPLE
-                # Attach grouped attributes
-                source_concepts = source_concepts.join(
-                    other=(
-                        source_to_target.group_by("concept_id")
-                        .all()
-                        .rename({target_colname: target_colname + "s"})
-                    ),
-                    on="concept_id",
-                )
-
-        return source_concepts
+        self.filter_out_bad_concepts(
+            pl.Series(cdc_failed, dtype=pl.UInt32),
+            "All Clinical Drugs were successfully created",
+            "CD_Failed",
+            f"{len(cdc_failed):,} Clinical Drugs had failed creation",
+        )
+        return cd_nodes
