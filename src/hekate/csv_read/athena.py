@@ -4,6 +4,8 @@ Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+import enum
 from pathlib import Path
 from typing import NamedTuple, override
 
@@ -49,6 +51,36 @@ class _StrengthDataRow(NamedTuple):
 # Type hint for a dictionary linking int concept_ids to indices in the hierarchy
 # graph. This serves as a temporary cache to speed up the hierarchy building
 type _TempNodeView = dict[int, int]
+
+
+class _Cardinality(enum.Enum):
+    """
+    Enum to define the cardinality of a relationship between two concepts
+
+    Left hand side (source concept, concept_id_1) is always assumed to have
+    cardinality of 1. Cardinality counts are always in relation to the target,
+    showing how many target concepts can be related to a single source concept.
+    """
+
+    ANY = "0..*"  # Will not be used in practice
+    ONE = "1..1"
+    OPTIONAL = "0..1"
+    NONZERO = "1..*"
+
+
+_CARDINALITY_REQUIRED = [_Cardinality.ONE, _Cardinality.NONZERO]
+_CARDINALITY_SINGLE = [_Cardinality.ONE, _Cardinality.OPTIONAL]
+_CARDINALITY_MULTIPLE = [_Cardinality.NONZERO, _Cardinality.ANY]
+
+
+class _RelationshipDescription(NamedTuple):
+    """
+    Named tuple to describe the nature of the relationship between two concepts
+    """
+
+    relationship_id: str
+    cardinality: _Cardinality
+    target_class: str
 
 
 class OMOPTable[FilterArg](ABC):
@@ -637,15 +669,21 @@ class OMOPVocabulariesV5:
         """
         Process Precise Ingredients and link them to Ingredients
         """
-        ing_to_precise = self.get_class_relationships(
-            class_id_1="Precise Ingredient",
-            class_id_2="Ingredient",
-            relationship_id="Form of",  # Maps to?
+        ing_to_precise = self.get_validated_relationships_view(
+            source_class="Precise Ingredient",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="Form of",  # Maps to?
+                    cardinality=_Cardinality.ONE,
+                    target_class="Ingredient",
+                ),
+            ],
+            include_name=True,
         )
 
         self.logger.info("Processing Precise Ingredients")
         column_names = ing_to_precise.columns
-        concept_id_target_idx = column_names.index("concept_id_target")
+        concept_id_target_idx = column_names.index("ingredient_concept_id")
         concept_id_idx = column_names.index("concept_id")
         concept_name_idx = column_names.index("concept_name")
         for row in ing_to_precise.iter_rows():
@@ -2127,3 +2165,98 @@ class OMOPVocabulariesV5:
         del cdc_nodes, cdf_nodes
         raise NotImplementedError("CD processing not implemented")
         return cd_nodes
+
+    def get_validated_relationships_view(
+        self,
+        source_class: str,
+        relationships: Sequence[_RelationshipDescription],
+        include_name: bool = False,
+    ) -> pl.DataFrame:
+        """
+        Get a DataFrame view of the relationships between a source class and
+        target classes, with additional validation checks.
+        """
+
+        self.logger.info(f"Finding relationships for {source_class}")
+
+        source_abbr = "".join(char[0] for char in source_class.split())
+        source_concepts = (
+            self.concept.data()
+            .filter(pl.col("concept_class_id") == source_class)
+            .select(
+                ["concept_id", "concept_name"] if include_name else "concept_id"
+            )
+        )
+
+        for rel in relationships:
+            rel_id, expected_cardinality, target_class = rel
+            target_abbr = "".join(char[0] for char in target_class.split())
+            target_colname = "_".join(target_class.lower().split())
+            target_colname += "_concept_id"
+
+            self.logger.info(f"Finding {target_class} for {source_class}")
+            source_to_target = (
+                self.get_class_relationships(
+                    class_id_1=source_class,
+                    class_id_2=target_class,
+                    relationship_id=rel_id,
+                )
+                .select("concept_id", "concept_id_target")
+                .rename({"concept_id_target": target_colname})
+            )
+
+            # Catch empty attributes
+            if expected_cardinality in _CARDINALITY_REQUIRED:
+                source_no_target = source_concepts.join(
+                    source_to_target, on="concept_id", how="anti"
+                )
+                self.filter_out_bad_concepts(
+                    source_no_target["concept_id"],
+                    f"All {source_class} have a {target_class}",
+                    f"{source_abbr}_no_{target_abbr}",
+                    f"{len(source_no_target):,} {source_class} had no "
+                    f"{target_class}",
+                )
+                if len(source_no_target):
+                    source_concepts = source_concepts.join(
+                        source_no_target, on="concept_id", how="anti"
+                    )
+
+            source_to_target_cnt = source_to_target.select(
+                "concept_id", count=pl.col("concept_id").unique_counts()
+            ).unique()
+
+            if expected_cardinality in _CARDINALITY_SINGLE:
+                # Catch multiple attributes
+                source_mult_target = source_to_target_cnt.filter(
+                    pl.col("count") > 1
+                )
+
+                self.filter_out_bad_concepts(
+                    source_mult_target["concept_id"],
+                    f"All {source_class} had a single {target_class}",
+                    f"{source_abbr}_Mult_{target_abbr}",
+                    f"{len(source_mult_target):,} {source_class} had multiple "
+                    f"{target_class} attributes",
+                )
+                if len(source_mult_target):
+                    source_concepts = source_concepts.join(
+                        source_mult_target, on="concept_id", how="anti"
+                    )
+
+                # Attach the attribute
+                source_concepts = source_concepts.join(
+                    other=source_to_target, on="concept_id"
+                )
+            else:  # expected_cardinality in __CARDINALITY_MULTIPLE
+                # Attach grouped attributes
+                source_concepts = source_concepts.join(
+                    other=(
+                        source_to_target.group_by("concept_id")
+                        .all()
+                        .rename({target_colname: target_colname + "s"})
+                    ),
+                    on="concept_id",
+                )
+
+        return source_concepts
