@@ -128,14 +128,13 @@ class LiquidConcentration(_StrengthMeta):
 
     @override
     def _unit_matches(self, other: _StrengthMeta) -> bool:
-        if not isinstance(other.get_unquantified(), LiquidConcentration):
+        if not isinstance(unq := other.get_unquantified(), LiquidConcentration):
             return False
 
-        assert isinstance(other, LiquidConcentration)
-
+        assert isinstance(unq, LiquidConcentration)
         return (self.numerator_unit, self.denominator_unit) == (
-            other.numerator_unit,
-            other.denominator_unit,
+            unq.numerator_unit,
+            unq.denominator_unit,
         )
 
     @override
