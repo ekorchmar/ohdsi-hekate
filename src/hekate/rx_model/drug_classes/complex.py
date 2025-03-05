@@ -324,51 +324,24 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
     def is_superclass_of(
         self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
     ) -> bool:
+        # Tests are only ever needed if passed_hierarchy_checks is False,
+        # as CD is fully derivative from its components and form
         if not passed_hierarchy_checks:
+            if len(self.clinical_drug_components) != len(
+                other.get_strength_data()
+            ):
+                return False
+
+            if not all(
+                comp.is_superclass_of(other)
+                for comp in self.clinical_drug_components
+            ):
+                return False
+
             if not self.form.is_superclass_of(
                 other, passed_hierarchy_checks=False
             ):
                 return False
-
-        # Check all components regardless of passed_hierarchy_checks
-        # TODO: The fact that we arrived at this point means that the tested
-        # node has passed the strength and content checks against the Comps.
-        # However, current behavior of BuildRxE is to explicitly check the
-        # components against the tested node. This is redundant, but we
-        # implement it; but this entire block should be parametrized to not run
-        # at all if passed_hierarchy_checks is True -- as a run parameter
-
-        if len(self.contents) != len(other_data := other.get_strength_data()):
-            return False
-
-        shared_iter = enumerate(
-            zip(
-                self.contents,
-                other_data,
-                self.precise_ingredients,
-            )
-        )
-
-        # NOTE: We assume that the components are in the same order as the
-        # ingredients in the form thanks to the SortedTuple
-
-        for i, (cd_data, node_data, pi) in shared_iter:
-            cd_ing, cd_strength = cd_data
-            node_ing, node_strength = node_data
-
-            if node_strength is None:
-                # Should be impossible, since we have already checked at least
-                # one CDC
-                return False
-
-            if cd_ing != node_ing:
-                return False
-
-            if cd_strength.matches(node_strength):
-                # Check PI
-                if pi is not None or pi != other.get_precise_ingredients()[i]:
-                    return False
-
         return True
 
 
