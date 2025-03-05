@@ -17,6 +17,8 @@ from rx_model.exception import RxConceptCreationError
 from utils.classes import SortedTuple
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
+    ATHENA_OVERFILTERING_WARNING,
+    ATHENA_OVERFILTERING_TRESHOLD,
     DEFINING_ATTRIBUTE_RELATIONSHIP,
     STRENGTH_CONFIGURATIONS,
     PERCENT_CONCEPT_ID,
@@ -414,6 +416,7 @@ class OMOPVocabulariesV5:
                     source_to_target, on="concept_id", how="anti"
                 )
                 self.filter_out_bad_concepts(
+                    len(source_to_target["concept_id"].unique()),
                     source_no_target["concept_id"],
                     f"All {source_class} have a {target_class}",
                     f"{source_abbr}_no_{target_abbr}",
@@ -434,6 +437,7 @@ class OMOPVocabulariesV5:
                 )
 
                 self.filter_out_bad_concepts(
+                    len(source_to_target["concept_id"].unique()),
                     source_mult_target["concept_id"],
                     f"All {source_class} had a single {target_class}",
                     f"{source_abbr}_Mult_{target_abbr}",
@@ -486,9 +490,11 @@ class OMOPVocabulariesV5:
                 "Expected cardinality must be ONE or NONZERO for this method"
             )
 
+        drug_ids = drug_ids.unique()
+
         ing_data: dict[int, list[int]] = {}
         ing_df = self.strength.data().join(
-            other=drug_ids.unique().to_frame(name="drug_concept_id"),
+            other=drug_ids.to_frame(name="drug_concept_id"),
             on="drug_concept_id",
             how="left",
         )
@@ -498,6 +504,7 @@ class OMOPVocabulariesV5:
             pl.col("ingredient_concept_id").is_null()
         )
         self.filter_out_bad_concepts(
+            len(drug_ids),
             no_ingredients["drug_concept_id"],
             "All drugs have ingredients",
             "DS_No_Ing",
@@ -516,6 +523,7 @@ class OMOPVocabulariesV5:
                 .filter(pl.col("count") > 1)
             )
             self.filter_out_bad_concepts(
+                len(drug_ids),
                 multiple_ingredients["drug_concept_id"],
                 "All drugs have a single ingredient",
                 "DS_Mult_Ing",
@@ -584,6 +592,7 @@ class OMOPVocabulariesV5:
             pl.col("ingredient_concept_id").is_null()
         )
         self.filter_out_bad_concepts(
+            len(drug_ids),
             no_strength["drug_concept_id"],
             "All drugs have strength data",
             "DS_No_Strength",
@@ -602,6 +611,7 @@ class OMOPVocabulariesV5:
                 .filter(pl.col("count") > 1)
             )
             self.filter_out_bad_concepts(
+                len(drug_ids),
                 multiple_strength["drug_concept_id"],
                 "All drugs have a single strength data entry",
                 "DS_Mult_Strength",
@@ -673,7 +683,7 @@ class OMOPVocabulariesV5:
                             ),
                         )
                     case _:
-                        self.logger.error(
+                        self.logger.debug(
                             f"Strength data for {row.drug_concept_id} had "
                             f"unexpected value configuration for "
                             f"{row.ingredient_concept_id}"
@@ -681,7 +691,7 @@ class OMOPVocabulariesV5:
                         failed_concept_ids.append(row.drug_concept_id)
                         continue
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create strength data for {row.drug_concept_id}"
                     f": {e}"
                 )
@@ -689,7 +699,7 @@ class OMOPVocabulariesV5:
                 continue
 
             if not isinstance(strength, accepted_configurations):
-                self.logger.error(
+                self.logger.debug(
                     f"Strength data {strength} for {row.drug_concept_id} did "
                     f"not match any of the accepted configurations of its class"
                 )
@@ -702,7 +712,7 @@ class OMOPVocabulariesV5:
             else:
                 # Assert that the configuration matches the other rows
                 if not isinstance(strength, type(existing[0].strength)):
-                    self.logger.error(
+                    self.logger.debug(
                         f"Strength data for {row.drug_concept_id} had "
                         f"inconsistent configurations between "
                         f"{row.ingredient_concept_id} "
@@ -715,7 +725,7 @@ class OMOPVocabulariesV5:
                 if isinstance(strength, dc.LiquidQuantity):
                     assert isinstance(existing[0].strength, dc.LiquidQuantity)
                     if not strength.denominator_matches(existing[0].strength):
-                        self.logger.error(
+                        self.logger.debug(
                             f"Strength data for {row.drug_concept_id} had "
                             f"inconsistent denominator values between "
                             f"{row.ingredient_concept_id} "
@@ -728,6 +738,7 @@ class OMOPVocabulariesV5:
             # self.strengths.add_strength(row.ingredient_concept_id, strength)
 
         self.filter_out_bad_concepts(
+            len(drug_ids),
             pl.Series(failed_concept_ids, dtype=pl.UInt32),
             "All strength data was successfully created",
             "Strength_Creation",
@@ -753,7 +764,7 @@ class OMOPVocabulariesV5:
         ) == 0
 
         if n_invalid := invalid_mask.sum():
-            self.logger.error(
+            self.logger.debug(
                 f"{n_invalid} drug concepts have invalid strength data and "
                 f"will be excluded from the processing"
             )
@@ -809,7 +820,7 @@ class OMOPVocabulariesV5:
         ambiguous_denom_mask = drugs_with_denom_counts[struct_column_name] > 1
 
         if n_ambiguous_denom := ambiguous_denom_mask.sum():
-            self.logger.error(
+            self.logger.debug(
                 f"{n_ambiguous_denom} drug concepts have ambiguous "
                 f"denominator values and will be excluded from the processing"
             )
@@ -887,13 +898,19 @@ class OMOPVocabulariesV5:
         bdf_nodes: _TempNodeView = self.process_branded_drug_forms(cdf_nodes)
         bdc_nodes: _TempNodeView = self.process_branded_drug_comps(cdc_nodes)
         cd_nodes: _TempNodeView = self.process_clinical_drugs(
-            cdc_nodes, cdf_nodes
+            cdc_nodes=cdc_nodes,
+            cdf_nodes=cdf_nodes,
         )
         bd_nodes: _TempNodeView = self.process_branded_drugs(
-            bdc_nodes, bdf_nodes, cd_nodes
+            bdc_nodes=bdc_nodes,
+            bdf_nodes=bdf_nodes,
+            cd_nodes=cd_nodes,
         )
         qcd_nodes: _TempNodeView = self.process_quant_clinical_drugs(cd_nodes)
-        # qbd_nodes: _TempNodeView =
+        _qbd_nodes = self.process_quant_branded_drugs(
+            bd_nodes=bd_nodes,
+            qcd_nodes=qcd_nodes,
+        )
 
         del qcd_nodes, bd_nodes
 
@@ -1007,7 +1024,7 @@ class OMOPVocabulariesV5:
             ingredients_ds: list[int] = cdf_ing_ds[concept_id]
 
             if sorted(ingredients_ds) != sorted(ingredients_cr):
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug Form {concept_id} had mismatched "
                     f"Ingredients between CONCEPT_RELATIONSHIP and "
                     f"DRUG_STRENGTH tables"
@@ -1027,7 +1044,7 @@ class OMOPVocabulariesV5:
                     break
                 ingreds.append(ingredient)
             if missing_ingredient is not None:
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug Form {concept_id} had missing Ingredient "
                     f"{missing_ingredient}"
                 )
@@ -1037,7 +1054,7 @@ class OMOPVocabulariesV5:
             try:
                 dose_form = self.atoms.dose_form[dc.ConceptId(dose_form_id)]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug Form {concept_id} had missing Dose Form "
                     f"{dose_form_id}"
                 )
@@ -1051,7 +1068,7 @@ class OMOPVocabulariesV5:
                     ingredients=SortedTuple(ingreds),
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Clinical Drug Form {concept_id}: {e}"
                 )
                 cdf_failed.append(concept_id)
@@ -1061,6 +1078,7 @@ class OMOPVocabulariesV5:
             cdf_nodes[concept_id] = node_idx
 
         self.filter_out_bad_concepts(
+            len(cdf_concepts),
             pl.Series(cdf_ingredient_mismatch, dtype=pl.UInt32),
             "All Clinical Drug Forms had matching Ingredients",
             "CDF_Ing_Mismatch",
@@ -1069,6 +1087,7 @@ class OMOPVocabulariesV5:
         )
 
         self.filter_out_bad_concepts(
+            len(cdf_concepts),
             pl.Series(cdf_bad_df, dtype=pl.UInt32),
             "All Clinical Drug Forms had valid Dose Forms",
             "CDF_Bad_DF",
@@ -1076,6 +1095,7 @@ class OMOPVocabulariesV5:
         )
 
         self.filter_out_bad_concepts(
+            len(cdf_concepts),
             pl.Series(cdf_bad_ings, dtype=pl.UInt32),
             "All Clinical Drug Forms had valid Ingredients",
             "CDF_Bad_Ing",
@@ -1083,6 +1103,7 @@ class OMOPVocabulariesV5:
         )
 
         self.filter_out_bad_concepts(
+            len(cdf_concepts),
             pl.Series(cdf_failed, dtype=pl.UInt32),
             "All Clinical Drug Forms were successfully created",
             "CDF_Failed",
@@ -1132,6 +1153,7 @@ class OMOPVocabulariesV5:
         )
 
         self.filter_out_bad_concepts(
+            len(ingredient_descendants) + len(orphaned_complex_concepts),
             orphaned_complex_concepts["concept_id"],
             "All complex drug concepts have a valid Ingredient ancestor",
             "Orphaned_Complex",
@@ -1186,6 +1208,7 @@ class OMOPVocabulariesV5:
         )
 
         self.filter_out_bad_concepts(
+            len(complex_drug_concepts),
             complex_pi_as_ing["concept_id"],
             "No drug concepts that treat Precise Ingredients as "
             "Ingredients found",
@@ -1196,6 +1219,7 @@ class OMOPVocabulariesV5:
 
     def filter_out_bad_concepts(
         self,
+        total_count: int,
         bad_concepts: pl.Series,
         message_ok: str,
         reason_short: str,
@@ -1205,6 +1229,8 @@ class OMOPVocabulariesV5:
         Filter out concepts and their relationships from the tables.
 
         Args:
+            total_count: Total number of concepts out of which bad concepts
+                are a subset. Used to warn about overfiltering.
             bad_concepts: Polars Series with `concept_id` values to filter out.
             message_ok: Message to log if no bad concepts are found.
             reason_short: Short reason for filtering out the concepts. Will be
@@ -1214,12 +1240,25 @@ class OMOPVocabulariesV5:
         """
         logger = self.logger.getChild(reason_short)
 
-        if len(bad_concepts) == 0:
+        bad_concepts = bad_concepts.unique()
+
+        if not len(bad_concepts):
             logger.info(message_ok)
             return
 
         logger.warning(reason_full)
         bad_concepts_df = bad_concepts.to_frame(name="concept_id")
+
+        if ATHENA_OVERFILTERING_WARNING:
+            if len(bad_concepts) / total_count > ATHENA_OVERFILTERING_TRESHOLD:
+                logger.warning(
+                    f"Overfiltering detected: {len(bad_concepts):,} concepts "
+                    f"out of {total_count:,} will be removed"
+                )
+                answer = input("Continue? [y/N] ")
+                if answer.lower() != "y":
+                    logger.warning("Operation aborted")
+                    exit(1)
 
         logger.info("Including all descendants of bad concepts")
         bad_descendants_df = (
@@ -1363,6 +1402,7 @@ class OMOPVocabulariesV5:
             )["concept_id"]
 
             self.filter_out_bad_concepts(
+                len(complex_drug_concepts),
                 concept_to_multiple_valid,
                 message_ok="No drug concepts with multiple valid "
                 f"{concept_class} attributes found",
@@ -1385,6 +1425,7 @@ class OMOPVocabulariesV5:
             )["concept_id"].unique()
 
             self.filter_out_bad_concepts(
+                len(complex_drug_concepts),
                 concept_has_only_invalid,
                 f"No drug concepts with only invalid {concept_class} "
                 "attributes found",
@@ -1478,7 +1519,7 @@ class OMOPVocabulariesV5:
 
             # I really hope this check is redundant
             if ingredient_concept_id != ds_ingredient_concept_id:
-                self.logger.error(
+                self.logger.debug(
                     f"Ingredient mismatch for Clinical Drug Component "
                     f"{concept_id}: {ingredient_concept_id} != "
                     f"{ds_ingredient_concept_id}"
@@ -1490,7 +1531,7 @@ class OMOPVocabulariesV5:
                     dc.ConceptId(ingredient_concept_id)
                 ]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Ingredient {ingredient_concept_id} not found for "
                     f"Clinical Drug Component {concept_id}"
                 )
@@ -1501,7 +1542,7 @@ class OMOPVocabulariesV5:
                 possible_pi = self.atoms.precise_ingredient.get(ingredient, [])
                 possible_identifiers = [pi.identifier for pi in possible_pi]
                 if dc.ConceptId(picid) not in possible_identifiers:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Precise Ingredient {picid} is not a valid Precise "
                         f"Ingredient for Ingredient {ingredient_concept_id}"
                     )
@@ -1524,7 +1565,7 @@ class OMOPVocabulariesV5:
                     strength=strength,
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Clinical Drug Component {concept_id}"
                     f": {e}"
                 )
@@ -1541,6 +1582,7 @@ class OMOPVocabulariesV5:
         ]
         for lst_bad, cls in reason_bad_concept:
             self.filter_out_bad_concepts(
+                len(cdc_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Clinical Drug Components have valid {cls}",
                 "CDC_Bad_" + "".join(w[0] for w in cls.split()),
@@ -1548,6 +1590,7 @@ class OMOPVocabulariesV5:
             )
 
         self.filter_out_bad_concepts(
+            len(cdc_concepts),
             pl.Series(cdc_ingredient_mismatch, dtype=pl.UInt32),
             "All Clinical Drug Components have the same ingredient in "
             "DRUG_STRENGTH and CONCEPT_RELATIONSHIP",
@@ -1558,6 +1601,7 @@ class OMOPVocabulariesV5:
         )
 
         self.filter_out_bad_concepts(
+            len(cdc_concepts),
             pl.Series(cdc_failed, dtype=pl.UInt32),
             "All Clinical Drug Components were successfully created",
             "CDC_Failed",
@@ -1607,6 +1651,7 @@ class OMOPVocabulariesV5:
             msg = "Unused"
 
         self.filter_out_bad_concepts(
+            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
             drug_strength_noning["drug_concept_id"],
             "No drug concepts that treat non-Ingredients as Ingredients "
             "in DRUG_STRENGTH found",
@@ -1642,6 +1687,7 @@ class OMOPVocabulariesV5:
         ].unique()
 
         self.filter_out_bad_concepts(
+            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
             bad_drugs,
             "All units in DRUG_STRENGTH are valid",
             "Deprecated_Unit",
@@ -1666,6 +1712,7 @@ class OMOPVocabulariesV5:
         )["drug_concept_id"]
 
         self.filter_out_bad_concepts(
+            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
             over_strength_percentage,
             "All drugs have less than 100% of gas percentage in DRUG_STRENGTH",
             "Gases_Over_100",
@@ -1728,6 +1775,7 @@ class OMOPVocabulariesV5:
         invalid_strength = strength_with_class.filter(~valid_strength)
         invalid_drugs = invalid_strength["drug_concept_id"].unique()
         self.filter_out_bad_concepts(
+            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
             invalid_drugs,
             "Malformed_Strength",
             "All strength configurations are validated",
@@ -1800,7 +1848,7 @@ class OMOPVocabulariesV5:
                     dc.ConceptId(brand_concept_id)
                 ]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Brand Name {brand_concept_id} not found for "
                     f"Branded Drug Form {concept_id}"
                 )
@@ -1808,7 +1856,7 @@ class OMOPVocabulariesV5:
                 continue
 
             if (cdf_node_idx := cdf_nodes.get(cdf_concept_id)) is None:
-                self.logger.error(
+                self.logger.debug(
                     f"Branded Drug Form {concept_id} had no registered "
                     f"Clinical Drug Form {cdf_concept_id}"
                 )
@@ -1818,7 +1866,7 @@ class OMOPVocabulariesV5:
             try:
                 cdf = self.hierarchy.graph[cdf_node_idx]
             except IndexError:
-                self.logger.error(
+                self.logger.debug(
                     f"Branded Drug Form {concept_id} had Clinical Drug Form "
                     f"{cdf_concept_id} not found in the hierarchy"
                 )
@@ -1827,7 +1875,7 @@ class OMOPVocabulariesV5:
 
             if not isinstance(cdf, dc.ClinicalDrugForm):
                 # This should never happen, but we will catch it anyway
-                self.logger.error(
+                self.logger.debug(
                     f"Branded Drug Form {concept_id} specified a non-CDF "
                     f"{cdf_concept_id} as Clinical Drug Form"
                 )
@@ -1838,7 +1886,7 @@ class OMOPVocabulariesV5:
             cdf_ing_ids = [ing.identifier for ing in cdf.ingredients]
 
             if sorted(ingredient_concept_ids) != cdf_ing_ids:
-                self.logger.error(
+                self.logger.debug(
                     f"Ingredients mismatch for Branded Drug Form {concept_id}: "
                     f"{ingredient_concept_ids} != {cdf_ing_ids}"
                 )
@@ -1852,7 +1900,7 @@ class OMOPVocabulariesV5:
                     clinical_drug_form=cdf,
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Branded Drug Form {concept_id}: {e}"
                 )
                 bdf_failed.append(concept_id)
@@ -1868,6 +1916,7 @@ class OMOPVocabulariesV5:
         ]
         for lst_bad, cls in reason_bad_concept:
             self.filter_out_bad_concepts(
+                len(bdf_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Branded Drug Forms have valid {cls}",
                 "BDF_Bad_" + "".join(cls.split()),
@@ -1881,6 +1930,7 @@ class OMOPVocabulariesV5:
             w_abbv = "".join([w[0] for w in what.split()])
             c_abbv = "".join([c[0] for c in cls.split()])
             self.filter_out_bad_concepts(
+                len(bdf_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Branded Drug Forms have matching {what}s with their "
                 f"{cls}s",
@@ -1890,6 +1940,7 @@ class OMOPVocabulariesV5:
             )
 
         self.filter_out_bad_concepts(
+            len(bdf_concepts),
             pl.Series(bdf_failed, dtype=pl.UInt32),
             "All Branded Drug Forms were successfully created",
             "BDF_Failed",
@@ -1965,7 +2016,7 @@ class OMOPVocabulariesV5:
                     dc.ConceptId(brand_concept_id)
                 ]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Brand Name {brand_concept_id} not found for "
                     f"Branded Drug Comp {concept_id}"
                 )
@@ -1977,7 +2028,7 @@ class OMOPVocabulariesV5:
             ] = []
 
             if not len(cdc_concept_ids) == len(strength_data):
-                self.logger.error(
+                self.logger.debug(
                     f"Branded Drug Comp {concept_id} had {len(cdc_concept_ids)} "
                     f"Clinical Drug Comps, but {len(strength_data)} strength "
                     f"entries"
@@ -1990,7 +2041,7 @@ class OMOPVocabulariesV5:
             nested_break: bool = False
             for cdc_concept_id in sorted(cdc_concept_ids):
                 if (cdc_node_idx := cdc_nodes.get(cdc_concept_id)) is None:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Branded Drug Comp {concept_id} had no registered "
                         f"Clinical Drug Comp {cdc_concept_id}"
                     )
@@ -2001,7 +2052,7 @@ class OMOPVocabulariesV5:
                 try:
                     cdc = self.hierarchy.graph[cdc_node_idx]
                 except IndexError:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Branded Drug Comp {concept_id} had Clinical Drug "
                         f"Comp {cdc_concept_id} not found in the hierarchy"
                     )
@@ -2011,7 +2062,7 @@ class OMOPVocabulariesV5:
 
                 if not isinstance(cdc, dc.ClinicalDrugComponent):
                     # This should never happen, but we will catch it anyway
-                    self.logger.error(
+                    self.logger.debug(
                         f"Branded Drug Comp {concept_id} specified a non-CDC "
                         f"{cdc_concept_id} as Clinical Drug Comp"
                     )
@@ -2025,7 +2076,7 @@ class OMOPVocabulariesV5:
                         cdc.ingredient.identifier
                     )
                 ) is None:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Ingredient {cdc.ingredient.identifier} not found for "
                         f"Branded Drug Component {concept_id}, but found in "
                         f"CDC {cdc_concept_id}"
@@ -2037,7 +2088,7 @@ class OMOPVocabulariesV5:
                 if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
                     ingredient_strength
                 ):
-                    self.logger.error(
+                    self.logger.debug(
                         f"Strength mismatch for Branded Drug Component "
                         f"{concept_id}: expected {cdc.strength} matching "  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
                         f"Ingredient {cdc.ingredient.identifier} from CDC "
@@ -2062,7 +2113,7 @@ class OMOPVocabulariesV5:
                     clinical_drug_components=SortedTuple(cdcs),
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Branded Drug Component {concept_id}: {e}"
                 )
                 bdc_failed.append(concept_id)
@@ -2081,6 +2132,7 @@ class OMOPVocabulariesV5:
         ]
         for lst_bad, cls in reason_bad_concept:
             self.filter_out_bad_concepts(
+                len(bdc_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Branded Drug Components have valid {cls}",
                 "bdc_Bad_" + "".join(cls.split()),
@@ -2094,6 +2146,7 @@ class OMOPVocabulariesV5:
             w_abbv = "".join([w[0] for w in what.split()])
             c_abbv = "".join([c[0] for c in cls.split()])
             self.filter_out_bad_concepts(
+                len(bdc_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Branded Drug Components have matching {what}s with their "
                 f"{cls}s",
@@ -2103,6 +2156,7 @@ class OMOPVocabulariesV5:
             )
 
         self.filter_out_bad_concepts(
+            len(bdc_concepts),
             pl.Series(bdc_failed, dtype=pl.UInt32),
             "All Branded Drug Comps were successfully created",
             "BDC_Failed",
@@ -2190,7 +2244,7 @@ class OMOPVocabulariesV5:
                     dc.ConceptId(dose_form_concept_id)
                 ]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Dose Form {dose_form_concept_id} not found for "
                     f"Clinical Drug {concept_id}"
                 )
@@ -2200,7 +2254,7 @@ class OMOPVocabulariesV5:
             try:
                 cdf_node_idx = cdf_nodes[cdf_concept_id]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug {concept_id} had no registered Clinical "
                     f"Drug Form {cdf_concept_id}"
                 )
@@ -2210,7 +2264,7 @@ class OMOPVocabulariesV5:
             try:
                 cdf = self.hierarchy.graph[cdf_node_idx]
             except IndexError:
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug {concept_id} had Clinical Drug Form "
                     f"{cdf_concept_id} not found in the hierarchy"
                 )
@@ -2219,7 +2273,7 @@ class OMOPVocabulariesV5:
 
             if not isinstance(cdf, dc.ClinicalDrugForm):
                 # This should never happen, but we will catch it anyway
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug {concept_id} specified a non-CDF "
                     f"{cdf_concept_id} as Clinical Drug Form"
                 )
@@ -2227,7 +2281,7 @@ class OMOPVocabulariesV5:
                 continue
 
             if cdf.dose_form != dose_form:
-                self.logger.error(
+                self.logger.debug(
                     f"Dose Form mismatch for Clinical Drug {concept_id}: "
                     f"{dose_form} != {cdf.dose_form}"
                 )
@@ -2237,7 +2291,7 @@ class OMOPVocabulariesV5:
             # Compare ingredients to CDF
             cdf_ing_ids = SortedTuple(ing.identifier for ing in cdf.ingredients)
             if cdf_ing_ids != SortedTuple(strength_data.keys()):
-                self.logger.error(
+                self.logger.debug(
                     f"Ingredients mismatch for Clinical Drug {concept_id} and "
                     f"Clinical Drug Form {cdf_concept_id}"
                 )
@@ -2249,7 +2303,7 @@ class OMOPVocabulariesV5:
             ] = []
 
             if not len(cdc_concept_ids) == len(strength_data):
-                self.logger.error(
+                self.logger.debug(
                     f"Clinical Drug {concept_id} had {len(cdc_concept_ids)} "
                     f"Clinical Drug Comps, but {len(strength_data)} strength "
                     f"entries"
@@ -2262,7 +2316,7 @@ class OMOPVocabulariesV5:
             nested_break: bool = False
             for cdc_concept_id in sorted(cdc_concept_ids):
                 if (cdc_node_idx := cdc_nodes.get(cdc_concept_id)) is None:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Clinical Drug {concept_id} had no registered "
                         f"Clinical Drug Comp {cdc_concept_id}"
                     )
@@ -2273,7 +2327,7 @@ class OMOPVocabulariesV5:
                 try:
                     cdc = self.hierarchy.graph[cdc_node_idx]
                 except IndexError:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Clinical Drug {concept_id} had Clinical Drug "
                         f"Comp {cdc_concept_id} not found in the hierarchy"
                     )
@@ -2283,7 +2337,7 @@ class OMOPVocabulariesV5:
 
                 if not isinstance(cdc, dc.ClinicalDrugComponent):
                     # This should never happen, but we will catch it anyway
-                    self.logger.error(
+                    self.logger.debug(
                         f"Clinical Drug {concept_id} specified a non-CDC "
                         f"{cdc_concept_id} as Clinical Drug Comp"
                     )
@@ -2297,7 +2351,7 @@ class OMOPVocabulariesV5:
                         cdc.ingredient.identifier
                     )
                 ) is None:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Ingredient {cdc.ingredient.identifier} not found for "
                         f"Clinical Drug {concept_id}, but found in "
                         f"CDC {cdc_concept_id}"
@@ -2309,7 +2363,7 @@ class OMOPVocabulariesV5:
                 if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
                     ingredient_strength
                 ):
-                    self.logger.error(
+                    self.logger.debug(
                         f"Strength mismatch for Clinical Drug "
                         f"{concept_id}: expected {cdc.strength} matching "  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
                         f"Ingredient {cdc.ingredient.identifier} from CDC "
@@ -2334,7 +2388,7 @@ class OMOPVocabulariesV5:
                     )
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Clinical Drug {concept_id}: {e}"
                 )
                 cdc_failed.append(concept_id)
@@ -2355,6 +2409,7 @@ class OMOPVocabulariesV5:
         ]
         for lst_bad, cls in reason_bad_concept:
             self.filter_out_bad_concepts(
+                len(cd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Clinical Drugs have valid {cls}",
                 "CD_Bad_" + "".join(cls.split()),
@@ -2370,6 +2425,7 @@ class OMOPVocabulariesV5:
             w_abbv = "".join([w[0] for w in what.split()])
             c_abbv = "".join([c[0] for c in cls.split()])
             self.filter_out_bad_concepts(
+                len(cd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Clinical Drugs have matching {what}s with their {cls}s",
                 "_".join(["CD", w_abbv, c_abbv, "Mismatch"]),
@@ -2378,6 +2434,7 @@ class OMOPVocabulariesV5:
             )
 
         self.filter_out_bad_concepts(
+            len(cd_concepts),
             pl.Series(cdc_failed, dtype=pl.UInt32),
             "All Clinical Drugs were successfully created",
             "CD_Failed",
@@ -2483,7 +2540,7 @@ class OMOPVocabulariesV5:
                     dc.ConceptId(brand_concept_id)
                 ]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Brand Name {brand_concept_id} not found for Branded Drug "
                     f"{concept_id}"
                 )
@@ -2497,7 +2554,7 @@ class OMOPVocabulariesV5:
                 try:
                     ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
                 except KeyError:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Ingredient {ing_id} not found for Branded Drug "
                         f"{concept_id}"
                     )
@@ -2537,7 +2594,7 @@ class OMOPVocabulariesV5:
                 try:
                     parent_node_idx = parent_nodes[parent_id]
                 except KeyError:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Branded Drug {concept_id} had no registered {cls} "
                         f"{parent_id}"
                     )
@@ -2547,7 +2604,7 @@ class OMOPVocabulariesV5:
                 try:
                     parent_concepts[cls] = self.hierarchy.graph[parent_node_idx]
                 except IndexError:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Branded Drug {concept_id} had {cls} {parent_id} not "
                         f"found in the hierarchy"
                     )
@@ -2556,7 +2613,7 @@ class OMOPVocabulariesV5:
 
                 if not isinstance(parent_concepts[cls], cnstr):
                     # This should never happen, but we will catch it anyway
-                    self.logger.error(
+                    self.logger.debug(
                         f"Branded Drug {concept_id} specified a non-{cls} "
                         f"{parent_id} as parent"
                     )
@@ -2575,7 +2632,7 @@ class OMOPVocabulariesV5:
                 parent = parent_concepts[cls]
                 parent_name = parent.get_brand_name()
                 if parent_name != brand_name:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Brand Name mismatch for Branded Drug {concept_id}: "
                         f"{brand_name} != {parent_name} in {cls} "
                         f"{parent.identifier}"
@@ -2603,7 +2660,7 @@ class OMOPVocabulariesV5:
                 parent_strength = parent.get_strength_data()
 
                 if len(parent_strength) != len(own_strength):
-                    self.logger.error(
+                    self.logger.debug(
                         f"{what} mismatch for Branded Drug {concept_id}: "
                         f"{len(parent_strength)} != {len(own_strength)} in "
                         f"{cls} {parent.identifier}"
@@ -2615,7 +2672,7 @@ class OMOPVocabulariesV5:
                 shared_iter = zip(parent_strength, own_strength)
                 for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
                     if p_ing != o_ing:
-                        self.logger.error(
+                        self.logger.debug(
                             f"{what} mismatch for Branded Drug {concept_id}: "
                             f"{p_ing} != {o_ing} in {cls} {parent.identifier}"
                         )
@@ -2626,7 +2683,7 @@ class OMOPVocabulariesV5:
                     if what == "Strength":
                         assert p_stg is not None
                         if not p_stg.matches(o_stg):
-                            self.logger.error(
+                            self.logger.debug(
                                 f"{what} mismatch for Branded Drug "
                                 f"{concept_id}: {p_stg} != {o_stg} in {cls} "
                                 f" {parent.identifier}"
@@ -2656,7 +2713,7 @@ class OMOPVocabulariesV5:
                     )
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Branded Drug {concept_id}: {e}"
                 )
                 bd_failed.append(concept_id)
@@ -2681,6 +2738,7 @@ class OMOPVocabulariesV5:
 
         for lst_bad, cls in reason_bad_concept:
             self.filter_out_bad_concepts(
+                len(bd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Branded Drugs ave valid {cls}",
                 "BD_Bad_" + "".join(w[0] for w in cls.split()),
@@ -2696,6 +2754,7 @@ class OMOPVocabulariesV5:
         ]
         for cls, lst_bad, what in reason_mismatch:
             self.filter_out_bad_concepts(
+                len(bd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Branded Drugs have matching {what}s with their {cls}s",
                 "_".join(["BD", what, cls, "Mismatch"]),
@@ -2704,6 +2763,7 @@ class OMOPVocabulariesV5:
             )
 
         self.filter_out_bad_concepts(
+            len(bd_concepts),
             pl.Series(bd_failed, dtype=pl.UInt32),
             "All Branded Drugs were successfully created",
             "BD_Failed",
@@ -2779,7 +2839,7 @@ class OMOPVocabulariesV5:
                     dc.ConceptId(dose_form_concept_id)
                 ]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Dose Form {dose_form_concept_id} not found for "
                     f"Quantified Clinical Drug {concept_id}"
                 )
@@ -2793,7 +2853,7 @@ class OMOPVocabulariesV5:
                 try:
                     ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
                 except KeyError:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Ingredient {ing_id} not found for Quantified Clinical "
                         f"Drug {concept_id}"
                     )
@@ -2808,7 +2868,7 @@ class OMOPVocabulariesV5:
             try:
                 cd_idx = cd_nodes[cd_concept_id]
             except KeyError:
-                self.logger.error(
+                self.logger.debug(
                     f"Quant Clinical Drug {concept_id} had no registered "
                     f"Clinical Drug {cd_concept_id}"
                 )
@@ -2818,7 +2878,7 @@ class OMOPVocabulariesV5:
             try:
                 cd = self.hierarchy.graph[cd_idx]
             except IndexError:
-                self.logger.error(
+                self.logger.debug(
                     f"Quant Clinical Drug {concept_id} had Clinical Drug "
                     f"{cd_concept_id} not found in the hierarchy"
                 )
@@ -2827,7 +2887,7 @@ class OMOPVocabulariesV5:
 
             if not isinstance(cd, dc.ClinicalDrug):
                 # This should never happen, but we will catch it anyway
-                self.logger.error(
+                self.logger.debug(
                     f"Quant Clinical Drug {concept_id} specified a non-CD "
                     f"{cd_concept_id} as Clinical Drug parent"
                 )
@@ -2836,7 +2896,7 @@ class OMOPVocabulariesV5:
 
             # Compare dose form against the parent CD
             if (cd_form := cd.get_dose_form()) != dose_form:
-                self.logger.error(
+                self.logger.debug(
                     f"Dose Form mismatch for Quantified Clinical Drug "
                     f"{concept_id}: {dose_form} != {cd_form} in Clinical Drug "
                     f"{cd_concept_id}"
@@ -2864,7 +2924,7 @@ class OMOPVocabulariesV5:
             ] = cd.get_strength_data()
 
             if len(parent_strength) != len(own_strength):
-                self.logger.error(
+                self.logger.debug(
                     f"Strength mismatch for Quant Clinical Drug {concept_id}: "
                     f"{len(parent_strength)} != {len(own_strength)} in "
                     f"Clinical Drug {cd_concept_id}"
@@ -2876,7 +2936,7 @@ class OMOPVocabulariesV5:
             nested_break: bool = False
             for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
                 if p_ing != o_ing:
-                    self.logger.error(
+                    self.logger.debug(
                         f"Strength mismatch for Quant Clinical Drug "
                         f"{concept_id}: {p_ing} != {o_ing} in Clinical Drug "
                         f"{cd_concept_id}"
@@ -2886,7 +2946,7 @@ class OMOPVocabulariesV5:
                     break
 
                 if not p_stg.matches(o_stg):
-                    self.logger.error(
+                    self.logger.debug(
                         f"Strength mismatch for Quant Clinical Drug "
                         f"{concept_id}: {p_stg} != {o_stg} in Clinical Drug "
                         f"{cd_concept_id}"
@@ -2907,7 +2967,7 @@ class OMOPVocabulariesV5:
                     unquantified=cd,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
                 )
             except RxConceptCreationError as e:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to create Quantified Clinical Drug {concept_id}: "
                     f"{e}"
                 )
@@ -2926,6 +2986,7 @@ class OMOPVocabulariesV5:
         ]
         for lst_bad, cls in reason_bad_concept:
             self.filter_out_bad_concepts(
+                len(qcd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Quantified Clinical Drugs have valid {cls}",
                 "QCD_Bad_" + "".join(cls.split()),
@@ -2941,6 +3002,7 @@ class OMOPVocabulariesV5:
             w_abbv = "".join([w[0] for w in what.split()])
             c_abbv = "".join([c[0] for c in cls.split()])
             self.filter_out_bad_concepts(
+                len(qcd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Quantified Clinical Drugs have matching {what}s with their "
                 f"{cls}s",
@@ -2950,9 +3012,80 @@ class OMOPVocabulariesV5:
             )
 
         self.filter_out_bad_concepts(
+            len(qcd_concepts),
             pl.Series(qcd_failed, dtype=pl.UInt32),
             "All Quantified Clinical Drugs were successfully created",
             "QCD_Failed",
             f"{len(qcd_failed):,} Quantified Clinical Drugs had failed creation",
         )
         return qcd_nodes
+
+    def process_quant_branded_drugs(
+        self, bd_nodes: _TempNodeView, qcd_nodes: _TempNodeView
+    ) -> _TempNodeView:
+        """
+        Process Quantified Branded Drugs and link them to parent Branded Drugs
+        and Quantified Clinical Drugs.
+
+        Args:
+            bd_nodes: Dict of node indices for Branded Drugs in the hierarchy
+                indexed by concept_id. Required for linking QBDs to their parent
+                BDs.
+            qcd_nodes: Dict of node indices for Quantified Clinical Drugs in
+                the hierarchy indexed by concept_id. Required for linking QBDs
+                to their parent QCDs.
+
+        Returns:
+            Dictionary of Quantified Branded Drug node indices indexed by
+            concept_id
+        """
+
+        self.logger.info("Processing Quantified Branded Drugs")
+        qbd_nodes: _TempNodeView = {}
+
+        qbd_concepts = self.get_validated_relationships_view(
+            source_class="Quant Branded Drug",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="Tradename of",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Quant Clinical Drug",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Quantified form of",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Branded Drug",
+                ),
+                _RelationshipDescription(
+                    relationship_id="RxNorm has dose form",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Dose Form",
+                ),
+                _RelationshipDescription(
+                    relationship_id="Has brand name",
+                    cardinality=_Cardinality.ONE,
+                    target_class="Brand Name",
+                ),
+            ],
+        )
+
+        # Attach DS data to QBD concepts
+        qbd_strength = self.get_strength_data(
+            qbd_concepts["concept_id"],
+            expect_cardinality=_Cardinality.NONZERO,
+            accepted_configurations=(dc.LiquidQuantity,),
+        )
+        qbd_concepts = qbd_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(qbd_strength.keys(), dtype=pl.UInt32)
+            )
+        )
+
+        qbd_bad_df: list[int] = []
+        qbd_bad_ingred: list[int] = []
+        qbd_bad_bd: list[int] = []
+        qbd_bad_qcd: list[int] = []
+
+        del qbd_bad_df, qbd_bad_ingred, qbd_bad_bd, qbd_bad_qcd
+        del qbd_nodes, bd_nodes, qcd_nodes
+        raise NotImplementedError

@@ -289,3 +289,26 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
             clinical_drug_idx, node_idx, None
         )
         return node_idx
+
+    def add_quantified_branded_drug(
+        self,
+        quantified_branded_drug: dc.QuantifiedBrandedDrug[
+            Id, dc.LiquidConcentration | dc.GasPercentage
+        ],
+        branded_drug_idx: int,
+        quantified_clinical_drug_idx: int,
+    ) -> int:
+        """
+        Add a quantified branded drug to the hierarchy. Returns the index of
+        the added node in the graph.
+        """
+
+        node_idx = self.graph.add_node(quantified_branded_drug)
+        for idx in [
+            branded_drug_idx,
+            quantified_clinical_drug_idx,
+        ]:
+            _ = self.graph.add_edge(  # Discard edge index
+                idx, node_idx, None
+            )
+        return node_idx

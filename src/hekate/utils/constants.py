@@ -112,3 +112,10 @@ STRENGTH_CONFIGURATIONS: Final[dict[str, pl.Expr]] = {
 _STRENGTH_CORRIDOR: Final[float] = 0.05
 STRENGTH_CLOSURE_BOUNDARY_LOW: Final[float] = 1 - _STRENGTH_CORRIDOR
 STRENGTH_CLOSURE_BOUNDARY_HIGH: Final[float] = 1 / (1 - _STRENGTH_CORRIDOR)
+
+
+# TODO: separate flags for run configuration to a separate file
+
+# Flag to stop the athena filtering on suspected overfiltering
+ATHENA_OVERFILTERING_TRESHOLD: Final[float] = 0.30
+ATHENA_OVERFILTERING_WARNING: Final[bool] = True
