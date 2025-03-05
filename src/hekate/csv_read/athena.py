@@ -280,7 +280,7 @@ class StrengthTable(OMOPTable[pl.DataFrame]):
         "numerator_unit_concept_id",
         "denominator_value",
         "denominator_unit_concept_id",
-        "box_size",  # WARN: Will be explicitly discarded for now
+        # "box_size",  # NOTE: add later
     ]
 
     @override
@@ -296,7 +296,7 @@ class StrengthTable(OMOPTable[pl.DataFrame]):
             pl.col("drug_concept_id").is_in(known_valid_drugs["concept_id"]),
             # WARN: temporarily discard all data mentioning box_size
             pl.col("box_size").is_null(),
-        )
+        ).select(pl.all().exclude("box_size"))
 
 
 class AncestorTable(OMOPTable[pl.Series]):
