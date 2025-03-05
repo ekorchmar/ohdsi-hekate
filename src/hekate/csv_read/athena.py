@@ -19,6 +19,7 @@ from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     DEFINING_ATTRIBUTE_RELATIONSHIP,
     STRENGTH_CONFIGURATIONS,
+    PERCENT_CONCEPT_ID,
 )
 from utils.logger import LOGGER
 
@@ -279,7 +280,7 @@ class StrengthTable(OMOPTable[pl.DataFrame]):
         "numerator_unit_concept_id",
         "denominator_value",
         "denominator_unit_concept_id",
-        # "box_size",  # Not used for now
+        "box_size",  # WARN: Will be explicitly discarded for now
     ]
 
     @override
@@ -293,6 +294,8 @@ class StrengthTable(OMOPTable[pl.DataFrame]):
         return frame.filter(
             pl.col("invalid_reason").is_null(),
             pl.col("drug_concept_id").is_in(known_valid_drugs["concept_id"]),
+            # WARN: temporarily discard all data mentioning box_size
+            pl.col("box_size").is_null(),
         )
 
 
@@ -872,7 +875,7 @@ class OMOPVocabulariesV5:
         self.filter_deprecated_units_in_strength()
         self.filter_non_ingredient_in_strength()
         self.filter_invalid_strength_configurations()
-        # TODO: filter gases with percentage sum exceeding 100
+        self.filter_too_high_percentages_in_strength()
 
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
@@ -1640,6 +1643,30 @@ class OMOPVocabulariesV5:
             "Deprecated_Unit",
             f"Found {len(bad_drugs):,} drug concepts with deprecated "
             "units in DRUG_STRENGTH",
+        )
+
+    def filter_too_high_percentages_in_strength(self):
+        """
+        Filter out drugs that cumulatively have more than 100% of gas
+        percentage in DRUG_STRENGTH
+        """
+        over_strength_percentage = (
+            self.strength.data()
+            .filter(
+                pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID,
+            )
+            .select("drug_concept_id", percentage="numerator_value")
+            .group_by("drug_concept_id")
+            .sum()
+            .filter(pl.col("percentage") > 100.0)
+        )["drug_concept_id"]
+
+        self.filter_out_bad_concepts(
+            over_strength_percentage,
+            "All drugs have less than 100% of gas percentage in DRUG_STRENGTH",
+            "Gases_Over_100",
+            f"Found {len(over_strength_percentage):,} drug concepts with "
+            "more than 100% of gas percentage in DRUG_STRENGTH",
         )
 
     def filter_invalid_strength_configurations(self):
@@ -2679,3 +2706,5 @@ class OMOPVocabulariesV5:
             "BD_Failed",
             f"{len(bd_failed):,} Branded Drugs had failed creation",
         )
+
+        return bd_nodes
