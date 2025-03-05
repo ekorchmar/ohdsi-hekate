@@ -626,6 +626,7 @@ class OMOPVocabulariesV5:
                 strength_df = strength_df.join(
                     multiple_strength, on="drug_concept_id", how="anti"
                 )
+
         # We want to be very strict about the strength data, so we will
         # look for explicit data shapes
         for label, expression in STRENGTH_CONFIGURATIONS.items():
@@ -737,6 +738,11 @@ class OMOPVocabulariesV5:
                         )
                         failed_concept_ids.append(row.drug_concept_id)
                         continue
+
+                # Put the new strength data in the list
+                strength_data[row.drug_concept_id].append(
+                    _StrengthTuple(row.ingredient_concept_id, strength)
+                )
 
             # TODO: save strength data to self.strengths
             # self.strengths.add_strength(row.ingredient_concept_id, strength)
@@ -2301,8 +2307,8 @@ class OMOPVocabulariesV5:
                 continue
 
             # Compare ingredients to CDF
-            cdf_ing_ids = SortedTuple(ing.identifier for ing in cdf.ingredients)
-            if cdf_ing_ids != SortedTuple(strength_data.keys()):
+            cdf_ing_ids = sorted(ing.identifier for ing in cdf.ingredients)
+            if cdf_ing_ids != sorted(strength_data):
                 self.logger.debug(
                     f"Ingredients mismatch for Clinical Drug {concept_id} and "
                     f"Clinical Drug Form {cdf_concept_id}"
