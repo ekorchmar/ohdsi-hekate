@@ -382,7 +382,7 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return self.clinical_drug.get_strength_data()
 
     @override
-    def get_precise_ingredients(self) -> tuple[a.PreciseIngredient | None]:
+    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
         return self.clinical_drug.get_precise_ingredients()
 
 
@@ -403,7 +403,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: _Concentration](
         return self.unquantified.form.dose_form
 
     @override
-    def get_precise_ingredients(self) -> tuple[a.PreciseIngredient | None]:
+    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
         return self.unquantified.get_precise_ingredients()
 
     def __post_init__(self):
@@ -421,14 +421,21 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: _Concentration](
             )
 
         # Check consistency against the unquantified form
-        if len(self.contents) != len(self.unquantified.contents):
+        if len(self.contents) != len(
+            self.unquantified.clinical_drug_components
+        ):
             raise exception.RxConceptCreationError(
                 f"Quantified clinical drug {self.identifier} must have the "
                 f"same number of components as its unquantified counterpart."
             )
 
-        shared_iter = zip(self.contents, self.unquantified.contents)
-        for (ing, quantity), (u_ing, strength) in shared_iter:
+        shared_iter = zip(
+            self.contents, self.unquantified.clinical_drug_components
+        )
+        for (ing, quantity), cdc in shared_iter:
+            u_ing = cdc.ingredient
+            strength = cdc.strength
+
             if ing != u_ing:
                 raise exception.RxConceptCreationError(
                     f"Quantified clinical drug {self.identifier} must have "
@@ -514,7 +521,7 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: _Concentration](
         return self.unbranded.get_dose_form()
 
     @override
-    def get_precise_ingredients(self) -> tuple[a.PreciseIngredient | None]:
+    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
         return self.unbranded.get_precise_ingredients()
 
     @override
