@@ -304,21 +304,21 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 ):
     identifier: Id
     form: ClinicalDrugForm[Id]
-    contents: SortedTuple[BoundStrength[Id, S]]
-    # Those are the precise ingredients inherited from the components, if any
-    precise_ingredients: tuple[a.PreciseIngredient | None]
+    clinical_drug_components: SortedTuple[ClinicalDrugComponent[Id, S]]
 
     @override
     def get_dose_form(self) -> a.DoseForm[Id]:
         return self.form.dose_form
 
     @override
-    def get_precise_ingredients(self) -> tuple[a.PreciseIngredient | None]:
-        return self.precise_ingredients
+    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
+        return [cdc.precise_ingredient for cdc in self.clinical_drug_components]
 
     @override
     def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
-        return self.contents
+        return SortedTuple(
+            cdc.get_strength_data()[0] for cdc in self.clinical_drug_components
+        )
 
     @override
     def is_superclass_of(
