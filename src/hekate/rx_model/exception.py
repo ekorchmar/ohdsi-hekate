@@ -5,4 +5,6 @@ class RxConceptError(Exception):
 class RxConceptCreationError(RxConceptError):
     """Occurs when a concept cannot be created due to integrity constraints."""
 
-    pass
+
+class ForeignNodeCreationError(RxConceptError):
+    """Occurs when a foreign node cannot be created due to integrity constraints."""

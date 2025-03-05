@@ -13,7 +13,7 @@ from rx_model.drug_classes.generic import (
 
 
 # Atomic named concepts
-@dataclass(frozen=True, order=True, eq=True, slots=True)
+@dataclass(frozen=True, order=True, slots=True)
 class __RxAtom[Id: ConceptIdentifier]:
     """A single atomic concept in the RxNorm vocabulary."""
 
@@ -26,6 +26,12 @@ class __RxAtom[Id: ConceptIdentifier]:
                 f"{self.__class__.__name__} {self.identifier}: name must not "
                 f"be empty."
             )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.identifier == other.identifier
 
 
 # RxNorm

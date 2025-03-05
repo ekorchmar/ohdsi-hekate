@@ -121,7 +121,7 @@ class OMOPTable[FilterArg](ABC):
         self.path: Path = path
         self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
 
-        self.logger.info(f"Reading {path.name}")
+        self.logger.info(f"Preparing to read from {path.name}")
         self.reader: CSVReader = CSVReader(
             path=self.path,
             schema=self.TABLE_SCHEMA,
@@ -544,7 +544,10 @@ class OMOPVocabulariesV5:
         for row in ing_df.iter_rows():
             drug_id: int = row[0]
             ingredient_id: int = row[1]
-            ing_data.setdefault(drug_id, []).append(ingredient_id)
+            if (existing := ing_data.get(drug_id)) is None:
+                ing_data[drug_id] = [ingredient_id]
+            else:
+                existing.append(ingredient_id)
 
         return ing_data
 
@@ -855,6 +858,11 @@ class OMOPVocabulariesV5:
         self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
         self.strengths: h.KnownStrengths[dc.ConceptId] = h.KnownStrengths()
         self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
+
+        self.logger.info(
+            f"Starting processing of Athena Vocabularies from "
+            f"{vocab_download_path}"
+        )
 
         # Vocabulary table readers
         self.concept: ConceptTable = ConceptTable(

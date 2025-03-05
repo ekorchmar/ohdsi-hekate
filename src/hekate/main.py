@@ -1,6 +1,8 @@
 from csv_read.athena import OMOPVocabulariesV5
 from pathlib import Path
-from utils.logger import LOGGER
+import rx_model.drug_classes as dc
+from utils.classes import SortedTuple
+from rx_model.hierarchy.traversal import DrugNodeFinder
 
 
 def main():
@@ -15,22 +17,22 @@ Hekate starts another hex!
 if __name__ == "__main__":
     main()
     path = Path("~/Downloads/Vocab/").expanduser()
-    LOGGER.info(f"Starting processing of Athena Vocabularies from {path}")
-    a = OMOPVocabulariesV5(vocab_download_path=path)
+    athena_rxne = OMOPVocabulariesV5(vocab_download_path=path)
 
-    import rustworkx as rx
-    from rx_model.drug_classes import ConceptId
+    apap = dc.ForeignDrugNode(
+        identifier=dc.ConceptId(0),
+        strength_data=SortedTuple([
+            (
+                dc.Ingredient(dc.ConceptId(1125315), "acetaminophen"),
+                dc.SolidStrength(500, dc.Unit(dc.ConceptId(8576), "mg")),
+            ),
+        ]),
+        dose_form=dc.DoseForm(dc.ConceptId(19082573), "Oral Tablet"),
+    )
 
-    from rustworkx.visualization import graphviz_draw
+    finder = DrugNodeFinder(apap)
 
-    aspirin = a.atoms.ingredient[ConceptId(1112807)]
-    aspirin_node = a.hierarchy.ingredients[aspirin]
-    aspirin_descendants = rx.descendants(a.hierarchy.graph, aspirin_node)
-    aspirin_subgraph = a.hierarchy.graph.subgraph(list(aspirin_descendants))
-    print(aspirin_subgraph.num_edges())  # Expect 9431
-
-    img = graphviz_draw(aspirin_subgraph)
-    assert img is not None
-    img.show()
+    finder.start_search(athena_rxne.hierarchy)
+    print(finder.get_search_results())
 
     print("Done")

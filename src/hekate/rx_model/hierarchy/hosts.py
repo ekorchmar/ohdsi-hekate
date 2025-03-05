@@ -308,4 +308,5 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         for dependent classes to be able to associate data with a certain state
         of the hierarchy.
         """
-        raise NotImplementedError("Checksum calculation is not implemented.")
+        # WARN: This is not really implemented yet.
+        return 0

@@ -14,12 +14,13 @@ from rx_model.drug_classes.generic import (
 import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
+from rx_model import exception
 
 from utils.classes import SortedTuple
 
 type _AnyComplex[Id: ConceptIdentifier] = (
-    SortedTuple[a.Ingredient[Id]]
-    | c.ClinicalDrugComponent[Id, st.UnquantifiedStrength]
+    a.Ingredient[Id]  # Actually identifies possible multiple types
+    | c.ClinicalDrugComponent[Id, st.UnquantifiedStrength]  # ditto
     | c.BrandedDrugComponent[Id, st.UnquantifiedStrength]
     | c.ClinicalDrugForm[Id]
     | c.BrandedDrugForm[Id]
@@ -82,9 +83,129 @@ class ForeignDrugNode[Id: ConceptIdentifier](DrugNode[Id]):
     def get_supplier(self) -> a.Supplier[Id] | None:
         return self.supplier
 
-    def target_class(self) -> _AnyComplex[Id]:
+    def __post_init__(self):
+        self.validate_strength_data()
+        self.validate_precise_ingredients()
+        self.forbid_formless_quantities()
+        # TODO: Marketed Product checks
+
+    def validate_strength_data(self):
+        """
+        Ensures that the strength data is valid.
+        """
+        if not self.strength_data:
+            raise exception.ForeignNodeCreationError(
+                "Foreign nodes must have at least one strength data entry."
+            )
+
+        if len(self.strength_data) == 1:
+            # Nothing to validate
+            return
+
+        # Strength or None, this set must contain exactly one type
+        strength_types = {type(strength) for _, strength in self.strength_data}
+        if len(strength_types) != 1:
+            raise exception.ForeignNodeCreationError(
+                "All strength data must be of the same type, but Node "
+                f"{self.identifier} has: {strength_types}."
+            )
+
+        # Reverse goes for the Ingredient
+        ingredients = {ingredient for ingredient, _ in self.strength_data}
+        if len(ingredients) != 1:
+            raise exception.ForeignNodeCreationError(
+                "All strength data must have a unique ingredient, but Node "
+                f"{self.identifier} has: {ingredients}."
+            )
+
+        # If the strength data is quantified, ensure that denominators are
+        # the same
+        first, *others = self.strength_data
+        if isinstance(first[1], st.LiquidQuantity):
+            for other in others:
+                if first[1].denominator_matches(other[1]):
+                    continue
+                raise exception.ForeignNodeCreationError(
+                    "All strength data must have the same denominator, but "
+                    f"Node {self.identifier} has: {first[1].denominator_value} "
+                    f"{first[1].denominator_unit} and "
+                    f"{other[1].denominator_value} and "
+                    f"{other[1].denominator_unit}."
+                )
+
+    def validate_precise_ingredients(self):
+        """
+        Ensures that the precise ingredients are valid.
+        """
+        if self.precise_ingredients is None:
+            return
+
+        if len(self.precise_ingredients) != len(self.strength_data):
+            raise exception.ForeignNodeCreationError(
+                f"If precise ingredients are provided, there must be one for "
+                f"each strength data entry, or explicitly set to None; but "
+                f"Node has: {len(self.precise_ingredients)} for "
+                f"{len(self.strength_data)}."
+            )
+
+        for (ing, _), pi in zip(self.strength_data, self.precise_ingredients):
+            if pi is None:
+                continue
+            if pi.invariant != ing:
+                raise exception.ForeignNodeCreationError(
+                    f"Precise ingredient {pi} corresponds to ingredient {ing} "
+                    f"in Node {self.identifier}, but it is not a known variant."
+                )
+
+    def forbid_formless_quantities(self):
+        """
+        Ensures that all strength data entries have a dose form.
+        """
+        # TODO: this check is optional; run parameter should be added to
+        # treat it as a warning
+        if self.dose_form is not None:
+            return
+
+        for _, strength in self.strength_data:
+            if isinstance(strength, st.LiquidQuantity):
+                raise exception.ForeignNodeCreationError(
+                    f"All quantified strength data entries must have a dose "
+                    f"form, but Node {self.identifier} does not have one."
+                )
+
+    def best_case_class(self) -> type[_AnyComplex[Id]]:
         """
         Tries to infer the target class of this foreign node based on the
         presence of attributes and shape of the strength data.
         """
-        raise NotImplementedError("Not yet implemented.")
+
+        branded = self.brand_name is not None
+        _marketed = self.supplier is not None
+        with_form = self.dose_form is not None
+        _, strength = self.strength_data[0]
+
+        if strength is None:
+            # Ingredient, CDF, or BDF
+            if with_form:
+                return c.ClinicalDrugForm if branded else c.BrandedDrugForm
+            return a.Ingredient
+        elif isinstance(strength, st.LiquidQuantity):
+            # QCD or QBD
+            return (
+                c.QuantifiedClinicalDrug if branded else c.QuantifiedBrandedDrug
+            )
+        elif with_form:
+            # CD or BD
+            return c.ClinicalDrug if branded else c.BrandedDrug
+        else:  # Unquantified strength, no form
+            # CDC or BDC
+            return (
+                c.ClinicalDrugComponent if branded else c.BrandedDrugComponent
+            )
+
+    def is_multi(self) -> bool:
+        """
+        Returns True if this node contains multiple ingredients or strength
+        entries.
+        """
+        return len(self.strength_data) > 1
