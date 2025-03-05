@@ -19,15 +19,18 @@ if __name__ == "__main__":
     a = OMOPVocabulariesV5(vocab_download_path=path)
 
     import rustworkx as rx
-    import matplotlib.pyplot as plt
-    from rustworkx.visualization import mpl_draw
     from rx_model.drug_classes import ConceptId
+
+    from rustworkx.visualization import graphviz_draw
 
     aspirin = a.atoms.ingredient[ConceptId(1112807)]
     aspirin_node = a.hierarchy.ingredients[aspirin]
     aspirin_descendants = rx.descendants(a.hierarchy.graph, aspirin_node)
     aspirin_subgraph = a.hierarchy.graph.subgraph(list(aspirin_descendants))
-    _ = mpl_draw(aspirin_subgraph, with_labels=True)
-    plt.show()
+    print(aspirin_subgraph.num_edges())  # Expect 9431
+
+    img = graphviz_draw(aspirin_subgraph)
+    assert img is not None
+    img.show()
 
     print("Done")

@@ -12,6 +12,8 @@ from rx_model.drug_classes.generic import (
 from utils.classes import SortedTuple  # To ensure consistent layout
 from utils.utils import invert_merge_dict, keep_multiple_values
 
+import rustworkx as rx  # For class dependency graph
+
 
 class __MulticomponentMixin[
     Id: ConceptIdentifier,
@@ -548,3 +550,44 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: Concentration](
                 return False
 
         return self.brand_name == other.get_brand_name()
+
+
+DRUG_CLASS_DEPENDENCY: rx.PyDAG[type[DrugNode[ConceptIdentifier]], None] = (
+    rx.PyDAG(node_count_hint=11, edge_count_hint=121)
+)
+
+_indices: dict[type[DrugNode[ConceptIdentifier]], int] = {}
+# Add all classes to the dependency graph
+for class_ in [
+    a.Ingredient,
+    ClinicalDrugComponent,
+    BrandedDrugComponent,
+    ClinicalDrugForm,
+    BrandedDrugForm,
+    ClinicalDrug,
+    BrandedDrug,
+    QuantifiedClinicalDrug,
+    QuantifiedBrandedDrug,
+]:
+    _indices[class_] = DRUG_CLASS_DEPENDENCY.add_node(class_)
+
+DRUG_CLASS_DEPENDENCY.extend_from_edge_list(
+    list(
+        map(
+            lambda edge: (_indices[edge[0]], _indices[edge[1]]),
+            [
+                (a.Ingredient, ClinicalDrugComponent),
+                (a.Ingredient, ClinicalDrugForm),
+                (ClinicalDrugComponent, ClinicalDrug),
+                (ClinicalDrugComponent, BrandedDrugComponent),
+                (ClinicalDrugForm, ClinicalDrug),
+                (ClinicalDrugForm, BrandedDrugForm),
+                (ClinicalDrug, QuantifiedClinicalDrug),
+                (BrandedDrugComponent, BrandedDrug),
+                (BrandedDrugForm, BrandedDrug),
+                (QuantifiedClinicalDrug, QuantifiedBrandedDrug),
+                (BrandedDrug, QuantifiedBrandedDrug),
+            ],
+        )
+    )
+)
