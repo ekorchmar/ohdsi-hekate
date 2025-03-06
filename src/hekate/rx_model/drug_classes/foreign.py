@@ -187,20 +187,20 @@ class ForeignDrugNode[Id: ConceptIdentifier](DrugNode[Id]):
         if strength is None:
             # Ingredient, CDF, or BDF
             if with_form:
-                return c.ClinicalDrugForm if branded else c.BrandedDrugForm
+                return c.BrandedDrugForm if branded else c.ClinicalDrugForm
             return a.Ingredient
         elif isinstance(strength, st.LiquidQuantity):
             # QCD or QBD
             return (
-                c.QuantifiedClinicalDrug if branded else c.QuantifiedBrandedDrug
+                c.QuantifiedBrandedDrug if branded else c.QuantifiedClinicalDrug
             )
         elif with_form:
             # CD or BD
-            return c.ClinicalDrug if branded else c.BrandedDrug
+            return c.BrandedDrug if branded else c.ClinicalDrug
         else:  # Unquantified strength, no form
             # CDC or BDC
             return (
-                c.ClinicalDrugComponent if branded else c.BrandedDrugComponent
+                c.BrandedDrugComponent if branded else c.ClinicalDrugComponent
             )
 
     def is_multi(self) -> bool:
