@@ -57,10 +57,10 @@ DRUG_CLASS_PREFERENCE_ORDER = [
     QuantifiedClinicalDrug,
     BrandedDrug,
     ClinicalDrug,
-    BrandedDrugComponent,
-    ClinicalDrugComponent,
     BrandedDrugForm,
     ClinicalDrugForm,
+    BrandedDrugComponent,
+    ClinicalDrugComponent,
     a.Ingredient,
 ]
 
