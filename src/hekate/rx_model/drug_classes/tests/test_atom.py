@@ -4,84 +4,131 @@ import rx_model.drug_classes.generic as g
 from utils.classes import SortedTuple
 
 
-@pytest.fixture
+# All fixtures exist for all of the test functions
+permafixture = pytest.fixture(scope="package")
+
+
+# ConceptId
+## Ingredients
+@permafixture
 def acetaminophen():
-    return g.ConceptId(1125315), "acetaminophen"
+    return a.Ingredient(g.ConceptId(1125315), "acetaminophen")
 
 
-@pytest.fixture
-def tylenol():
-    return g.ConceptId(1125315), "Tylenol"
-
-
-@pytest.fixture
+@permafixture
 def paracetamol():
-    return g.ConceptId(1125315), "paracetamol"
+    return a.Ingredient(g.ConceptId(1125315), "paracetamol")
 
 
-@pytest.fixture
+@permafixture
 def haloperidol():
-    return g.ConceptId(766529), "haloperidol"
+    return a.Ingredient(g.ConceptId(766529), "haloperidol")
 
 
-@pytest.fixture
-def omop_haloperidol():
-    return g.ConceptCodeVocab(
-        "OMOP41", "RxNorm Extension"
-    ), "Haloperydol Kharkivdrug"
-
-
-@pytest.fixture
-def omop_apap_1():
-    return g.ConceptCodeVocab(
-        "OMOP42", "RxNorm Extension"
-    ), "Paracetamol Darnytsia"
-
-
-@pytest.fixture
-def omop_apap_2():
-    return g.ConceptCodeVocab(
-        "OMOP42", "RxNorm Extension"
-    ), "Paracetamol Kharkivdrug"
-
-
-@pytest.fixture
+## Precise Ingredients
+@permafixture
 def haloperidol_decanoate(haloperidol):
-    return (
+    return a.PreciseIngredient(
         g.ConceptId(19068898),
         "haloperidol decanoate",
-        a.Ingredient(*haloperidol),
+        haloperidol,
+    )
+
+
+## Brand Names
+@permafixture
+def _tylenol():
+    return a.BrandName(g.ConceptId(1125315), "Tylenol")
+
+
+@permafixture
+def advicor():
+    return a.BrandName(g.ConceptId(19082896), "Advicor")
+
+
+@permafixture
+def bupap():
+    return a.BrandName(g.ConceptId(19057227), "Bupap")
+
+
+@permafixture
+def oral_tablet():
+    return a.DoseForm(g.ConceptId(19082573), "Oral Tablet")
+
+
+@permafixture
+def oral_solution():
+    return a.DoseForm(g.ConceptId(19082170), "Oral Solution")
+
+
+# Unit
+@permafixture
+def mg():
+    return a.Unit(g.ConceptId(8576), "mg")
+
+
+@permafixture
+def ml():
+    return a.Unit(g.ConceptId(8587), "ml")
+
+
+# ConceptCodeVocab
+## Ingredients
+@permafixture
+def omop_haloperidol():
+    return a.Ingredient(
+        g.ConceptCodeVocab("OMOP41", "RxNorm Extension"),
+        "Haloperydol Kharkivdrug",
+    )
+
+
+@permafixture
+def omop_apap_1():
+    return a.Ingredient(
+        g.ConceptCodeVocab("OMOP42", "RxNorm Extension"),
+        "Paracetamol Darnytsia",
+    )
+
+
+@permafixture
+def omop_apap_2():
+    return a.Ingredient(
+        g.ConceptCodeVocab("OMOP42", "RxNorm Extension"),
+        "Paracetamol Kharkivdrug",
     )
 
 
 def test_atoms_eq(
     acetaminophen,
     paracetamol,
-    tylenol,
+    _tylenol,
     haloperidol,
     omop_apap_1,
     omop_apap_2,
     omop_haloperidol,
 ):
     # ConceptId
-    assert a.Ingredient(*acetaminophen) == a.Ingredient(*paracetamol)
-    assert a.Ingredient(*acetaminophen) == a.Ingredient(*tylenol)
-    assert a.Ingredient(*acetaminophen) != a.Ingredient(*haloperidol)
+    assert acetaminophen == paracetamol
+    assert acetaminophen != haloperidol
+
+    # TypeError on different types
     with pytest.raises(TypeError):
-        assert a.Ingredient(*acetaminophen) != a.BrandName(*tylenol)
+        assert acetaminophen != _tylenol
+    # But not on None
+    assert acetaminophen != None  # noqa: E711
 
     # ConceptCodeVocab
-    assert a.Ingredient(*omop_apap_1) == a.Ingredient(*omop_apap_2)
-    assert a.Ingredient(*omop_apap_1) != a.Ingredient(*omop_haloperidol)
+    assert omop_apap_1 == omop_apap_2
+    assert omop_apap_1 != omop_haloperidol
 
 
 def test_reconstructed_invariant(
     haloperidol, haloperidol_decanoate, paracetamol
 ):
-    ing_1 = a.Ingredient(*haloperidol)
-    ing_2 = a.Ingredient(*paracetamol)
+    ing_1 = haloperidol
+    ing_2 = paracetamol
 
-    pi = a.PreciseIngredient(*haloperidol_decanoate)
+    pi = haloperidol_decanoate
 
     assert ing_1 == pi.invariant
     assert ing_2 != pi.invariant
@@ -90,10 +137,10 @@ def test_reconstructed_invariant(
 def test_node_interfaces_ingredient(
     acetaminophen, haloperidol, paracetamol, omop_apap_1
 ):
-    acetaminophen_ing = a.Ingredient(*acetaminophen)
-    haloperidol_ing = a.Ingredient(*haloperidol)
-    paracetamol_ing = a.Ingredient(*paracetamol)
-    omop_apap_ing = a.Ingredient(*omop_apap_1)
+    acetaminophen_ing = acetaminophen
+    haloperidol_ing = haloperidol
+    paracetamol_ing = paracetamol
+    omop_apap_ing = omop_apap_1
 
     ings = [
         acetaminophen_ing,
@@ -124,9 +171,9 @@ def test_node_interfaces_ingredient(
 def test_node_interfaces_ingredient_superclass(
     acetaminophen, haloperidol, paracetamol, omop_apap_1
 ):
-    acetaminophen_ing = a.Ingredient(*acetaminophen)
-    haloperidol_ing = a.Ingredient(*haloperidol)
-    paracetamol_ing = a.Ingredient(*paracetamol)
+    acetaminophen_ing = acetaminophen
+    haloperidol_ing = haloperidol
+    paracetamol_ing = paracetamol
 
     # Superclass check
     assert acetaminophen_ing.is_superclass_of(paracetamol_ing)
@@ -137,27 +184,21 @@ def test_node_interfaces_ingredient_superclass(
 def test_sorting_ingredient(
     acetaminophen, paracetamol, haloperidol, omop_apap_1, omop_haloperidol
 ):
-    acetaminophen_ing = a.Ingredient(*acetaminophen)
-    paracetamol_ing = a.Ingredient(*paracetamol)
-    haloperidol_ing = a.Ingredient(*haloperidol)
-    omop_apap_ing = a.Ingredient(*omop_apap_1)
-    omop_haloperidol_ing = a.Ingredient(*omop_haloperidol)
-
     # Sorted by ConceptId
     for pair in (
         # ConceptId
-        (acetaminophen_ing, haloperidol_ing),
+        (acetaminophen, haloperidol),
         # ConceptId, equal
-        (acetaminophen_ing, paracetamol_ing),
+        (acetaminophen, paracetamol),
         # ConceptCodeVocab
-        (omop_apap_ing, omop_haloperidol_ing),
+        (omop_apap_1, omop_haloperidol),
     ):
         small, big = sorted(pair)
         assert big.identifier >= small.identifier
 
     # TypeError on different types
     with pytest.raises(TypeError):
-        acetaminophen_ing > omop_apap_ing
+        acetaminophen > omop_apap_1
 
 
 if __name__ == "__main__":
