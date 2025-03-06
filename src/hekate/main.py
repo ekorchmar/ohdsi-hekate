@@ -21,9 +21,6 @@ Hekate starts another hex!
 if __name__ == "__main__":
     main()
 
-    path = Path("~/Downloads/Vocab/").expanduser()
-    athena_rxne = OMOPVocabulariesV5(vocab_download_path=path)
-
     apap = dc.ForeignDrugNode(
         identifier=dc.ConceptId(0),
         strength_data=SortedTuple([
@@ -34,6 +31,12 @@ if __name__ == "__main__":
         ]),
         dose_form=dc.DoseForm(dc.ConceptId(19082573), "Oral Tablet"),
     )
+
+    print(f"Hello, I am {apap}! I know, it's a long name.")
+    print(f"I want to be a {apap.best_case_class().__name__}!")
+
+    path = Path("~/Downloads/Vocab/").expanduser()
+    athena_rxne = OMOPVocabulariesV5(vocab_download_path=path)
 
     finder = DrugNodeFinder(apap)
 
