@@ -13,7 +13,7 @@ from rx_model.drug_classes.generic import (
 
 
 # Atomic named concepts
-@dataclass(frozen=True, unsafe_hash=True)
+@dataclass(frozen=True)
 class _RxAtom[Id: ConceptIdentifier]:
     """A single atomic concept in the RxNorm vocabulary."""
 
@@ -46,6 +46,18 @@ class _RxAtom[Id: ConceptIdentifier]:
         if not isinstance(other, _RxAtom):
             return NotImplemented
         return self.identifier > other.identifier  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]  # noqa: E501
+
+    @override
+    def __hash__(self) -> int:
+        # Only the identifier is used for hashing This may cause
+        # our objects to be confuseable with integers in some scenarios,
+        # but this is:
+        #  A) Something for type checker to catch. We should not mix objects
+        #     with integers.
+        #  B) Something accidentally desirable, as objects with the same
+        #     identifier are considered equal.
+        #  C) Performance tradeoff.
+        return hash(self.identifier)
 
 
 # RxNorm

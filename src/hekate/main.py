@@ -1,8 +1,12 @@
-from csv_read.athena import OMOPVocabulariesV5
 from pathlib import Path
+
+import polars as pl
 import rx_model.drug_classes as dc
-from utils.classes import SortedTuple
+from csv_read.athena import OMOPVocabulariesV5
+from rustworkx.visualization import graphviz_draw
+from rx_model.drug_classes import DRUG_CLASS_PREFERENCE_ORDER
 from rx_model.hierarchy.traversal import DrugNodeFinder
+from utils.classes import SortedTuple
 
 
 def main():
@@ -16,11 +20,6 @@ Hekate starts another hex!
 
 if __name__ == "__main__":
     main()
-
-    import inspect
-
-    print(inspect.signature(dc.PreciseIngredient.__init__))
-    print(dc.PreciseIngredient.__init__)
 
     path = Path("~/Downloads/Vocab/").expanduser()
     athena_rxne = OMOPVocabulariesV5(vocab_download_path=path)
@@ -39,6 +38,36 @@ if __name__ == "__main__":
     finder = DrugNodeFinder(apap)
 
     finder.start_search(athena_rxne.hierarchy)
-    print(finder.get_search_results())
+    matched_nodes = finder.get_search_results()
+
+    class_counts = {class_: 0 for class_ in DRUG_CLASS_PREFERENCE_ORDER}
+
+    for node in matched_nodes.values():
+        for class_ in DRUG_CLASS_PREFERENCE_ORDER:
+            if isinstance(node, class_):
+                class_counts[class_] += 1
+                break
+    for class_, count in class_counts.items():
+        print(f"{class_.__name__}: {count}")
+
+    matched_tree = athena_rxne.hierarchy.graph.subgraph(list(matched_nodes))
+    img = graphviz_draw(
+        matched_tree,
+        node_attr_fn=lambda drug_node: {"label": str(drug_node.identifier)},
+    )
+
+    assert img is not None
+    img.save("matched_tree.png")
+    img.show()
+
+    concepts = athena_rxne.concept.data().filter(
+        pl.col("concept_id").is_in(
+            pl.Series(
+                (node.identifier for node in matched_nodes.values()),
+                dtype=pl.UInt32,
+            )
+        )
+    )
+    concepts.write_excel("matched_concepts.xlsx")
 
     print("Done")

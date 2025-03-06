@@ -1,7 +1,6 @@
 from typing import Final
 
 import rx_model.drug_classes.atom as a
-import rx_model.drug_classes.strength as st
 import rustworkx as rx
 from rx_model.drug_classes.complex import (
     BrandedDrug,
@@ -67,7 +66,9 @@ DRUG_CLASS_PREFERENCE_ORDER = [
     a.Ingredient,
 ]
 
-ALLOWED_DRUG_MULTIMAP: Final[tuple[type[DrugNode[ConceptIdentifier]], ...]] = (
-    a.Ingredient[ConceptIdentifier],
-    ClinicalDrugComponent[ConceptIdentifier, st.UnquantifiedStrength],
+# Those are intended for isinstance checks, so they are intentionally left
+# generic.
+ALLOWED_DRUG_MULTIMAP: Final[tuple[type[DrugNode], ...]] = (  # pyright: ignore[reportMissingTypeArgument]  # noqa: E501
+    a.Ingredient,
+    ClinicalDrugComponent,
 )

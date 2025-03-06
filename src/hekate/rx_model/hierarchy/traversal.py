@@ -41,17 +41,23 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
 
         # Indicates how many targets of ALLOWED_DRUG_MULTIMAP should
         # the node end up with.
+        self.number_components: int
 
-        self.number_targets: int
+        # Performance optimization: once enough MULTIMAP entries are found, the
+        # rest of the Ingredient/CDC nodes can be pruned.
+        self.__accepted_multi_nodes = {
+            class_: 0 for class_ in ALLOWED_DRUG_MULTIMAP
+        }
+
         if self.node.is_multi():
-            self.number_targets = len(self.node.strength_data)
+            self.number_components = len(self.node.strength_data)
         else:
-            self.number_targets = 1
+            self.number_components = 1
 
         self.current_hierarchy: RxHierarchy[Id] | None = None
 
         # Container for the results
-        self.final_nodes: list[DrugNode[Id]] = []
+        self.final_nodes: dict[NodeIndex, DrugNode[Id]] = {}
 
     @override
     def discover_vertex(self, v: NodeIndex) -> None:
@@ -65,17 +71,27 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
             )
 
         drug_node: DrugNode[Id] = self.current_hierarchy.graph[v]
+
+        for class_ in ALLOWED_DRUG_MULTIMAP:
+            if isinstance(drug_node, class_):
+                current_count = self.__accepted_multi_nodes[class_]
+                if current_count >= self.number_components:
+                    # Stop taking any new ingredient branches
+                    self._remember_node(v, False)
+                    raise rx.visit.PruneSearch
+
         acceptance: NodeAcceptance = drug_node.is_superclass_of(self.node)
-        self.history[self.current_hierarchy.get_checksum()][v] = acceptance
+        self._remember_node(v, acceptance)
 
         if not acceptance:
             # None of the descendants will match
             raise rx.visit.PruneSearch
         else:
+            self.final_nodes[v] = drug_node
             if isinstance(drug_node, self.aim_for):
                 # We are almost there. However, this might be a node for
                 # multi-mapping.
-                can_be_multi = self.number_targets > 1 and isinstance(
+                can_be_multi = self.number_components > 1 and isinstance(
                     drug_node, ALLOWED_DRUG_MULTIMAP
                 )
 
@@ -86,9 +102,16 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
                         f"node {drug_node.identifier}."
                     )
                 else:
-                    # This is the node we are looking for
-                    self.final_nodes.append(drug_node)
-                    raise rx.visit.StopSearch
+                    # This is the node we are looking for. But we still may
+                    # match sister nodes.
+                    raise rx.visit.PruneSearch
+
+    def _remember_node(self, v: NodeIndex, acceptance: NodeAcceptance) -> None:
+        """
+        Remembers the acceptance of a node.
+        """
+        assert self.current_hierarchy is not None
+        self.history[self.current_hierarchy.get_checksum()][v] = acceptance
 
     def start_search(self, hierarchy: RxHierarchy[Id]) -> None:
         """
@@ -100,12 +123,16 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
                 "Hierarchy has already been searched and continuation is not "
                 "implemented yet."
             )
+
+        for key in list(self.__accepted_multi_nodes.keys()):
+            self.__accepted_multi_nodes[key] = 0
+
         self.current_hierarchy = hierarchy
         rx.bfs_search(
             hierarchy.graph, list(hierarchy.ingredients.values()), self
         )
 
-    def get_search_results(self) -> list[DrugNode[Id]]:
+    def get_search_results(self) -> dict[NodeIndex, DrugNode[Id]]:
         """
         Returns the final nodes that have been found.
         """
