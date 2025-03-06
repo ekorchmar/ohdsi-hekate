@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import override
+from typing import ClassVar, final, override
 
 from utils.classes import SortedTuple
 
@@ -13,12 +13,14 @@ from rx_model.drug_classes.generic import (
 
 
 # Atomic named concepts
-@dataclass(frozen=True, order=True, slots=True)
-class __RxAtom[Id: ConceptIdentifier]:
+@dataclass(frozen=True, unsafe_hash=True)
+class _RxAtom[Id: ConceptIdentifier]:
     """A single atomic concept in the RxNorm vocabulary."""
 
     identifier: Id
     concept_name: str
+
+    __slots__: ClassVar[tuple[str, ...]] = ("identifier", "concept_name")
 
     def __post_init__(self):
         if not self.concept_name:
@@ -30,12 +32,25 @@ class __RxAtom[Id: ConceptIdentifier]:
     @override
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
-            return False
+            # This is a common case, False is intended
+            if other is None:
+                return False
+
+            raise TypeError(
+                f"Cannot compare {self.__class__.__name__} with "
+                f"{other.__class__.__name__}."
+            )
         return self.identifier == other.identifier
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, _RxAtom):
+            return NotImplemented
+        return self.identifier > other.identifier  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]  # noqa: E501
 
 
 # RxNorm
-class Ingredient[Id: ConceptIdentifier](__RxAtom[Id], DrugNode[Id]):
+@final
+class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], DrugNode[Id]):
     """
     RxNorm or RxNorm Extension ingredient concept.
     """
@@ -46,43 +61,82 @@ class Ingredient[Id: ConceptIdentifier](__RxAtom[Id], DrugNode[Id]):
     ) -> bool:
         del passed_hierarchy_checks
         # Ingredients are superclasses of any node containing them
-        return any(self == ing for ing, _ in other.get_strength_data())
+        for ing, _ in other.get_strength_data():
+            if self == ing:
+                return True
+        return False
 
     @override
     def get_strength_data(self) -> SortedTuple[BoundStrength[Id, None]]:
-        return SortedTuple([(self, None)])
+        return SortedTuple([
+            (self, None),
+        ])
 
     @override
     def get_precise_ingredients(self) -> list[None]:
         return [None]
 
 
-class BrandName[Id: ConceptIdentifier](__RxAtom[Id]):
+@final
+class BrandName[Id: ConceptIdentifier](_RxAtom[Id]):
     """
     RxNorm or RxNorm Extension brand name concept.
     """
 
 
-class DoseForm[Id: ConceptIdentifier](__RxAtom[Id]):
+@final
+class DoseForm[Id: ConceptIdentifier](_RxAtom[Id]):
     """
     RxNorm or RxNorm Extension dose form concept.
     """
 
 
+@final
+@dataclass(frozen=True, unsafe_hash=True)
+class PreciseIngredient(_RxAtom[ConceptId]):
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "identifier",
+        "concept_name",
+        "invariant",
+    )
+    invariant: Ingredient[ConceptId]
+
+    # NOTE: Since @dataclass overrides a lot of superclass methods, (and we need
+    # to call it to redefine the constructor) we need to explicitly reimplement
+    # dunder methods.
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        # Precise Ingredients are expected to be compared to None
+        # more often than not, so we elevate this to an outer check
+        if other is None:
+            return False
+
+        if not isinstance(other, self.__class__):
+            raise TypeError(
+                f"Cannot compare {self.__class__.__name__} with "
+                f"{other.__class__.__name__}."
+            )
+        return self.identifier == other.identifier
+
+    @override
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, PreciseIngredient):
+            return NotImplemented
+        return self.identifier > other.identifier
+
+
 # # UCUM
-class Unit(__RxAtom[ConceptId]):
+@final
+class Unit(_RxAtom[ConceptId]):
     """
     UCUM unit concept used in drug dosage information.
     """
 
 
-@dataclass(frozen=True, order=True, eq=True, slots=True)
-class PreciseIngredient(__RxAtom[ConceptId]):
-    invariant: Ingredient[ConceptId]
-
-
 # # RxNorm Extension
-class Supplier[Id: ConceptIdentifier](__RxAtom[Id]):
+@final
+class Supplier[Id: ConceptIdentifier](_RxAtom[Id]):
     """
     RxNorm Extension supplier concept.
     """

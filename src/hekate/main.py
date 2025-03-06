@@ -16,6 +16,12 @@ Hekate starts another hex!
 
 if __name__ == "__main__":
     main()
+
+    import inspect
+
+    print(inspect.signature(dc.PreciseIngredient.__init__))
+    print(dc.PreciseIngredient.__init__)
+
     path = Path("~/Downloads/Vocab/").expanduser()
     athena_rxne = OMOPVocabulariesV5(vocab_download_path=path)
 
