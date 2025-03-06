@@ -65,7 +65,7 @@ if __name__ == "__main__":
     img.save("matched_tree.png")
     img.show()
 
-    concepts = athena_rxne.concept.data().filter(
+    concepts = athena_rxne.concept.collect().filter(
         pl.col("concept_id").is_in(
             pl.Series(
                 (node.identifier for node in matched_nodes.values()),

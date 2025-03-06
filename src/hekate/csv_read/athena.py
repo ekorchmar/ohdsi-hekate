@@ -2,7 +2,6 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
-import enum
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -26,57 +25,17 @@ from utils.constants import (
     PERCENT_CONCEPT_ID,
     STRENGTH_CONFIGURATIONS,
 )
+from utils.classes import (
+    Cardinality,
+    CARDINALITY_REQUIRED,
+    CARDINALITY_SINGLE,
+)
 from utils.logger import LOGGER
-
-
-class _StrengthTuple(NamedTuple):
-    ingredient_concept_id: int
-    strength: dc.Strength
-
-
-class _StrengthDataRow(NamedTuple):
-    """
-    Shape of the row data for the StrengthTable
-    """
-
-    drug_concept_id: int
-    ingredient_concept_id: int
-    amount_value: float
-    amount_unit_concept_id: int
-    numerator_value: float
-    numerator_unit_concept_id: int
-    denominator_value: float
-    denominator_unit_concept_id: int
-    amount_only: bool
-    liquid_concentration: bool
-    liquid_quantity: bool
-    gas_concentration: bool
-    # TODO: box_size and other strength data
 
 
 # Type hint for a dictionary linking int concept_ids to indices in the hierarchy
 # graph. This serves as a temporary cache to speed up the hierarchy building
 type _TempNodeView = dict[int, NodeIndex]
-
-
-class _Cardinality(enum.Enum):
-    """
-    Enum to define the cardinality of a relationship between two concepts
-
-    Left hand side (source concept, concept_id_1) is always assumed to have
-    cardinality of 1. Cardinality counts are always in relation to the target,
-    showing how many target concepts can be related to a single source concept.
-    """
-
-    ANY = "0..*"  # Will not be used in practice
-    ONE = "1..1"
-    OPTIONAL = "0..1"
-    NONZERO = "1..*"
-
-
-_CARDINALITY_REQUIRED = [_Cardinality.ONE, _Cardinality.NONZERO]
-_CARDINALITY_SINGLE = [_Cardinality.ONE, _Cardinality.OPTIONAL]
-_CARDINALITY_MULTIPLE = [_Cardinality.NONZERO, _Cardinality.ANY]
 
 
 class _RelationshipDescription(NamedTuple):
@@ -85,11 +44,11 @@ class _RelationshipDescription(NamedTuple):
     """
 
     relationship_id: str
-    cardinality: _Cardinality
+    cardinality: Cardinality
     target_class: str
 
 
-class OMOPTable[FilterArg](ABC):
+class OMOPTable[FilterArg](ABC, CSVReader):
     """
     Abstract class to read Athena OMOP CDM Vocabularies
 
@@ -117,30 +76,14 @@ class OMOPTable[FilterArg](ABC):
         logger: logging.Logger,
         filter_arg: FilterArg | None = None,
     ):
-        super().__init__()
-        self.path: Path = path
-        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
-
-        self.logger.info(f"Preparing to read from {path.name}")
-        self.reader: CSVReader = CSVReader(
-            path=self.path,
+        super().__init__(
+            path=path,
             schema=self.TABLE_SCHEMA,
             keep_columns=self.TABLE_COLUMNS,
             line_filter=self.table_filter,
             filter_arg=filter_arg,
         )
-
-    def data(self) -> pl.DataFrame:
-        """
-        Run the reader and return the data.
-        """
-        return self.reader.collect()
-
-    def materialize(self) -> None:
-        """
-        Materialize the lazy frame into a DataFrame.
-        """
-        self.reader.materialize()
+        self.logger.info(f"Preparing to read from {path.name}")
 
 
 class ConceptTable(OMOPTable[None]):
@@ -338,14 +281,33 @@ class OMOPVocabulariesV5:
     Class to read Athena OMOP CDM Vocabularies
     """
 
+    class _StrengthDataRow(NamedTuple):
+        """
+        Shape of the row data for the output of get_strength_data()
+        """
+
+        drug_concept_id: int
+        ingredient_concept_id: int
+        amount_value: float
+        amount_unit_concept_id: int
+        numerator_value: float
+        numerator_unit_concept_id: int
+        denominator_value: float
+        denominator_unit_concept_id: int
+        amount_only: bool
+        liquid_concentration: bool
+        liquid_quantity: bool
+        gas_concentration: bool
+        # TODO: box_size and other strength data
+
     def get_class_relationships(
         self, class_id_1: str, class_id_2: str, relationship_id: str
     ) -> pl.DataFrame:
         """
         Get relationships of a defined type between concepts of two classes.
         """
-        concept = self.concept.data()
-        relationship = self.relationship.data().filter(
+        concept = self.concept.collect()
+        relationship = self.relationship.collect().filter(
             pl.col("relationship_id") == relationship_id
         )
 
@@ -387,7 +349,7 @@ class OMOPVocabulariesV5:
 
         source_abbr = "".join(char[0] for char in source_class.split())
         source_concepts = (
-            self.concept.data()
+            self.concept.collect()
             .filter(pl.col("concept_class_id") == source_class)
             .select(
                 ["concept_id", "concept_name"] if include_name else "concept_id"
@@ -414,7 +376,7 @@ class OMOPVocabulariesV5:
             )
 
             # Catch empty attributes
-            if expected_cardinality in _CARDINALITY_REQUIRED:
+            if expected_cardinality in CARDINALITY_REQUIRED:
                 source_no_target = source_concepts.join(
                     source_to_target, on="concept_id", how="anti"
                 )
@@ -431,7 +393,7 @@ class OMOPVocabulariesV5:
                         source_no_target, on="concept_id", how="anti"
                     )
 
-            if expected_cardinality in _CARDINALITY_SINGLE:
+            if expected_cardinality in CARDINALITY_SINGLE:
                 # Catch multiple attributes
                 source_mult_target = (
                     source_to_target["concept_id"]
@@ -474,7 +436,7 @@ class OMOPVocabulariesV5:
         return source_concepts
 
     def get_ds_ingredient_data(
-        self, drug_ids: pl.Series, expect_cardinality: _Cardinality
+        self, drug_ids: pl.Series, expect_cardinality: Cardinality
     ) -> dict[int, list[int]]:
         """
         Get the ingredient data slice for each drug concept per the
@@ -492,7 +454,7 @@ class OMOPVocabulariesV5:
             correpsonding ingredient concept_ids as values.
         """
 
-        if expect_cardinality not in _CARDINALITY_REQUIRED:
+        if expect_cardinality not in CARDINALITY_REQUIRED:
             raise ValueError(
                 "Expected cardinality must be ONE or NONZERO for this method"
             )
@@ -500,7 +462,7 @@ class OMOPVocabulariesV5:
         drug_ids = drug_ids.unique()
 
         ing_data: dict[int, list[int]] = {}
-        ing_df = self.strength.data().join(
+        ing_df = self.strength.collect().join(
             other=drug_ids.to_frame(name="drug_concept_id"),
             on="drug_concept_id",
             how="left",
@@ -522,7 +484,7 @@ class OMOPVocabulariesV5:
                 pl.col("ingredient_concept_id").is_not_null()
             )
 
-        if expect_cardinality is _Cardinality.ONE:
+        if expect_cardinality is Cardinality.ONE:
             # Filter out drugs with multiple ingredients
             multiple_ingredients = (
                 ing_df["drug_concept_id"]
@@ -551,12 +513,16 @@ class OMOPVocabulariesV5:
 
         return ing_data
 
+    class _StrengthTuple(NamedTuple):
+        ingredient_concept_id: int
+        strength: dc.Strength
+
     def get_strength_data(
         self,
         drug_ids: pl.Series,
-        expect_cardinality: _Cardinality,
+        expect_cardinality: Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
-    ) -> dict[int, list[_StrengthTuple]]:
+    ) -> dict[int, list["OMOPVocabulariesV5._StrengthTuple"]]:
         """
         Get the strength data slice for each drug concept.
 
@@ -582,16 +548,16 @@ class OMOPVocabulariesV5:
             variant of strength data, in shape of `SolidStrength`,
             `LiquidQuantity`, or `LiquidConcentration`.
         """
-        if expect_cardinality not in _CARDINALITY_REQUIRED:
+        if expect_cardinality not in CARDINALITY_REQUIRED:
             raise ValueError(
                 "Expected cardinality must be ONE or NONZERO for this method"
             )
 
         concepts = drug_ids.unique().to_frame(name="drug_concept_id")
 
-        strength_data: dict[int, list[_StrengthTuple]] = {}
+        strength_data: dict[int, list[OMOPVocabulariesV5._StrengthTuple]] = {}
         strength_df = concepts.join(
-            other=self.strength.data(),
+            other=self.strength.collect(),
             on="drug_concept_id",
             how="left",
         )
@@ -613,7 +579,7 @@ class OMOPVocabulariesV5:
                 pl.col("ingredient_concept_id").is_not_null()
             )
 
-        if expect_cardinality is _Cardinality.ONE:
+        if expect_cardinality is Cardinality.ONE:
             # Filter out drugs with multiple strength data
             multiple_strength = (
                 strength_df["drug_concept_id"]
@@ -650,7 +616,7 @@ class OMOPVocabulariesV5:
         failed_concept_ids: list[int] = []
 
         for row in strength_df.iter_rows():
-            row = _StrengthDataRow(*row)
+            row = self._StrengthDataRow(*row)
 
             if row.drug_concept_id in failed_concept_ids:
                 # We already know this concept is bad
@@ -718,7 +684,7 @@ class OMOPVocabulariesV5:
 
             if (existing := strength_data.get(row.drug_concept_id)) is None:
                 strength_data[row.drug_concept_id] = [
-                    _StrengthTuple(row.ingredient_concept_id, strength)
+                    self._StrengthTuple(row.ingredient_concept_id, strength)
                 ]
             else:
                 # Assert that the configuration matches the other rows
@@ -747,7 +713,7 @@ class OMOPVocabulariesV5:
 
                 # Put the new strength data in the list
                 strength_data[row.drug_concept_id].append(
-                    _StrengthTuple(row.ingredient_concept_id, strength)
+                    self._StrengthTuple(row.ingredient_concept_id, strength)
                 )
 
             # TODO: save strength data to self.strengths
@@ -872,7 +838,7 @@ class OMOPVocabulariesV5:
 
         # Materialize the concept table to filter big tables early
         self.concept.materialize()
-        all_concept_ids = self.concept.data()["concept_id"]
+        all_concept_ids = self.concept.collect()["concept_id"]
 
         self.relationship: RelationshipTable = RelationshipTable(
             path=vocab_download_path / "CONCEPT_RELATIONSHIP.csv",
@@ -902,7 +868,7 @@ class OMOPVocabulariesV5:
         self.strength: StrengthTable = StrengthTable(
             path=vocab_download_path / "DRUG_STRENGTH.csv",
             logger=self.logger,
-            filter_arg=self.concept.data(),
+            filter_arg=self.concept.collect(),
         )
 
         # Also use Drug Strength for filtering other tables
@@ -946,7 +912,7 @@ class OMOPVocabulariesV5:
             "Processing atomic concepts (Ingredient, Dose Form, etc.)"
         )
         rxn_atoms: pl.DataFrame = (
-            self.concept.data()
+            self.concept.collect()
             .select([
                 "concept_id",
                 "concept_name",
@@ -979,7 +945,7 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="Form of",  # Maps to?
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Ingredient",
                 ),
             ],
@@ -1020,12 +986,12 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Dose Form",
                 ),
                 _RelationshipDescription(
                     relationship_id="RxNorm has ing",
-                    cardinality=_Cardinality.NONZERO,
+                    cardinality=Cardinality.NONZERO,
                     target_class="Ingredient",
                 ),
             ],
@@ -1033,7 +999,7 @@ class OMOPVocabulariesV5:
 
         # Get ingredients from DRUG_STRENGTH table for cross-validation
         cdf_ing_ds: dict[int, list[int]] = self.get_ds_ingredient_data(
-            cdf_concepts["concept_id"], _Cardinality.NONZERO
+            cdf_concepts["concept_id"], Cardinality.NONZERO
         )
 
         cdf_ingredient_mismatch: list[int] = []
@@ -1148,13 +1114,13 @@ class OMOPVocabulariesV5:
         self.logger.info("Filtering out orphaned complex drug concepts")
 
         ingredient_descendants = (
-            self.concept.data()
+            self.concept.collect()
             .filter(
                 pl.col("standard_concept") == "S",
                 pl.col("concept_class_id") == "Ingredient",
             )
             .join(
-                other=self.ancestor.data(),
+                other=self.ancestor.collect(),
                 left_on="concept_id",
                 right_on="ancestor_concept_id",
             )
@@ -1162,7 +1128,7 @@ class OMOPVocabulariesV5:
         )
 
         orphaned_complex_concepts = (
-            self.concept.data()
+            self.concept.collect()
             .filter(
                 pl.col("standard_concept") == "S",
                 pl.col("concept_class_id") != "Ingredient",
@@ -1199,7 +1165,7 @@ class OMOPVocabulariesV5:
             "Ingredients"
         )
         prec_ing_concepts = (
-            self.concept.data()
+            self.concept.collect()
             .filter(
                 pl.col("vocabulary_id") == "RxNorm",
                 pl.col("concept_class_id") == "Precise Ingredient",
@@ -1207,13 +1173,13 @@ class OMOPVocabulariesV5:
             )
             .select(["concept_id"])
         )
-        complex_drug_concepts = self.concept.data().filter(
+        complex_drug_concepts = self.concept.collect().filter(
             pl.col("standard_concept") == "S",
             ~(pl.col("concept_class_id") == "Ingredient"),
         )
         complex_pi_as_ing = (
             prec_ing_concepts.join(
-                other=self.relationship.data().filter(
+                other=self.relationship.collect().filter(
                     # NOTE: This relationship_id is reserved for Ingredients!
                     pl.col("relationship_id") == "RxNorm ing of",
                 ),
@@ -1286,7 +1252,7 @@ class OMOPVocabulariesV5:
 
         logger.info("Including all descendants of bad concepts")
         bad_descendants_df = (
-            self.ancestor.data()
+            self.ancestor.collect()
             .join(
                 other=bad_concepts_df,
                 left_on="ancestor_concept_id",
@@ -1298,30 +1264,30 @@ class OMOPVocabulariesV5:
         bad_concepts_df = pl.concat([bad_concepts_df, bad_descendants_df])
 
         logger.debug("Removing from the concept table")
-        self.concept.reader.anti_join(bad_concepts_df, on=["concept_id"])
+        self.concept.anti_join(bad_concepts_df, on=["concept_id"])
 
         logger.debug("Removing from relationship table (left)")
-        self.relationship.reader.anti_join(
+        self.relationship.anti_join(
             bad_concepts_df,
             left_on=["concept_id_1"],
             right_on=["concept_id"],
         )
         logger.debug("Removing from relationship table (right)")
-        self.relationship.reader.anti_join(
+        self.relationship.anti_join(
             bad_concepts_df,
             left_on=["concept_id_2"],
             right_on=["concept_id"],
         )
 
         logger.debug("Removing from ancestor table (left)")
-        self.ancestor.reader.anti_join(
+        self.ancestor.anti_join(
             bad_concepts_df,
             left_on=["ancestor_concept_id"],
             right_on=["concept_id"],
         )
 
         logger.debug("Removing from ancestor table (right)")
-        self.ancestor.reader.anti_join(
+        self.ancestor.anti_join(
             bad_concepts_df,
             left_on=["descendant_concept_id"],
             right_on=["concept_id"],
@@ -1336,13 +1302,13 @@ class OMOPVocabulariesV5:
             return
 
         logger.info("Removing from strength table (left)")
-        strength.reader.anti_join(
+        strength.anti_join(
             bad_concepts_df,
             left_on=["drug_concept_id"],
             right_on=["concept_id"],
         )
         logger.info("Removing from strength table (right)")
-        strength.reader.anti_join(
+        strength.anti_join(
             bad_concepts_df,
             left_on=["ingredient_concept_id"],
             right_on=["concept_id"],
@@ -1354,18 +1320,18 @@ class OMOPVocabulariesV5:
         """
         self.logger.info("Filtering out invalid concepts and their relations")
         invalid_concepts = (
-            self.concept.data()
+            self.concept.collect()
             .filter(pl.col("invalid_reason").is_not_null())
             .select("concept_id")
         )
         self.logger.info(
             f"Found {len(invalid_concepts):,} invalid concepts "
-            f"out of {len(self.concept.data()):,}"
+            f"out of {len(self.concept.collect()):,}"
         )
 
         # NOTE: Do not use filter_out_bad_concepts() here, this is faster
-        self.concept.reader.filter(pl.col("invalid_reason").is_null())
-        self.relationship.reader.filter(
+        self.concept.filter(pl.col("invalid_reason").is_null())
+        self.relationship.filter(
             ~(
                 pl.col("concept_id_1").is_in(invalid_concepts["concept_id"])
                 | pl.col("concept_id_2").is_in(invalid_concepts["concept_id"])
@@ -1377,7 +1343,7 @@ class OMOPVocabulariesV5:
         Salvage concepts that specify more than one defining attribute,
         only one of them being valid.
         """
-        complex_drug_concepts = self.concept.data().filter(
+        complex_drug_concepts = self.concept.collect().filter(
             pl.col("standard_concept") == "S",
             ~(pl.col("concept_class_id") == "Ingredient"),
         )
@@ -1391,7 +1357,7 @@ class OMOPVocabulariesV5:
             # Find concepts with multiple defining attributes
             rel_to_attribute = (
                 complex_drug_concepts.join(
-                    other=self.relationship.data().filter(
+                    other=self.relationship.collect().filter(
                         pl.col("relationship_id") == rel,
                     ),
                     left_on="concept_id",
@@ -1399,7 +1365,7 @@ class OMOPVocabulariesV5:
                     suffix="_relationship",
                 )
                 .join(
-                    other=self.concept.data().filter(
+                    other=self.concept.collect().filter(
                         pl.col("concept_class_id") == concept_class,
                     ),
                     left_on="concept_id_2",
@@ -1501,12 +1467,12 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="RxNorm has ing",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Ingredient",
                 ),
                 _RelationshipDescription(
                     relationship_id="Has precise ing",
-                    cardinality=_Cardinality.OPTIONAL,
+                    cardinality=Cardinality.OPTIONAL,
                     target_class="Precise Ingredient",
                 ),
             ],
@@ -1514,7 +1480,7 @@ class OMOPVocabulariesV5:
 
         cdc_strength = self.get_strength_data(
             cdc_concepts["concept_id"],
-            expect_cardinality=_Cardinality.ONE,
+            expect_cardinality=Cardinality.ONE,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -1645,9 +1611,9 @@ class OMOPVocabulariesV5:
             "DRUG_STRENGTH"
         )
         drug_strength_noning = (
-            self.strength.data()
+            self.strength.collect()
             .join(
-                other=self.concept.data(),
+                other=self.concept.collect(),
                 left_on="ingredient_concept_id",
                 right_on="concept_id",
             )
@@ -1668,14 +1634,16 @@ class OMOPVocabulariesV5:
             cnt: int
             for cls, cnt in cls_counts.iter_rows():
                 msg += f"\n- {cnt:,} {cls} concepts"
-            self.strength.reader.anti_join(
+            self.strength.anti_join(
                 drug_strength_noning, on=["drug_concept_id"]
             )
         else:
             msg = "Unused"
 
         self.filter_out_bad_concepts(
-            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
+            len(
+                self.concept.collect().filter(pl.col("standard_concept") == "S")
+            ),
             drug_strength_noning["drug_concept_id"],
             "No drug concepts that treat non-Ingredients as Ingredients "
             "in DRUG_STRENGTH found",
@@ -1691,7 +1659,7 @@ class OMOPVocabulariesV5:
         self.logger.info("Filtering out deprecated units in DRUG_STRENGTH")
 
         # Exhausive list of valid unit ids
-        valid_units = self.concept.data().filter(
+        valid_units = self.concept.collect().filter(
             pl.col("concept_class_id") == "Unit",
             pl.col("standard_concept") == "S",
         )["concept_id"]
@@ -1706,12 +1674,14 @@ class OMOPVocabulariesV5:
         for field in unit_fields:
             bad_units_expr |= ~pl.col(field).is_in(valid_units)
 
-        bad_drugs = (self.strength.data().filter(bad_units_expr))[
+        bad_drugs = (self.strength.collect().filter(bad_units_expr))[
             "drug_concept_id"
         ].unique()
 
         self.filter_out_bad_concepts(
-            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
+            len(
+                self.concept.collect().filter(pl.col("standard_concept") == "S")
+            ),
             bad_drugs,
             "All units in DRUG_STRENGTH are valid",
             "Deprecated_Unit",
@@ -1725,7 +1695,7 @@ class OMOPVocabulariesV5:
         percentage in DRUG_STRENGTH
         """
         over_strength_percentage = (
-            self.strength.data()
+            self.strength.collect()
             .filter(
                 pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID,
             )
@@ -1736,7 +1706,9 @@ class OMOPVocabulariesV5:
         )["drug_concept_id"]
 
         self.filter_out_bad_concepts(
-            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
+            len(
+                self.concept.collect().filter(pl.col("standard_concept") == "S")
+            ),
             over_strength_percentage,
             "All drugs have less than 100% of gas percentage in DRUG_STRENGTH",
             "Gases_Over_100",
@@ -1750,9 +1722,9 @@ class OMOPVocabulariesV5:
         """
         # First, define the valid configurations
         strength_with_class = (
-            self.strength.data()
+            self.strength.collect()
             .join(
-                other=self.concept.data(),
+                other=self.concept.collect(),
                 left_on="drug_concept_id",
                 right_on="concept_id",
             )
@@ -1799,7 +1771,9 @@ class OMOPVocabulariesV5:
         invalid_strength = strength_with_class.filter(~valid_strength)
         invalid_drugs = invalid_strength["drug_concept_id"].unique()
         self.filter_out_bad_concepts(
-            len(self.concept.data().filter(pl.col("standard_concept") == "S")),
+            len(
+                self.concept.collect().filter(pl.col("standard_concept") == "S")
+            ),
             invalid_drugs,
             "Malformed_Strength",
             "All strength configurations are validated",
@@ -1832,19 +1806,19 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Brand Name",
                 ),
                 _RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Clinical Drug Form",
                 ),
             ],
         )
 
         ing_data = self.get_ds_ingredient_data(
-            bdf_concepts["concept_id"], _Cardinality.NONZERO
+            bdf_concepts["concept_id"], Cardinality.NONZERO
         )
 
         bdf_concepts = bdf_concepts.filter(
@@ -1997,12 +1971,12 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Brand Name",
                 ),
                 _RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=_Cardinality.NONZERO,
+                    cardinality=Cardinality.NONZERO,
                     target_class="Clinical Drug Comp",
                 ),
             ],
@@ -2010,7 +1984,7 @@ class OMOPVocabulariesV5:
 
         bdc_strength = self.get_strength_data(
             bdc_concepts["concept_id"],
-            expect_cardinality=_Cardinality.NONZERO,
+            expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -2219,17 +2193,17 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Dose Form",
                 ),
                 _RelationshipDescription(
                     relationship_id="RxNorm is a",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Clinical Drug Form",
                 ),
                 _RelationshipDescription(
                     relationship_id="Consists of",
-                    cardinality=_Cardinality.NONZERO,
+                    cardinality=Cardinality.NONZERO,
                     target_class="Clinical Drug Comp",
                 ),
             ],
@@ -2238,7 +2212,7 @@ class OMOPVocabulariesV5:
         # Attach DS data to CD concepts
         cd_strength = self.get_strength_data(
             cd_concepts["concept_id"],
-            expect_cardinality=_Cardinality.NONZERO,
+            expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -2501,22 +2475,22 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Brand Name",
                 ),
                 _RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Clinical Drug",
                 ),
                 _RelationshipDescription(
                     relationship_id="RxNorm is a",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Branded Drug Form",
                 ),
                 _RelationshipDescription(
                     relationship_id="Consists of",
-                    cardinality=_Cardinality.ONE,  # BDC is multicomponent
+                    cardinality=Cardinality.ONE,  # BDC is multicomponent
                     target_class="Branded Drug Comp",
                 ),
             ],
@@ -2524,7 +2498,7 @@ class OMOPVocabulariesV5:
 
         bdc_strength = self.get_strength_data(
             bd_concepts["concept_id"],
-            expect_cardinality=_Cardinality.NONZERO,
+            expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -2828,12 +2802,12 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Dose Form",
                 ),
                 _RelationshipDescription(
                     relationship_id="Quantified form of",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Clinical Drug",
                 ),
             ],
@@ -2842,7 +2816,7 @@ class OMOPVocabulariesV5:
         # Attach DS data to QCD concepts
         qcd_strength = self.get_strength_data(
             qcd_concepts["concept_id"],
-            expect_cardinality=_Cardinality.NONZERO,
+            expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(dc.LiquidQuantity,),
         )
         qcd_concepts = qcd_concepts.filter(
@@ -3081,22 +3055,22 @@ class OMOPVocabulariesV5:
             relationships=[
                 _RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Quant Clinical Drug",
                 ),
                 _RelationshipDescription(
                     relationship_id="Quantified form of",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Branded Drug",
                 ),
                 _RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Dose Form",
                 ),
                 _RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=_Cardinality.ONE,
+                    cardinality=Cardinality.ONE,
                     target_class="Brand Name",
                 ),
             ],
@@ -3105,7 +3079,7 @@ class OMOPVocabulariesV5:
         # Attach DS data to QBD concepts
         qbd_strength = self.get_strength_data(
             qbd_concepts["concept_id"],
-            expect_cardinality=_Cardinality.NONZERO,
+            expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(dc.LiquidQuantity,),
         )
         qbd_concepts = qbd_concepts.filter(

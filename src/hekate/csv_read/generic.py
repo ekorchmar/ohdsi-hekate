@@ -61,7 +61,8 @@ class CSVReader:
                 Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
 
             filter_arg: Optional argument to pass to the `line_filter` function.
-                resulting call will look like `line_filter(lazy_frame, filter_arg)`.
+                resulting call will look like `line_filter(lazy_frame,
+                filter_arg)`.
 
             schema: Required schema to use when reading the CSV file. Provided
                 as a dictionary of column names and their respective Polars
@@ -74,7 +75,9 @@ class CSVReader:
         self.columns: Sequence[str] = keep_columns
 
         # Associate a logger with the pathname
-        self.logger: logging.Logger = LOGGER.getChild(path.name)
+        self.logger: logging.Logger = LOGGER.getChild(
+            self.__class__.__name__
+        ).getChild(path.name)
 
         # Create a reader object
         self._lazy_frame: pl.LazyFrame = pl.scan_csv(
@@ -99,7 +102,9 @@ class CSVReader:
 
     def materialize(self):
         """
-        Materialize the lazy frame into a DataFrame.
+        Materialize the LazyFrame into a DataFrame. All filters from the
+        lazy frame are applied on read, skipping rows and columns and applying
+        dynamic calculations.
         """
         if self.data is not None:
             return
