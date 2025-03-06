@@ -61,3 +61,7 @@ hints are correct.
   justification.
 - Currently, there are exactly 0 errrors and 0 warnings produced by the static type checkers. Keeping it this way is
   easier than fixing elusive errors on edge cases in long term.
+
+### Just
+We use [`just`](https://github.com/casey/just) as a task runner. You are not required to use it, but it is recommended
+for testing convenience.

@@ -55,6 +55,7 @@ version = {file = "src/hekate/__version__"}
 
 [tool.pyright]
 include = ["src"]
+ignore = ["**/tests/*", "**/docs/*"]
 
 reportImplicitStringConcatenation = false  # Intentionally using it
 reportUninitializedInstanceVariable = false  # Pyright doesn't understand dataclasses
