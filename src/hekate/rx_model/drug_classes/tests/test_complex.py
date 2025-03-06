@@ -52,3 +52,5 @@ def test_ingredients_superclasses_of_cdc(
 ):
     assert acetaminophen.is_superclass_of(apap_500mg)
     assert haloperidol.is_superclass_of(haloperidol_20mg_ml)
+    assert not haloperidol.is_superclass_of(apap_500mg)
+    assert not acetaminophen.is_superclass_of(haloperidol_20mg_ml)
