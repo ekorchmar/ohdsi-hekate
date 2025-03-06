@@ -6,8 +6,6 @@ Note: PruneSearch is raised to prune the search tree while traversing a graph.
 It will not stop the search, only discard the successor nodes.
 """
 
-from collections import defaultdict
-from collections.abc import Iterable
 from typing import override
 
 import rustworkx as rx
@@ -18,7 +16,7 @@ from rx_model.drug_classes import (
     ForeignDrugNode,
     Ingredient,
 )
-from rx_model.hierarchy.hosts import HierarchyChecksum, NodeIndex, RxHierarchy
+from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
 
 type NodeAcceptance = bool
 
@@ -29,15 +27,13 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
     appropriate location for a new node.
     """
 
-    def __init__(self, node: ForeignDrugNode[Id]):
+    def __init__(self, node: ForeignDrugNode[Id], hierarchy: RxHierarchy[Id]):
         """
         Initializes the visitor with the hierarchy and the new node to be
         tested.
         """
         self.node: ForeignDrugNode[Id] = node
-        self.history: dict[  # Unused for now
-            HierarchyChecksum, dict[NodeIndex, NodeAcceptance]
-        ] = defaultdict(dict)
+        self.history: dict[NodeIndex, NodeAcceptance] = {}
 
         self.aim_for: type[DrugNode[Id]] = self.node.best_case_class()
 
@@ -54,7 +50,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         else:
             self.number_components = 1
 
-        self.current_hierarchy: RxHierarchy[Id] | None = None
+        self.hierarchy: RxHierarchy[Id] = hierarchy
 
         # Container for the results
         self.final_nodes: dict[NodeIndex, DrugNode[Id]] = {}
@@ -64,14 +60,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         """
         Called when a new vertex is discovered.
         """
-
-        if self.current_hierarchy is None:
-            raise ValueError(
-                "Hierarchy not set. Only start iteration with start_search() "
-                "method."
-            )
-
-        drug_node: DrugNode[Id] = self.current_hierarchy.graph[v]
+        drug_node: DrugNode[Id] = self.hierarchy.graph[v]
 
         if isinstance(drug_node, Ingredient):
             if self.__matched_ingredient_count >= self.number_components:
@@ -79,13 +68,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
                 self._remember_node(v, False)
                 raise rx.visit.PruneSearch
         else:
-            # Check if the node's predecessors are available in history
-            predecessors: Iterable[NodeIndex] = (
-                self.current_hierarchy.graph.predecessor_indices(v)
-            )
-            # Because it is a BFS, all predecessors should be already visited
-            if not all(p_idx in self.final_nodes for p_idx in predecessors):
-                # Not all predecessors are accepted
+            if not self._accepted_all_predecessors(v):
                 self._remember_node(v, False)
                 raise rx.visit.PruneSearch
 
@@ -96,46 +79,51 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
             # None of the descendants will match
             raise rx.visit.PruneSearch
         else:
-            self.final_nodes[v] = drug_node
-            if isinstance(drug_node, self.aim_for):
-                # We are almost there. However, this might be a node for
-                # multi-mapping.
-                can_be_multi = self.number_components > 1 and isinstance(
-                    drug_node, ALLOWED_DRUG_MULTIMAP
-                )
+            self._accept_node(v)
 
-                if can_be_multi:
-                    raise NotImplementedError(
-                        f"Multi-mapping is not implemented yet. However, the "
-                        f"node {self.node.identifier} can be mapped to the "
-                        f"node {drug_node.identifier}."
-                    )
-                else:
-                    # This is the node we are looking for. But we still may
-                    # match sister nodes.
-                    raise rx.visit.PruneSearch
+    def _accepted_all_predecessors(self, v: NodeIndex) -> bool:
+        """
+        Checks if all predecessors of a node have been accepted.
+        """
+
+        # Because it is a BFS, all predecessors should be already visited
+        return any(
+            p_idx not in self.final_nodes
+            for p_idx in self.hierarchy.graph.predecessor_indices(v)
+        )
+
+    def _accept_node(self, v: NodeIndex) -> None:
+        """
+        Accepts a node and remembers it.
+        """
+        drug_node: DrugNode[Id] = self.hierarchy.graph[v]
+        self.final_nodes[v] = drug_node
+        if isinstance(drug_node, self.aim_for):
+            # We are almost there. However, this might be a node for
+            # multi-mapping.
+            can_be_multi = self.number_components > 1 and isinstance(
+                drug_node, ALLOWED_DRUG_MULTIMAP
+            )
+
+            if not can_be_multi:
+                # This is the node we are looking for. But we still may
+                # match sister nodes.
+                raise rx.visit.PruneSearch
 
     def _remember_node(self, v: NodeIndex, acceptance: NodeAcceptance) -> None:
         """
         Remembers the acceptance of a node.
         """
-        assert self.current_hierarchy is not None
-        self.history[self.current_hierarchy.get_checksum()][v] = acceptance
+        self.history[v] = acceptance
 
     def start_search(self, hierarchy: RxHierarchy[Id]) -> None:
         """
         Starts the depth-first search on the hierarchy, starting from the
         ingredient roots.
         """
-        if hierarchy.get_checksum() in self.history:
-            raise NotImplementedError(
-                "Hierarchy has already been searched and continuation is not "
-                "implemented yet."
-            )
 
         self.__matched_ingredient_count = 0
 
-        self.current_hierarchy = hierarchy
         rx.bfs_search(
             hierarchy.graph, list(hierarchy.ingredients.values()), self
         )
