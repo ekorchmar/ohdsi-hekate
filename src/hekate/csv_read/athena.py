@@ -48,7 +48,7 @@ class _RelationshipDescription(NamedTuple):
     target_class: str
 
 
-class OMOPTable[FilterArg](ABC, CSVReader):
+class OMOPTable[IdS: pl.Series | None](ABC, CSVReader[IdS]):
     """
     Abstract class to read Athena OMOP CDM Vocabularies
 
@@ -64,7 +64,7 @@ class OMOPTable[FilterArg](ABC, CSVReader):
 
     @abstractmethod
     def table_filter(
-        self, frame: pl.LazyFrame, filter_arg: FilterArg | None = None
+        self, frame: pl.LazyFrame, valid_concepts: IdS = None
     ) -> pl.LazyFrame:
         """
         Filter function to apply to the table.
@@ -74,14 +74,14 @@ class OMOPTable[FilterArg](ABC, CSVReader):
         self,
         path: Path,
         logger: logging.Logger,
-        filter_arg: FilterArg | None = None,
+        valid_concepts: IdS = None,
     ):
         super().__init__(
             path=path,
             schema=self.TABLE_SCHEMA,
             keep_columns=self.TABLE_COLUMNS,
             line_filter=self.table_filter,
-            filter_arg=filter_arg,
+            reference_data=valid_concepts,
         )
         self.logger.info(f"Preparing to read from {path.name}")
 
@@ -115,7 +115,7 @@ class ConceptTable(OMOPTable[None]):
 
     @override
     def table_filter(
-        self, frame: pl.LazyFrame, filter_arg: None = None
+        self, frame: pl.LazyFrame, valid_concepts: None = None
     ) -> pl.LazyFrame:
         return (
             # TODO: test if this is faster than using the .is_in() method
@@ -189,9 +189,9 @@ class RelationshipTable(OMOPTable[pl.Series]):
 
     @override
     def table_filter(
-        self, frame: pl.LazyFrame, filter_arg: pl.Series | None = None
+        self, frame: pl.LazyFrame, valid_concepts: pl.Series | None = None
     ) -> pl.LazyFrame:
-        concept = filter_arg
+        concept = valid_concepts
         if concept is None:
             raise ValueError("Concept filter argument is required.")
 
@@ -204,7 +204,7 @@ class RelationshipTable(OMOPTable[pl.Series]):
         )
 
 
-class StrengthTable(OMOPTable[pl.DataFrame]):
+class StrengthTable(OMOPTable[pl.Series]):
     TABLE_SCHEMA: Schema = {
         "drug_concept_id": pl.UInt32,
         "ingredient_concept_id": pl.UInt32,
@@ -233,15 +233,14 @@ class StrengthTable(OMOPTable[pl.DataFrame]):
 
     @override
     def table_filter(
-        self, frame: pl.LazyFrame, filter_arg: pl.DataFrame | None = None
+        self, frame: pl.LazyFrame, valid_concepts: pl.Series | None = None
     ) -> pl.LazyFrame:
-        known_valid_drugs = filter_arg
-        if known_valid_drugs is None:
+        if valid_concepts is None:
             raise ValueError("Valid drugs as filter argument is required.")
 
         return frame.filter(
             pl.col("invalid_reason").is_null(),
-            pl.col("drug_concept_id").is_in(known_valid_drugs["concept_id"]),
+            pl.col("drug_concept_id").is_in(valid_concepts),
             # WARN: temporarily discard all data mentioning box_size
             pl.col("box_size").is_null(),
         ).select(pl.all().exclude("box_size"))
@@ -263,16 +262,15 @@ class AncestorTable(OMOPTable[pl.Series]):
 
     @override
     def table_filter(
-        self, frame: pl.LazyFrame, filter_arg: pl.Series | None = None
+        self, frame: pl.LazyFrame, valid_concepts: pl.Series | None = None
     ) -> pl.LazyFrame:
-        concept = filter_arg
-        if concept is None:
+        if valid_concepts is None:
             raise ValueError("Concept filter argument is required.")
 
         # Only keep internal relationships
         return frame.filter(
-            pl.col("descendant_concept_id").is_in(concept),
-            pl.col("ancestor_concept_id").is_in(concept),
+            pl.col("descendant_concept_id").is_in(valid_concepts),
+            pl.col("ancestor_concept_id").is_in(valid_concepts),
         )
 
 
@@ -843,13 +841,13 @@ class OMOPVocabulariesV5:
         self.relationship: RelationshipTable = RelationshipTable(
             path=vocab_download_path / "CONCEPT_RELATIONSHIP.csv",
             logger=self.logger,
-            filter_arg=all_concept_ids,
+            valid_concepts=all_concept_ids,
         )
 
         self.ancestor: AncestorTable = AncestorTable(
             path=vocab_download_path / "CONCEPT_ANCESTOR.csv",
             logger=self.logger,
-            filter_arg=all_concept_ids,
+            valid_concepts=all_concept_ids,
         )
 
         # Concepts that do not have a valid Ingredient ancestor are effectively
@@ -868,7 +866,7 @@ class OMOPVocabulariesV5:
         self.strength: StrengthTable = StrengthTable(
             path=vocab_download_path / "DRUG_STRENGTH.csv",
             logger=self.logger,
-            filter_arg=self.concept.collect(),
+            valid_concepts=self.concept.collect()["concept_id"],
         )
 
         # Also use Drug Strength for filtering other tables

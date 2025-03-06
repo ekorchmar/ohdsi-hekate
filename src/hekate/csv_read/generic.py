@@ -6,20 +6,20 @@ BuildRxE input CSV files.
 from collections.abc import Mapping
 import logging
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable
 from collections.abc import Sequence
 
 import polars as pl
 
 from utils.logger import LOGGER
 
-T = TypeVar("T")
-
 type Schema = Mapping[str, type[pl.DataType]]
-type LineFilter[T] = Callable[[pl.LazyFrame, T | None], pl.LazyFrame]
+type LineFilter[D: pl.DataFrame | pl.Series | pl.LazyFrame | None] = Callable[
+    [pl.LazyFrame, D], pl.LazyFrame
+]
 
 
-class CSVReader:
+class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None]:
     """
     Generic CSV reader, able to read CSV files in batches and iterate
     over their contents.
@@ -32,8 +32,8 @@ class CSVReader:
         keep_columns: Sequence[str],
         delimiter: str = "\t",
         quote_char: str | None = None,
-        line_filter: LineFilter[T] | None = None,
-        filter_arg: T | None = None,
+        line_filter: LineFilter[D] | None = None,
+        reference_data: D = None,
     ):
         """
         Args:
@@ -60,9 +60,10 @@ class CSVReader:
 
                 Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
 
-            filter_arg: Optional argument to pass to the `line_filter` function.
-                resulting call will look like `line_filter(lazy_frame,
-                filter_arg)`.
+            reference_data: Optional argument to pass to the `line_filter`
+                function. resulting call will look like `line_filter(lazy_frame,
+                reference_data)` This is almost always going to be a DataFrame
+                or Series of key field identifiers.
 
             schema: Required schema to use when reading the CSV file. Provided
                 as a dictionary of column names and their respective Polars
@@ -91,7 +92,7 @@ class CSVReader:
 
         # Apply line filter if provided
         if line_filter:
-            self._lazy_frame = line_filter(self._lazy_frame, filter_arg)
+            self._lazy_frame = line_filter(self._lazy_frame, reference_data)
 
         # Apply column selection
         self._lazy_frame = self._lazy_frame.select(self.columns)
