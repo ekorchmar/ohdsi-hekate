@@ -49,15 +49,7 @@ class _RxAtom[Id: ConceptIdentifier]:
 
     @override
     def __hash__(self) -> int:
-        # Only the identifier is used for hashing This may cause
-        # our objects to be confuseable with integers in some scenarios,
-        # but this is:
-        #  A) Something for type checker to catch. We should not mix objects
-        #     with integers.
-        #  B) Something accidentally desirable, as objects with the same
-        #     identifier are considered equal.
-        #  C) Performance tradeoff.
-        return hash(self.identifier)
+        return hash((self.identifier, self.__class__.__name__))
 
 
 # RxNorm
