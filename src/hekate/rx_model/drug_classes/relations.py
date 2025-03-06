@@ -1,5 +1,3 @@
-from typing import Final
-
 import rx_model.drug_classes.atom as a
 import rustworkx as rx
 from rx_model.drug_classes.complex import (
@@ -68,7 +66,7 @@ DRUG_CLASS_PREFERENCE_ORDER = [
 
 # Those are intended for isinstance checks, so they are intentionally left
 # generic.
-ALLOWED_DRUG_MULTIMAP: Final[tuple[type[DrugNode], ...]] = (  # pyright: ignore[reportMissingTypeArgument]  # noqa: E501
+ALLOWED_DRUG_MULTIMAP = (
     a.Ingredient,
     ClinicalDrugComponent,
 )
