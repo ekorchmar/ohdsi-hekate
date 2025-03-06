@@ -15,6 +15,7 @@ from rx_model.drug_classes import (
     ConceptIdentifier,
     DrugNode,
     ForeignDrugNode,
+    Ingredient,
 )
 from rx_model.hierarchy.hosts import HierarchyChecksum, NodeIndex, RxHierarchy
 
@@ -45,9 +46,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
 
         # Performance optimization: once enough MULTIMAP entries are found, the
         # rest of the Ingredient/CDC nodes can be pruned.
-        self.__accepted_multi_nodes = {
-            class_: 0 for class_ in ALLOWED_DRUG_MULTIMAP
-        }
+        self.__matched_ingredient_count: int = 0
 
         if self.node.is_multi():
             self.number_components = len(self.node.strength_data)
@@ -72,13 +71,11 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
 
         drug_node: DrugNode[Id] = self.current_hierarchy.graph[v]
 
-        for class_ in ALLOWED_DRUG_MULTIMAP:
-            if isinstance(drug_node, class_):
-                current_count = self.__accepted_multi_nodes[class_]
-                if current_count >= self.number_components:
-                    # Stop taking any new ingredient branches
-                    self._remember_node(v, False)
-                    raise rx.visit.PruneSearch
+        if isinstance(drug_node, Ingredient):
+            if self.__matched_ingredient_count >= self.number_components:
+                # Stop taking any new ingredient branches
+                self._remember_node(v, False)
+                raise rx.visit.PruneSearch
 
         acceptance: NodeAcceptance = drug_node.is_superclass_of(self.node)
         self._remember_node(v, acceptance)
@@ -124,8 +121,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
                 "implemented yet."
             )
 
-        for key in list(self.__accepted_multi_nodes.keys()):
-            self.__accepted_multi_nodes[key] = 0
+        self.__matched_ingredient_count = 0
 
         self.current_hierarchy = hierarchy
         rx.bfs_search(
