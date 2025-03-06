@@ -7,6 +7,7 @@ It will not stop the search, only discard the successor nodes.
 """
 
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import override
 
 import rustworkx as rx
@@ -63,6 +64,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         """
         Called when a new vertex is discovered.
         """
+
         if self.current_hierarchy is None:
             raise ValueError(
                 "Hierarchy not set. Only start iteration with start_search() "
@@ -74,6 +76,16 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         if isinstance(drug_node, Ingredient):
             if self.__matched_ingredient_count >= self.number_components:
                 # Stop taking any new ingredient branches
+                self._remember_node(v, False)
+                raise rx.visit.PruneSearch
+        else:
+            # Check if the node's predecessors are available in history
+            predecessors: Iterable[NodeIndex] = (
+                self.current_hierarchy.graph.predecessor_indices(v)
+            )
+            # Because it is a BFS, all predecessors should be already visited
+            if not all(p_idx in self.final_nodes for p_idx in predecessors):
+                # Not all predecessors are accepted
                 self._remember_node(v, False)
                 raise rx.visit.PruneSearch
 
