@@ -1297,30 +1297,30 @@ class OMOPVocabulariesV5:
         )
         bad_concepts_df = pl.concat([bad_concepts_df, bad_descendants_df])
 
-        logger.info("Removing from the concept table")
+        logger.debug("Removing from the concept table")
         self.concept.reader.anti_join(bad_concepts_df, on=["concept_id"])
 
-        logger.info("Removing from relationship table (left)")
+        logger.debug("Removing from relationship table (left)")
         self.relationship.reader.anti_join(
             bad_concepts_df,
             left_on=["concept_id_1"],
             right_on=["concept_id"],
         )
-        logger.info("Removing from relationship table (right)")
+        logger.debug("Removing from relationship table (right)")
         self.relationship.reader.anti_join(
             bad_concepts_df,
             left_on=["concept_id_2"],
             right_on=["concept_id"],
         )
 
-        logger.info("Removing from ancestor table (left)")
+        logger.debug("Removing from ancestor table (left)")
         self.ancestor.reader.anti_join(
             bad_concepts_df,
             left_on=["ancestor_concept_id"],
             right_on=["concept_id"],
         )
 
-        logger.info("Removing from ancestor table (right)")
+        logger.debug("Removing from ancestor table (right)")
         self.ancestor.reader.anti_join(
             bad_concepts_df,
             left_on=["descendant_concept_id"],

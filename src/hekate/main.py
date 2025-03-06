@@ -56,7 +56,9 @@ if __name__ == "__main__":
     matched_tree = athena_rxne.hierarchy.graph.subgraph(list(matched_nodes))
     img = graphviz_draw(
         matched_tree,
-        node_attr_fn=lambda drug_node: {"label": str(drug_node.identifier)},
+        node_attr_fn=lambda drug_node: {
+            "label": f"{drug_node.identifier} {drug_node.__class__.__name__}"
+        },
     )
 
     assert img is not None
@@ -71,6 +73,6 @@ if __name__ == "__main__":
             )
         )
     )
-    concepts.write_excel("matched_concepts.xlsx")
+    _ = concepts.write_excel("matched_concepts.xlsx")
 
     print("Done")
