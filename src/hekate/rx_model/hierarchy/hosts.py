@@ -2,8 +2,9 @@
 Contains the classes that hosts the drug concept hierarchy.
 """
 
-from rx_model.hierarchy.generic import NumDenomU
+from rx_model.hierarchy.generic import NumDenomU, AtomicConcept
 from collections.abc import Iterable
+from collections import ChainMap
 from typing import Annotated
 
 import polars as pl
@@ -19,6 +20,21 @@ class Atoms[Id: dc.ConceptIdentifier]:
     Container for atomic concepts like Ingredients and Dose Forms that
     are not guaranteed to participate in the hierarchy.
     """
+
+    def lookup_unknown(self, identifier: Id) -> AtomicConcept[Id]:
+        """
+        Lookup an atomic concept by its identifier. Concept class is not
+        guaranteed to be known.
+
+        This method should only be used by a caller that operates on verifyable
+        data.
+        """
+        return ChainMap(
+            self.ingredient,
+            self.dose_form,  # pyright: ignore[reportArgumentType]
+            self.brand_name,  # pyright: ignore[reportArgumentType]
+            self.supplier,  # pyright: ignore[reportArgumentType]
+        )[identifier]
 
     def __init__(self):
         self.ingredient: dict[Id, dc.Ingredient[Id]] = {}

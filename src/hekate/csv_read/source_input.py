@@ -5,15 +5,16 @@ into ForeignDrugNode objects for evaluation.
 
 import logging
 from abc import ABC
-from typing import override
 from pathlib import Path
+from typing import override
 
 import polars as pl
+from rx_model.hierarchy import AtomMapper
 from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 
-from hekate.utils.logger import LOGGER  # For type hinting and schema definition
+from utils.logger import LOGGER  # For type hinting and schema definition
 
 
 class SourceTable[IdS: pl.DataFrame | None](CSVReader[IdS], ABC):
@@ -64,6 +65,7 @@ class DrugConceptStage(SourceTable[None]):
     def table_filter(
         self, frame: pl.LazyFrame, valid_concepts: None = None
     ) -> pl.LazyFrame:
+        del valid_concepts
         return frame.select(
             pl.all().exclude("valid_start_date", "valid_end_date"),
             # Make dates YYYYMMDD integers
@@ -177,7 +179,7 @@ class BuildRxEInput:
     def __init__(
         self,
         data_path: Path,
-        units_frame: pl.DataFrame,
+        rx_atoms: h.Atoms[dc.ConceptId],
         delimiter: str = "\\t",
         quote_char: str = '"',
     ) -> None:
@@ -186,8 +188,12 @@ class BuildRxEInput:
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
 
         # Initiate containers
-        self.atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms()
-        # TODO: attribute mapper class
+        self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms()
+        self.rx_atoms: h.Atoms[dc.ConceptId] = rx_atoms
+        self.atom_mapper: AtomMapper = AtomMapper(
+            atom_getter=self.rx_atoms.lookup_unknown,
+            unit_storage=self.rx_atoms.unit,
+        )
 
         # Read and prepare data
         self.logger.info(
@@ -218,6 +224,3 @@ class BuildRxEInput:
                 "concept_code", "vocabulary_id"
             ),
         )
-
-        # To parse units inside th DS_STAGE, we need to retrieve them from the
-        # mapper

@@ -4,8 +4,8 @@ their corresponding RxNorm concepts.
 """
 
 from collections.abc import Sequence, Generator, Mapping
-from hekate.rx_model.drug_classes.strength import Strength
-from hekate.utils.classes import SortedTuple
+from rx_model.drug_classes.strength import Strength
+from utils.classes import SortedTuple
 from rx_model.drug_classes import ForeignDrugNode
 from rx_model.drug_classes import (
     ConceptId,
@@ -16,10 +16,12 @@ from rx_model.drug_classes import (
     DoseForm,
     Supplier,
 )
-from rx_model.hierarchy.generic import AtomicConcept, PseudoUnit
+from rx_model.hierarchy.generic import PseudoUnit, AtomicConcept
 from collections import OrderedDict
 from typing import Callable
 from itertools import product
+
+type AtomLookupCallable = Callable[[ConceptId], AtomicConcept[ConceptId]]
 
 
 class AtomMapper:
@@ -29,7 +31,7 @@ class AtomMapper:
 
     def __init__(
         self,
-        atom_storage: dict[ConceptId, AtomicConcept[ConceptId]],
+        atom_getter: AtomLookupCallable,
         unit_storage: dict[ConceptId, Unit],
     ):
         # Maps atomic attributes to their corresponding RxNorm concepts
@@ -40,9 +42,7 @@ class AtomMapper:
         self._unit_map: dict[PseudoUnit, OrderedDict[Unit, float]] = {}
 
         # External references to the storage dictionaries
-        self._atom_storage: Mapping[ConceptId, AtomicConcept[ConceptId]] = (
-            atom_storage
-        )
+        self._get_atom: AtomLookupCallable = atom_getter
         self._unit_storage: Mapping[ConceptId, Unit] = unit_storage
 
     def add_concept_mappings(
@@ -91,14 +91,14 @@ class AtomMapper:
         ingredient_codes: list[ConceptCodeVocab] = []
         strengths: list[S] = []
         for ingredient, strength in node.strength_data:
-            if ingredient not in self._atom_storage:
+            if ingredient.identifier not in self._concept_map:
                 raise ValueError(f"Unknown ingredient: {ingredient}")
             ingredient_codes.append(ingredient.identifier)
             strengths.append(strength)
 
         M = self._concept_map
         attribute_permutations = product(
-            *[M[ingredient] for ingredient in ingredient_codes],
+            *[M[ingredient_code] for ingredient_code in ingredient_codes],
             M[node.dose_form.identifier] if node.dose_form else [None],
             M[node.brand_name.identifier] if node.brand_name else [None],
             M[node.supplier.identifier] if node.supplier else [None],
@@ -108,19 +108,20 @@ class AtomMapper:
 
             for ing, stgh in zip(ings, strengths):
                 assert ing is not None
-                ing_object = self._atom_storage[ing]
+                ing_object = self._get_atom(ing)
                 assert isinstance(ing_object, Ingredient)
                 strength_data.append((ing_object, stgh))
 
+            # TODO: Assertions should be replaced with proper error handling
             df = bn = sp = None
             if df:
-                dose_form = self._atom_storage[df]
+                dose_form = self._get_atom(df)
                 assert isinstance(dose_form, DoseForm)
             if bn:
-                brand_name = self._atom_storage[bn]
+                brand_name = self._get_atom(bn)
                 assert isinstance(brand_name, BrandName)
             if sp:
-                supplier = self._atom_storage[sp]
+                supplier = self._get_atom(sp)
                 assert isinstance(supplier, Supplier)
 
             yield ForeignDrugNode(
