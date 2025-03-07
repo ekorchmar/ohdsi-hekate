@@ -141,6 +141,12 @@ class ConceptTable(OMOPTable[None]):
                     # | (pl.col("concept_class_id") == "Clinical Pack Box")
                     # | (pl.col("concept_class_id") == "Branded Pack Box")
                 ),
+            ).select(
+                pl.all().exclude("concept_name"),
+                # For practical purposes, set Unit concept names to their codes
+                concept_name=pl.sql_expr("""
+                    IF(domain_id == 'Unit', concept_code, concept_name)
+                """),
             )
         )
 
@@ -872,6 +878,8 @@ class OMOPVocabulariesV5:
             bd_nodes=bd_nodes,
             qcd_nodes=qcd_nodes,
         )
+        # TODO: process the remaining classes
+        del _qbd_nodes
 
     def process_atoms(self) -> None:
         """
