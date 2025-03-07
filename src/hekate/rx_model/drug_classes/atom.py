@@ -43,7 +43,7 @@ class _RxAtom[Id: ConceptIdentifier]:
                 f"Cannot compare {self.__class__.__name__} with "
                 f"{other.__class__.__name__}."
             )
-        return self.identifier == other.identifier
+        return other is self or self.identifier == other.identifier
 
     def __gt__(self, other: object) -> bool:
         if not isinstance(other, _RxAtom):
@@ -120,6 +120,10 @@ class PreciseIngredient(_RxAtom[ConceptId]):
         # more often than not, so we elevate this to an outer check
         if other is None:
             return False
+
+        # Shorthand for another common case
+        if other is self:
+            return True
 
         if not isinstance(other, self.__class__):
             raise TypeError(
