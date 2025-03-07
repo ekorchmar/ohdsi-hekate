@@ -92,6 +92,7 @@ class ConceptTable(OMOPTable[None]):
     def table_filter(
         self, frame: pl.LazyFrame, valid_concepts: None = None
     ) -> pl.LazyFrame:
+        del valid_concepts
         return (
             # TODO: test if this is faster than using the .is_in() method
             # Use .explain():

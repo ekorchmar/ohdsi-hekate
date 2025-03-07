@@ -48,7 +48,6 @@ from rx_model.drug_classes.complex import (
 from rx_model.drug_classes.foreign import ForeignDrugNode
 from rx_model.drug_classes.relations import (
     ALLOWED_DRUG_MULTIMAP,
-    DRUG_CLASS_DEPENDENCY,
     DRUG_CLASS_PREFERENCE_ORDER,
 )
 
@@ -66,7 +65,6 @@ __all__ = [
     "ConceptIdentifier",
     "DoseForm",
     "DrugNode",
-    "DRUG_CLASS_DEPENDENCY",
     "DRUG_CLASS_PREFERENCE_ORDER",
     "ForeignDrugNode",
     "GasPercentage",
