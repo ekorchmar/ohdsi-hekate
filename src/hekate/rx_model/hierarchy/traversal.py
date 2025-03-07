@@ -68,7 +68,12 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
                 self._remember_node(v, False)
                 raise rx.visit.PruneSearch
         else:
-            if not self._accepted_all_predecessors(v):
+            # Check if the node's predecessors are available in history
+            if any(
+                p_idx not in self.final_nodes
+                for p_idx in self.hierarchy.graph.predecessor_indices(v)
+            ):
+                # Not all predecessors are accepted
                 self._remember_node(v, False)
                 raise rx.visit.PruneSearch
 
@@ -80,17 +85,6 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
             raise rx.visit.PruneSearch
         else:
             self._accept_node(v)
-
-    def _accepted_all_predecessors(self, v: NodeIndex) -> bool:
-        """
-        Checks if all predecessors of a node have been accepted.
-        """
-
-        # Because it is a BFS, all predecessors should be already visited
-        return any(
-            p_idx not in self.final_nodes
-            for p_idx in self.hierarchy.graph.predecessor_indices(v)
-        )
 
     def _accept_node(self, v: NodeIndex) -> None:
         """
