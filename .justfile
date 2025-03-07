@@ -1,5 +1,5 @@
-test:
-  PYTHONPATH=src/hekate pytest
+test args="-v":
+  PYTHONPATH=src/hekate pytest {{args}}
 
-run:
-  python src/hekate/main.py
+run args="faster":
+  python {{ if args == "faster" { "-O" } else { args } }} src/hekate/main.py
