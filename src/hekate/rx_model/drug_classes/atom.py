@@ -1,5 +1,8 @@
 from dataclasses import dataclass
-from typing import ClassVar, final, override
+from typing import ClassVar, final, override, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import drug_classes.strength as st
 
 from utils.classes import SortedTuple
 
@@ -54,14 +57,16 @@ class _RxAtom[Id: ConceptIdentifier]:
 
 # RxNorm
 @final
-class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], DrugNode[Id]):
+class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], DrugNode[Id, None]):
     """
     RxNorm or RxNorm Extension ingredient concept.
     """
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, "st.Strength | None"],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         del passed_hierarchy_checks
         # Ingredients are superclasses of any node containing them

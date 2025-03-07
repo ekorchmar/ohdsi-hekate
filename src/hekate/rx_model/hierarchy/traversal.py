@@ -15,6 +15,7 @@ from rx_model.drug_classes import (
     DrugNode,
     ForeignDrugNode,
     Ingredient,
+    Strength,
 )
 from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
 
@@ -27,15 +28,21 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
     appropriate location for a new node.
     """
 
-    def __init__(self, node: ForeignDrugNode[Id], hierarchy: RxHierarchy[Id]):
+    def __init__(
+        self,
+        node: ForeignDrugNode[Id, Strength | None],
+        hierarchy: RxHierarchy[Id],
+    ):
         """
         Initializes the visitor with the hierarchy and the new node to be
         tested.
         """
-        self.node: ForeignDrugNode[Id] = node
+        self.node: ForeignDrugNode[Id, Strength | None] = node
         self.history: dict[NodeIndex, NodeAcceptance] = {}
 
-        self.aim_for: type[DrugNode[Id]] = self.node.best_case_class()
+        self.aim_for: type[DrugNode[Id, Strength | None]] = (
+            self.node.best_case_class()
+        )
 
         # Indicates how many targets of ALLOWED_DRUG_MULTIMAP should
         # the node end up with.
@@ -53,14 +60,14 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self.hierarchy: RxHierarchy[Id] = hierarchy
 
         # Container for the results
-        self.final_nodes: dict[NodeIndex, DrugNode[Id]] = {}
+        self.final_nodes: dict[NodeIndex, DrugNode[Id, Strength | None]] = {}
 
     @override
     def discover_vertex(self, v: NodeIndex) -> None:
         """
         Called when a new vertex is discovered.
         """
-        drug_node: DrugNode[Id] = self.hierarchy.graph[v]
+        drug_node: DrugNode[Id, Strength | None] = self.hierarchy.graph[v]
 
         if isinstance(drug_node, Ingredient):
             if self.__matched_ingredient_count >= self.number_components:
@@ -90,7 +97,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         """
         Accepts a node and remembers it.
         """
-        drug_node: DrugNode[Id] = self.hierarchy.graph[v]
+        drug_node: DrugNode[Id, Strength | None] = self.hierarchy.graph[v]
         self.final_nodes[v] = drug_node
         if isinstance(drug_node, self.aim_for):
             # We are almost there. However, this might be a node for
@@ -124,7 +131,9 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
             self,
         )
 
-    def get_search_results(self) -> dict[NodeIndex, DrugNode[Id]]:
+    def get_search_results(
+        self,
+    ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
         """
         Returns the final nodes that have been found.
         """

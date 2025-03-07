@@ -39,12 +39,12 @@ class ConceptCodeVocab:
 
 type ConceptIdentifier = ConceptId | ConceptCodeVocab
 
-type BoundStrength[Id: "ConceptIdentifier", S: "st.Strength | None"] = tuple[
+type BoundStrength[Id: ConceptIdentifier, S: "st.Strength | None"] = tuple[
     "a.Ingredient[Id]", S
 ]
 
 
-class DrugNode[Id: "ConceptIdentifier"](ABC):
+class DrugNode[Id: ConceptIdentifier, S: "st.Strength | None"](ABC):
     """
     Metaclass for the nodes in the drug concept hierarchy.
 
@@ -56,7 +56,9 @@ class DrugNode[Id: "ConceptIdentifier"](ABC):
 
     @abstractmethod
     def is_superclass_of(
-        self, other: "DrugNode[Id]", passed_hierarchy_checks: bool = True
+        self,
+        other: "DrugNode[Id, st.Strength | None]",
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         """
         Check if this node is a superclass of another node.

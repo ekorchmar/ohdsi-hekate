@@ -103,7 +103,7 @@ class __MulticomponentMixin[
 # # RxNorm
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
-    DrugNode[Id]
+    DrugNode[Id, S]
 ):
     """
     Single component containing (precise) ingredient and unquantified strength.
@@ -131,7 +131,9 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         del passed_hierarchy_checks
         # Components are superclasses of any node that contains this component
@@ -162,7 +164,7 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 @dataclass(frozen=True, eq=True, slots=True)
 class BrandedDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
-    __MulticomponentMixin[Id, S], DrugNode[Id]
+    __MulticomponentMixin[Id, S], DrugNode[Id, S]
 ):
     """\
 Combination of clinical drug components with a stated brand name.
@@ -190,7 +192,9 @@ NB: Contains multiple components in one!\
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             if not all(
@@ -208,7 +212,7 @@ NB: Contains multiple components in one!\
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id]):
+class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
     identifier: Id
     dose_form: a.DoseForm[Id]
     ingredients: SortedTuple[a.Ingredient[Id]]
@@ -241,7 +245,9 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id]):
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             # Check all ingredients
@@ -261,7 +267,7 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id]):
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id]):
+class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
     identifier: Id
     clinical_drug_form: ClinicalDrugForm[Id]
     brand_name: a.BrandName[Id]
@@ -276,7 +282,9 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id]):
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             if not self.clinical_drug_form.is_superclass_of(
@@ -300,7 +308,7 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id]):
 # # Unquantified drugs
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
-    __MulticomponentMixin[Id, S], DrugNode[Id]
+    __MulticomponentMixin[Id, S], DrugNode[Id, S]
 ):
     identifier: Id
     form: ClinicalDrugForm[Id]
@@ -322,7 +330,9 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         # Tests are only ever needed if passed_hierarchy_checks is False,
         # as CD is fully derivative from its components and form
@@ -347,7 +357,7 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
-    DrugNode[Id]
+    DrugNode[Id, S]
 ):
     identifier: Id
     # NOTE: BDs are redundant in their definition, as any 2 of 3 get all the
@@ -369,7 +379,9 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             # Takes care of strength and dose form checks
@@ -395,7 +407,7 @@ type Concentration = st.LiquidConcentration | st.GasPercentage
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
-    DrugNode[Id,]
+    DrugNode[Id, st.LiquidQuantity]
 ):
     identifier: Id
     contents: SortedTuple[BoundStrength[Id, st.LiquidQuantity]]
@@ -460,7 +472,9 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             if not self.unquantified.is_superclass_of(
@@ -510,7 +524,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: Concentration](
-    DrugNode[Id],
+    DrugNode[Id, C],
 ):
     identifier: Id
     unbranded: QuantifiedClinicalDrug[Id, C]
@@ -539,7 +553,9 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: Concentration](
 
     @override
     def is_superclass_of(
-        self, other: DrugNode[Id], passed_hierarchy_checks: bool = True
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             if not self.unbranded.is_superclass_of(

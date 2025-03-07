@@ -1,4 +1,5 @@
 import rx_model.drug_classes.atom as a
+import rx_model.drug_classes.strength as st
 import rustworkx as rx
 from rx_model.drug_classes.complex import (
     BrandedDrug,
@@ -12,11 +13,11 @@ from rx_model.drug_classes.complex import (
 )
 from rx_model.drug_classes.generic import ConceptIdentifier, DrugNode
 
-DRUG_CLASS_DEPENDENCY: rx.PyDiGraph[type[DrugNode[ConceptIdentifier]], None] = (
-    rx.PyDiGraph(node_count_hint=11, edge_count_hint=121)
-)
+DRUG_CLASS_DEPENDENCY: rx.PyDiGraph[
+    type[DrugNode[ConceptIdentifier, st.Strength]], None
+] = rx.PyDiGraph(node_count_hint=11, edge_count_hint=121)
 
-_indices: dict[type[DrugNode[ConceptIdentifier]], int] = {}
+_indices = {}
 # Add all classes to the dependency graph
 for class_ in [
     a.Ingredient,

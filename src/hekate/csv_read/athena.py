@@ -2536,7 +2536,9 @@ class OMOPVocabulariesV5:
                 continue
 
             # Find all parent nodes
-            parent_concepts: dict[str, dc.DrugNode[dc.ConceptId]] = {}
+            parent_concepts: dict[
+                str, dc.DrugNode[dc.ConceptId, dc.Strength | None]
+            ] = {}
             lookup = [
                 (
                     "Clinical Drug",
@@ -2597,7 +2599,7 @@ class OMOPVocabulariesV5:
                 continue
 
             # Test attribute matches
-            parent: dc.DrugNode[dc.ConceptId]
+            parent: dc.DrugNode[dc.ConceptId, dc.Strength | None]
             brand_match = [
                 ("Branded Drug Form", bd_bdf_bn_mismatch),
                 ("Branded Drug Comp", bd_bdc_bn_mismatch),
@@ -3119,7 +3121,9 @@ class OMOPVocabulariesV5:
 
             # Find parents
             # Find all parent nodes
-            parent_concepts: dict[str, dc.DrugNode[dc.ConceptId]] = {}
+            parent_concepts: dict[
+                str, dc.DrugNode[dc.ConceptId, dc.Strength | None]
+            ] = {}
             lookup = [
                 (
                     "Branded Drug",
@@ -3173,7 +3177,7 @@ class OMOPVocabulariesV5:
                 continue
 
             # Test attribute matches
-            parent: dc.DrugNode[dc.ConceptId]
+            parent: dc.DrugNode[dc.ConceptId, dc.Strength | None]
             attribute_match = [
                 (
                     "Branded Drug",  # cls

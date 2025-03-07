@@ -32,14 +32,16 @@ type _AnyComplex[Id: ConceptIdentifier] = (
 
 
 @dataclass(frozen=True, slots=True)
-class ForeignDrugNode[Id: ConceptIdentifier](DrugNode[Id]):
+class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
+    DrugNode[Id, S]
+):
     """
     Represents an unknown node in the drug concept hierarchy. This is used to
     represent source drug concepts that may not be present in the RxHierarchy,
     """
 
     identifier: Id
-    strength_data: SortedTuple[BoundStrength[Id, st.Strength | None]]
+    strength_data: SortedTuple[BoundStrength[Id, S]]
     brand_name: a.BrandName[Id] | None = None
     dose_form: a.DoseForm[Id] | None = None
     supplier: a.Supplier[Id] | None = None
@@ -49,7 +51,7 @@ class ForeignDrugNode[Id: ConceptIdentifier](DrugNode[Id]):
     @override
     def is_superclass_of(
         self,
-        other: DrugNode[Id],
+        other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> NoReturn:
         raise NotImplementedError(

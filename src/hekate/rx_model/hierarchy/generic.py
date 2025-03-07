@@ -10,8 +10,9 @@ type AtomicConcept[Id: dc.ConceptIdentifier] = (
     |
     # RxNorm Extension atomic concepts
     dc.Supplier[Id]
-    |
-    # UCUM atomic concepts
-    dc.Unit
 )
+
 type NumDenomU = tuple[dc.Unit, dc.Unit]
+
+# Unit in source datra is reduced to it's concept_code value
+type PseudoUnit = str

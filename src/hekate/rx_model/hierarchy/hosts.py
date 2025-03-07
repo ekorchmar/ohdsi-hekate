@@ -140,11 +140,13 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     """
 
     def __init__(self):
-        self.graph: rx.PyDAG[dc.DrugNode[Id], None] = rx.PyDAG(
-            check_cycle=False,  # Will be really hard to create a cycle
-            multigraph=False,  # Hierarchical structure
-            # node_count_hint = 1000,  # TODO: Estimate the number of nodes
-            # edge_count_hint = 1000,  # TODO: Estimate the number of edges
+        self.graph: rx.PyDAG[dc.DrugNode[Id, dc.Strength | None], None] = (
+            rx.PyDAG(
+                check_cycle=False,  # Will be really hard to create a cycle
+                multigraph=False,  # Hierarchical structure
+                # node_count_hint = 1000,  # TODO: Estimate the number of nodes
+                # edge_count_hint = 1000,  # TODO: Estimate the number of edges
+            )
         )
         # Cached indices of ingredients (roots)
         self.ingredients: dict[dc.Ingredient[Id], NodeIndex] = {}
