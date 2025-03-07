@@ -3,7 +3,7 @@ Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple, override
@@ -48,42 +48,17 @@ class _RelationshipDescription(NamedTuple):
     target_class: str
 
 
-class OMOPTable[IdS: pl.Series | None](ABC, CSVReader[IdS]):
+class OMOPTable[IdS: pl.Series | None](CSVReader[IdS], ABC):
     """
     Abstract class to read Athena OMOP CDM Vocabularies
 
     Attributes:
         TABLE_SCHEMA: Schema for the table.
         TABLE_COLUMNS: Ordered sequence of columns to keep from the table.
-        reader: CSVReader instance to read the table.
-
     """
 
     TABLE_SCHEMA: Schema
     TABLE_COLUMNS: list[str]
-
-    @abstractmethod
-    def table_filter(
-        self, frame: pl.LazyFrame, valid_concepts: IdS = None
-    ) -> pl.LazyFrame:
-        """
-        Filter function to apply to the table.
-        """
-
-    def __init__(
-        self,
-        path: Path,
-        logger: logging.Logger,
-        valid_concepts: IdS = None,
-    ):
-        super().__init__(
-            path=path,
-            schema=self.TABLE_SCHEMA,
-            keep_columns=self.TABLE_COLUMNS,
-            line_filter=self.table_filter,
-            reference_data=valid_concepts,
-        )
-        self.logger.info(f"Preparing to read from {path.name}")
 
 
 class ConceptTable(OMOPTable[None]):
@@ -831,7 +806,6 @@ class OMOPVocabulariesV5:
         # Vocabulary table readers
         self.concept: ConceptTable = ConceptTable(
             path=vocab_download_path / "CONCEPT.csv",
-            logger=self.logger,
         )
 
         # Materialize the concept table to filter big tables early
@@ -840,14 +814,12 @@ class OMOPVocabulariesV5:
 
         self.relationship: RelationshipTable = RelationshipTable(
             path=vocab_download_path / "CONCEPT_RELATIONSHIP.csv",
-            logger=self.logger,
-            valid_concepts=all_concept_ids,
+            reference_data=all_concept_ids,
         )
 
         self.ancestor: AncestorTable = AncestorTable(
             path=vocab_download_path / "CONCEPT_ANCESTOR.csv",
-            logger=self.logger,
-            valid_concepts=all_concept_ids,
+            reference_data=all_concept_ids,
         )
 
         # Concepts that do not have a valid Ingredient ancestor are effectively
@@ -865,8 +837,7 @@ class OMOPVocabulariesV5:
         # Now there are much less concepts to process
         self.strength: StrengthTable = StrengthTable(
             path=vocab_download_path / "DRUG_STRENGTH.csv",
-            logger=self.logger,
-            valid_concepts=self.concept.collect()["concept_id"],
+            reference_data=self.concept.collect()["concept_id"],
         )
 
         # Also use Drug Strength for filtering other tables

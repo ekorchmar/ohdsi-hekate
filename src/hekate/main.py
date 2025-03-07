@@ -38,9 +38,9 @@ if __name__ == "__main__":
     path = Path("~/Downloads/Vocab/").expanduser()
     athena_rxne = OMOPVocabulariesV5(vocab_download_path=path)
 
-    finder = DrugNodeFinder(apap)
+    finder = DrugNodeFinder(apap, athena_rxne.hierarchy)
 
-    finder.start_search(athena_rxne.hierarchy)
+    finder.start_search()
     matched_nodes = finder.get_search_results()
 
     class_counts = {class_: 0 for class_ in DRUG_CLASS_PREFERENCE_ORDER}

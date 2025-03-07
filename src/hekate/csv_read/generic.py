@@ -3,6 +3,7 @@ Generic CSV reader, able to iterate over rows of Athena or
 BuildRxE input CSV files.
 """
 
+from abc import ABC
 from collections.abc import Mapping
 import logging
 from pathlib import Path
@@ -19,31 +20,43 @@ type LineFilter[D: pl.DataFrame | pl.Series | pl.LazyFrame | None] = Callable[
 ]
 
 
-class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None]:
+class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None](ABC):
     """
-    Generic CSV reader, able to read CSV files in batches and iterate
+    Generic CSV reader, able to read CSV or TSV files in batches and iterate
     over their contents.
     """
+
+    TABLE_SCHEMA: Schema
+    TABLE_COLUMNS: list[str]
+
+    def table_filter(
+        self, frame: pl.LazyFrame, valid_concepts: D = None
+    ) -> pl.LazyFrame:
+        """
+        Filter function to apply to the table.
+
+        Modifications to polars.LazyFrame to optionally
+        discard or otherwise modify rows. Defaults to noop. The
+        function should take a `pl.LazyFrame` as input and return a
+        `pl.LazyFrame`. Line filters may require an additional argument,
+        to provide known valid identifiers, which can be passed using the
+        `valid_concepts` parameter.
+
+        Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
+        """
+        del valid_concepts
+        return frame
 
     def __init__(
         self,
         path: Path,
-        schema: Schema,
-        keep_columns: Sequence[str],
         delimiter: str = "\t",
         quote_char: str | None = None,
-        line_filter: LineFilter[D] | None = None,
         reference_data: D = None,
     ):
         """
         Args:
             path: Path to the CSV file.
-
-            schema: Obligatory schema to use when reading the CSV file.
-
-            keep_columns: List of column names to keep. Defaults to `None` to
-                include all columns. If filter is specified, columns will be
-                applied after filtering.
 
             delimiter: Delimiter used in the CSV file. Defaults to "\\t" as is
                 historically used by Athena.
@@ -52,28 +65,13 @@ class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None]:
                 `None` to disable all quote processnig, as is historically
                 unused by Athena.
 
-            line_filter: Modifications to polars.LazyFrame to optionally
-                discard or otherwise modify rows. Defaults to `None`. The
-                function should take a `pl.LazyFrame` as input and return a
-                `pl.LazyFrame`. Line filters may require an additional argument,
-                which can be passed using the `filter_arg` parameter.
-
-                Read more at https://docs.pola.rs/user-guide/concepts/lazy-api/
-
             reference_data: Optional argument to pass to the `line_filter`
                 function. resulting call will look like `line_filter(lazy_frame,
                 reference_data)` This is almost always going to be a DataFrame
                 or Series of key field identifiers.
-
-            schema: Required schema to use when reading the CSV file. Provided
-                as a dictionary of column names and their respective Polars
-                data types.
-
         """
         self.delimiter: str = delimiter
         self.path: Path = path
-        self.schema: Schema = schema
-        self.columns: Sequence[str] = keep_columns
 
         # Associate a logger with the pathname
         self.logger: logging.Logger = LOGGER.getChild(
@@ -87,19 +85,19 @@ class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None]:
             quote_char=quote_char,
             has_header=True,
             infer_schema=False,
-            schema=self.schema,
+            schema=self.TABLE_SCHEMA,
         )
 
-        # Apply line filter if provided
-        if line_filter:
-            self._lazy_frame = line_filter(self._lazy_frame, reference_data)
-
-        # Apply column selection
-        self._lazy_frame = self._lazy_frame.select(self.columns)
+        # Apply the filtering
+        self._lazy_frame = self.table_filter(
+            self._lazy_frame, reference_data
+        ).select(self.TABLE_COLUMNS)
 
         self.logger.debug(self._lazy_frame.explain())
 
         self.data: pl.DataFrame | None = None
+
+        self.logger.info(f"Preparing to read from {path.name}")
 
     def materialize(self):
         """

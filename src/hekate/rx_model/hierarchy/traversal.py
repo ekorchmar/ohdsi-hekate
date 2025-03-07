@@ -116,7 +116,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         """
         self.history[v] = acceptance
 
-    def start_search(self, hierarchy: RxHierarchy[Id]) -> None:
+    def start_search(self) -> None:
         """
         Starts the depth-first search on the hierarchy, starting from the
         ingredient roots.
@@ -125,7 +125,9 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self.__matched_ingredient_count = 0
 
         rx.bfs_search(
-            hierarchy.graph, list(hierarchy.ingredients.values()), self
+            self.hierarchy.graph,
+            list(self.hierarchy.ingredients.values()),
+            self,
         )
 
     def get_search_results(self) -> dict[NodeIndex, DrugNode[Id]]:
