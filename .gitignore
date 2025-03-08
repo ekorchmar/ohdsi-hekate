@@ -14,7 +14,8 @@ venv/
 .idea/
 .DS_Store
 
-# Scalene profiling artifacts
+# Scalene and CProfile profiling artifacts
 profile.html
 profile.json
+program.prof
 

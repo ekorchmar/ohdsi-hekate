@@ -3,3 +3,6 @@ test args="-v":
 
 run args="faster":
   python {{ if args == "faster" { "-O" } else { args } }} src/hekate/main.py
+
+profile:
+  python -m cProfile -o program.prof src/hekate/main.py
