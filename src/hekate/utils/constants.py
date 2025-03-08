@@ -160,3 +160,34 @@ STRENGTH_CLOSURE_BOUNDARY_HIGH: Final[float] = 1 / (1 - _STRENGTH_CORRIDOR)
 # Flag to stop the athena filtering on suspected overfiltering
 ATHENA_OVERFILTERING_TRESHOLD: Final[float] = 0.30
 ATHENA_OVERFILTERING_WARNING: Final[bool] = True
+
+# NOTE: taken from:
+# https://github.com/OHDSI/Vocabulary-v5.0/blob/master/working/packages/vocabulary_pack/BuildRxE.sql#L4487
+UNIT_NAMES: Final[dict[int, str]] = {
+    45744815: "ORGANISMS",
+    8554: "%",
+    45744809: "ACTUAT",
+    45744811: "AU",
+    45744810: "BAU",
+    45744812: "CELLS",
+    9278: "CFU",
+    45744813: "CU",
+    8505: "HR",
+    8718: "IU",
+    45744814: "LFU",
+    44819154: "MCI",
+    9551: "MEQ",
+    8576: "MG",
+    9367: "MIN",
+    8587: "ML",
+    9573: "MMOL",
+    9439: "MU",
+    9379: "PFU",
+    45744816: "PNU",
+    9483: "SQCM",
+    9414: "TCID",
+    8510: "UNT",
+    9693: "IR",
+    9325: "X",
+    9324: "C",
+}
