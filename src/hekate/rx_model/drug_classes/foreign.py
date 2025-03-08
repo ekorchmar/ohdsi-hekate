@@ -183,9 +183,12 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         """
 
         branded = self.brand_name is not None
-        _marketed = self.supplier is not None
+        marketed = self.supplier is not None
         with_form = self.dose_form is not None
         _, strength = self.strength_data[0]
+
+        # TODO: Marketed Product checks
+        del marketed
 
         if strength is None:
             # Ingredient, CDF, or BDF
