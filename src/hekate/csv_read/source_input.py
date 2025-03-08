@@ -157,9 +157,6 @@ class InternalRelationshipStage(SourceTable[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
         "concept_code_1": pl.Utf8,
         "concept_code_2": pl.Utf8,
-        "relationship_id": pl.UInt32,
-        "precedence": pl.UInt8,
-        "conversion_factor": pl.Float64,
     }
 
     TABLE_COLUMNS: list[str] = list(TABLE_SCHEMA.keys())
@@ -224,7 +221,7 @@ class BuildRxEInput:
         self.load_valid_concepts()
 
         self.rtcs: RelationshipToConcept = RelationshipToConcept(
-            data_path / "relationship_to_concept_stage.tsv",
+            data_path / "relationship_to_concept.tsv",
             reference_data=self.dcs.collect().select(
                 "concept_code", "vocabulary_id"
             ),
@@ -255,8 +252,23 @@ class BuildRxEInput:
         and registers all units as pseudo-units.
         """
 
-        atom_concepts = self.dcs.collect().select(
-            "concept_code", "vocabulary_id", "concept_name", "concept_class_id"
+        atom_concepts = (
+            self.dcs.collect()
+            .filter(
+                pl.col("concept_class_id").is_in([
+                    "Ingredient",
+                    "Dose Form",
+                    "Brand Name",
+                    "Supplier",
+                    "Unit",
+                ])
+            )
+            .select(
+                "concept_code",
+                "vocabulary_id",
+                "concept_name",
+                "concept_class_id",
+            )
         )
 
         # Units must be excluded, as they are actually pseudo-units
