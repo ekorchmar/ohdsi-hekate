@@ -5,18 +5,22 @@ into ForeignDrugNode objects for evaluation.
 
 import logging
 from abc import ABC
+from collections.abc import Generator
+from itertools import product
 from pathlib import Path
 from typing import override
-from collections.abc import Generator
 
 import polars as pl
 from csv_read.generic import CSVReader, Schema
-from hekate.rx_model.drug_classes.generic import ConceptCodeVocab
-from hekate.utils.classes import SortedTuple
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
+from utils.classes import SortedTuple
+from utils.constants import STRENGTH_CONFIGURATIONS_CODE, PERCENT_CONCEPT_ID
+from utils.logger import LOGGER
 
-from utils.logger import LOGGER  # For type hinting and schema definition
+type _ComponentPermutations = Generator[
+    dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength], None, None
+]
 
 
 class SourceTable[IdS: pl.DataFrame | None](CSVReader[IdS], ABC):
@@ -292,8 +296,10 @@ class BuildRxEInput:
         """
         Get dc.strength combinations from the DSStage data.
         """
-        strength_data = self.dss.collect().filter(
-            pl.col("drug_concept_code") == drug_product_id.concept_code
+        strength_data = (
+            self.dss.collect()
+            .filter(pl.col("drug_concept_code") == drug_product_id.concept_code)
+            .select(pl.all().exclude("drug_concept_code"))
         )
 
         # For drugs without strength data, just return the ingredients from
@@ -318,14 +324,118 @@ class BuildRxEInput:
                 concept_code: str = row[0]
                 vocab_id: str = row[1]
                 ingredient = self.source_atoms.ingredient[
-                    ConceptCodeVocab(concept_code, vocab_id)
+                    dc.ConceptCodeVocab(concept_code, vocab_id)
                 ]
                 strengthless.append((ingredient, None))
 
             yield SortedTuple(strengthless)
             return
 
-        # For drugs without strength data, implement :D
-        raise NotImplementedError(
-            "BuildRxEInput.get_strength_combinations not implemented"
-        )
+        # First, determine the shape of the strength data
+        configuration: str = "wrong"
+        for configuration, expression in STRENGTH_CONFIGURATIONS_CODE.items():
+            if len(strength_data.filter(expression)) > 0:
+                break
+
+        # Define a generator for all possible permutations of individual
+        # strength components
+        # NOTE: This might seem like a lot of nested loops, but in practice
+        # most precedence values are exactly 1, so we expect only one
+        # iteration per every loop.
+        component_permutations: list[_ComponentPermutations] = []
+        for row in strength_data.iter_rows():
+            ingredient = self.source_atoms.ingredient[
+                dc.ConceptCodeVocab(row[0], row[1])
+            ]
+
+            match configuration:
+                case "amount_only":
+                    amount: float = row[2]
+                    unit: h.PseudoUnit = row[3]
+                    value_permutations = (
+                        self.atom_mapper.translate_strength_measure(
+                            amount, unit
+                        )
+                    )
+                    component_permutations.append(
+                        (ingredient, dc.SolidStrength(scaled_v, true_unit))
+                        for scaled_v, true_unit in value_permutations
+                    )
+
+                case "liquid_concentration":
+                    numerator: float = row[4]
+                    numerator_unit: h.PseudoUnit = row[5]
+                    denominator_unit: h.PseudoUnit = row[7]
+                    numerator_permutations = (
+                        self.atom_mapper.translate_strength_measure(
+                            numerator, numerator_unit
+                        )
+                    )
+                    denominator_permutations = (
+                        self.atom_mapper.translate_strength_measure(
+                            1, denominator_unit
+                        )
+                    )
+                    component_permutations.append(
+                        (
+                            ingredient,
+                            dc.LiquidConcentration(
+                                numerator_value=scaled_n / scaled_d,
+                                numerator_unit=n_unit,
+                                denominator_unit=d_unit,
+                            ),
+                        )
+                        for (scaled_n, n_unit), (scaled_d, d_unit) in product(
+                            numerator_permutations, denominator_permutations
+                        )
+                    )
+
+                case "liquid_quantity":
+                    numerator: float = row[4]
+                    numerator_unit: h.PseudoUnit = row[5]
+                    denominator: float = row[6]
+                    denominator_unit: h.PseudoUnit = row[7]
+                    numerator_permutations = (
+                        self.atom_mapper.translate_strength_measure(
+                            numerator, numerator_unit
+                        )
+                    )
+                    denominator_permutations = (
+                        self.atom_mapper.translate_strength_measure(
+                            denominator, denominator_unit
+                        )
+                    )
+                    component_permutations.append(
+                        (
+                            ingredient,
+                            dc.LiquidQuantity(
+                                numerator_value=scaled_n,
+                                numerator_unit=n_unit,
+                                denominator_value=scaled_d,
+                                denominator_unit=d_unit,
+                            ),
+                        )
+                        for (scaled_n, n_unit), (scaled_d, d_unit) in product(
+                            numerator_permutations, denominator_permutations
+                        )
+                    )
+                case "gas_concentration":
+                    # Those are static
+                    numerator: float = row[4]
+                    percent = self.rx_atoms.unit[
+                        dc.ConceptId(PERCENT_CONCEPT_ID)
+                    ]
+                    only_component = (
+                        ingredient,
+                        dc.GasPercentage(numerator, percent),
+                    )
+                    component_permutations.append(x for x in (only_component,))
+
+                case "wrong":
+                    raise ValueError(
+                        "Strength data does not match any configuration."
+                    )
+
+        # Yield all possible permutations of strength components
+        for combination in product(*component_permutations):
+            yield SortedTuple(combination)
