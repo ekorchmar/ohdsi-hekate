@@ -293,37 +293,32 @@ class BuildRxEInput:
         dcs = self.dcs.collect()
 
         # First, get the unique attribute data
-        def get_attribute_class(class_id: str) -> pl.DataFrame:
-            return dcs.filter(pl.col("concept_class_id") == class_id)
 
         drug_products = dcs.filter(
             pl.col("concept_class_id") == "Drug Product"
         ).select("concept_code", "vocabulary_id")
         for attr_class in ["Dosage Form", "Brand Name", "Supplier"]:
+            ir_of_attr = ir.join(
+                other=dcs.filter(pl.col("concept_class_id") == attr_class),
+                left_on="concept_code_2",
+                right_on="concept_code",
+                how="semi",
+            )
+
             field_name = attr_class.lower().replace(" ", "_")
             drug_products = (
                 drug_products.join(
-                    other=ir.join(
-                        other=get_attribute_class(attr_class),
-                        right_on="concept_code_2",
-                        left_on="concept_code",
-                        how="semi",
-                    ),
+                    other=ir_of_attr,
                     left_on="concept_code",
                     right_on="concept_code_1",
                     how="left",
                     validate="1:1",  # TODO: Make this an external QA check
                 )
-                .select(
-                    "concept_code",
-                    "vocabulary_id",
-                    attr_code=pl.col("concept_code_2"),
-                    attr_vocab=pl.col("vocabulary_id"),  # Reuse the same column
-                )
-                .rename({
-                    "attr_code": f"{field_name}_code",
-                    "attr_vocab": f"{field_name}_vocab",
+                .with_columns(**{
+                    f"{field_name}_code": pl.col("concept_code_2"),
+                    f"{field_name}_vocab": pl.col("vocabulary_id"),
                 })
+                .drop("concept_code_2")
             )
 
         row: Annotated[tuple[str, ...], 8]
@@ -385,7 +380,11 @@ class BuildRxEInput:
                     self.dcs.collect(),
                     left_on="concept_code_2",
                     right_on="concept_code",
-                )["concept_code", "vocabulary_id"]
+                )
+                .select(
+                    concept_code="concept_code_2",
+                    vocabulary_id="vocabulary_id",
+                )
             )
 
             strengthless: list[
