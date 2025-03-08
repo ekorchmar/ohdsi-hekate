@@ -19,8 +19,8 @@ from utils.constants import PERCENT_CONCEPT_ID, STRENGTH_CONFIGURATIONS_CODE
 from utils.exceptions import ForeignNodeCreationError
 from utils.logger import LOGGER
 
-type _ComponentPermutations = Generator[
-    dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength], None, None
+type _ComponentPermutations = list[
+    dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength]
 ]
 
 
@@ -449,43 +449,7 @@ class BuildRxEInput:
         # For drugs without strength data, just return the ingredients from
         # the IRS
         if len(strength_data) == 0:
-            ingredient_codes = (
-                self.ir.collect()
-                .filter(
-                    pl.col("concept_code_1") == drug_product_id.concept_code
-                )
-                .join(
-                    self.dcs.collect().filter(
-                        pl.col("concept_class_id") == "Ingredient"
-                    ),
-                    left_on="concept_code_2",
-                    right_on="concept_code",
-                )
-                .select(
-                    concept_code="concept_code_2",
-                    vocabulary_id="vocabulary_id",
-                )
-            )
-
-            ingredient_only: list[
-                tuple[dc.Ingredient[dc.ConceptCodeVocab], None]
-            ] = []
-            for row in ingredient_codes.iter_rows():
-                concept_code: str = row[0]
-                vocab_id: str = row[1]
-                ingredient = self.source_atoms.ingredient[
-                    dc.ConceptCodeVocab(concept_code, vocab_id)
-                ]
-                ingredient_only.append((ingredient, None))
-
-            if len(ingredient_only) == 0:
-                raise ForeignNodeCreationError(
-                    f"Drug {drug_product_id} has no strength data nor "
-                    f"ingredients."
-                )
-
-            # One permutation as there is only one None
-            yield SortedTuple(ingredient_only)
+            yield self._get_strength_ingredients_only(drug_product_id)
             return
 
         # First, determine the shape of the strength data
@@ -502,7 +466,7 @@ class BuildRxEInput:
         component_permutations: list[_ComponentPermutations] = []
 
         for row in strength_data.iter_rows():
-            ingredient = self.source_atoms.ingredient[
+            comp_ingredient = self.source_atoms.ingredient[
                 dc.ConceptCodeVocab(
                     row[0],
                     drug_product_id.vocabulary_id,
@@ -516,10 +480,10 @@ class BuildRxEInput:
                     am_permut = self.atom_mapper.translate_strength_measure(
                         amount, unit
                     )
-                    component_permutations.append(
-                        (ingredient, dc.SolidStrength(scaled_v, true_unit))
+                    component_permutations.append([
+                        (comp_ingredient, dc.SolidStrength(scaled_v, true_unit))
                         for scaled_v, true_unit in am_permut
-                    )
+                    ])
 
                 case "liquid_concentration":
                     numerator: float = row[3]
@@ -532,9 +496,9 @@ class BuildRxEInput:
                     den_permut = self.atom_mapper.translate_strength_measure(
                         1, denominator_unit
                     )
-                    component_permutations.append(
+                    component_permutations.append([
                         (
-                            ingredient,
+                            comp_ingredient,
                             dc.LiquidConcentration(
                                 numerator_value=scaled_n / scaled_d,
                                 numerator_unit=n_unit,
@@ -544,7 +508,7 @@ class BuildRxEInput:
                         for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                             num_permut, den_permut
                         )
-                    )
+                    ])
 
                 case "liquid_quantity":
                     numerator: float = row[3]
@@ -557,9 +521,9 @@ class BuildRxEInput:
                     den_permut = self.atom_mapper.translate_strength_measure(
                         denominator, denominator_unit
                     )
-                    component_permutations.append(
+                    component_permutations.append([
                         (
-                            ingredient,
+                            comp_ingredient,
                             dc.LiquidQuantity(
                                 numerator_value=scaled_n,
                                 numerator_unit=n_unit,
@@ -570,22 +534,63 @@ class BuildRxEInput:
                         for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                             num_permut, den_permut
                         )
-                    )
+                    ])
                 case "gas_concentration":
                     # Those are static
                     numerator: float = row[3]
                     pct = self.rx_atoms.unit[dc.ConceptId(PERCENT_CONCEPT_ID)]
                     only_component = (
-                        ingredient,
+                        comp_ingredient,
                         dc.GasPercentage(numerator, pct),
                     )
-                    component_permutations.append(x for x in (only_component,))
+                    component_permutations.append([only_component])
 
                 case "wrong":
                     raise ForeignNodeCreationError(
                         "Strength data does not match any configuration."
                     )
 
-        # Yield all possible permutations of strength components
+            # Yield all possible permutations of strength components
         for combination in product(*component_permutations):
             yield SortedTuple(combination)
+
+    def _get_strength_ingredients_only(
+        self, drug_product_id: dc.ConceptCodeVocab
+    ) -> SortedTuple[dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength | None]]:
+        """
+        Get a SortedTuple of ingredients only for a drug product without
+        any strength data, with None as stand-in.
+        """
+        ingredient_codes = (
+            self.ir.collect()
+            .filter(pl.col("concept_code_1") == drug_product_id.concept_code)
+            .join(
+                self.dcs.collect().filter(
+                    pl.col("concept_class_id") == "Ingredient"
+                ),
+                left_on="concept_code_2",
+                right_on="concept_code",
+            )
+            .select(
+                concept_code="concept_code_2",
+                vocabulary_id="vocabulary_id",
+            )
+        )
+
+        ingredient_only: list[
+            tuple[dc.Ingredient[dc.ConceptCodeVocab], None]
+        ] = []
+        for row in ingredient_codes.iter_rows():
+            concept_code: str = row[0]
+            vocab_id: str = row[1]
+            ingredient = self.source_atoms.ingredient[
+                dc.ConceptCodeVocab(concept_code, vocab_id)
+            ]
+            ingredient_only.append((ingredient, None))
+
+        if len(ingredient_only) == 0:
+            raise ForeignNodeCreationError(
+                f"Drug {drug_product_id} has no strength data nor ingredients."
+            )
+
+        return SortedTuple(ingredient_only)
