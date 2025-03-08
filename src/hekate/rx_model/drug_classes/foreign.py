@@ -54,6 +54,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> NoReturn:
+        del passed_hierarchy_checks, other
         raise NotImplementedError(
             "Cannot check superclass relationship with a foreign node."
         )
@@ -61,7 +62,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
     @override
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, st.Strength | None]]:
+    ) -> SortedTuple[BoundStrength[Id, S]]:
         return self.strength_data
 
     @override

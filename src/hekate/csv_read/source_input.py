@@ -8,7 +8,7 @@ from abc import ABC
 from collections.abc import Generator
 from itertools import product
 from pathlib import Path
-from typing import override
+from typing import Annotated, override
 
 import polars as pl
 from csv_read.generic import CSVReader, Schema
@@ -272,19 +272,65 @@ class BuildRxEInput:
     def build_drug_nodes(
         self,
     ) -> Generator[
-        dc.DrugNode[dc.ConceptCodeVocab, dc.Strength | None], None, None
+        dc.ForeignDrugNode[dc.ConceptCodeVocab, dc.Strength | None], None, None
     ]:
         """
         Build DrugNodes using the DSStage and InternalRelationshipStage data.
         """
-        drug_products = self.dcs.collect().filter(
-            pl.col("concept_class_id") == "Drug Product"
-        )
+        ir = self.ir.collect()
+        dcs = self.dcs.collect()
 
-        del drug_products
-        raise NotImplementedError(
-            "BuildRxEInput.build_drug_nodes not implemented"
-        )
+        # First, get the unique attribute data
+        def get_attribute_class(class_id: str) -> pl.DataFrame:
+            return dcs.filter(pl.col("concept_class_id") == class_id)
+
+        drug_products = dcs.filter(
+            pl.col("concept_class_id") == "Drug Product"
+        ).select("concept_code", "vocabulary_id")
+        for attr_class in ["Dosage Form", "Brand Name", "Supplier"]:
+            field_name = attr_class.lower().replace(" ", "_")
+            drug_products = (
+                drug_products.join(
+                    other=ir.join(
+                        other=get_attribute_class(attr_class),
+                        right_on="concept_code_2",
+                        left_on="concept_code",
+                        how="semi",
+                    ),
+                    left_on="concept_code",
+                    right_on="concept_code_1",
+                    how="left",
+                    validate="1:1",  # TODO: Make this an external QA check
+                )
+                .select(
+                    "concept_code",
+                    "vocabulary_id",
+                    attr_code=pl.col("concept_code_2"),
+                    attr_vocab=pl.col("vocabulary_id"),  # Reuse the same column
+                )
+                .rename({
+                    "attr_code": f"{field_name}_code",
+                    "attr_vocab": f"{field_name}_vocab",
+                })
+            )
+
+        row: Annotated[tuple[str, ...], 8]
+        for row in drug_products.iter_rows():
+            drug_product_id = dc.ConceptCodeVocab(row[0], row[1])
+            A = self.source_atoms
+            df = A.dose_form.get(dc.ConceptCodeVocab(row[2], row[3]))
+            bn = A.brand_name.get(dc.ConceptCodeVocab(row[4], row[5]))
+            sp = A.supplier.get(dc.ConceptCodeVocab(row[6], row[7]))
+
+            strength_data = self.get_strength_combinations(drug_product_id)
+            for strength_combination in strength_data:
+                yield dc.ForeignDrugNode(
+                    identifier=drug_product_id,
+                    strength_data=strength_combination,
+                    dose_form=df,
+                    brand_name=bn,
+                    supplier=sp,
+                )
 
     def get_strength_combinations(
         self, drug_product_id: dc.ConceptCodeVocab
@@ -328,6 +374,7 @@ class BuildRxEInput:
                 ]
                 strengthless.append((ingredient, None))
 
+            # One permutation as there is only one None
             yield SortedTuple(strengthless)
             return
 
@@ -352,29 +399,24 @@ class BuildRxEInput:
                 case "amount_only":
                     amount: float = row[2]
                     unit: h.PseudoUnit = row[3]
-                    value_permutations = (
-                        self.atom_mapper.translate_strength_measure(
-                            amount, unit
-                        )
+                    am_permut = self.atom_mapper.translate_strength_measure(
+                        amount, unit
                     )
                     component_permutations.append(
                         (ingredient, dc.SolidStrength(scaled_v, true_unit))
-                        for scaled_v, true_unit in value_permutations
+                        for scaled_v, true_unit in am_permut
                     )
 
                 case "liquid_concentration":
                     numerator: float = row[4]
                     numerator_unit: h.PseudoUnit = row[5]
+                    # Denominator is implicit 1
                     denominator_unit: h.PseudoUnit = row[7]
-                    numerator_permutations = (
-                        self.atom_mapper.translate_strength_measure(
-                            numerator, numerator_unit
-                        )
+                    num_permut = self.atom_mapper.translate_strength_measure(
+                        numerator, numerator_unit
                     )
-                    denominator_permutations = (
-                        self.atom_mapper.translate_strength_measure(
-                            1, denominator_unit
-                        )
+                    den_permut = self.atom_mapper.translate_strength_measure(
+                        1, denominator_unit
                     )
                     component_permutations.append(
                         (
@@ -386,7 +428,7 @@ class BuildRxEInput:
                             ),
                         )
                         for (scaled_n, n_unit), (scaled_d, d_unit) in product(
-                            numerator_permutations, denominator_permutations
+                            num_permut, den_permut
                         )
                     )
 
@@ -395,15 +437,11 @@ class BuildRxEInput:
                     numerator_unit: h.PseudoUnit = row[5]
                     denominator: float = row[6]
                     denominator_unit: h.PseudoUnit = row[7]
-                    numerator_permutations = (
-                        self.atom_mapper.translate_strength_measure(
-                            numerator, numerator_unit
-                        )
+                    num_permut = self.atom_mapper.translate_strength_measure(
+                        numerator, numerator_unit
                     )
-                    denominator_permutations = (
-                        self.atom_mapper.translate_strength_measure(
-                            denominator, denominator_unit
-                        )
+                    den_permut = self.atom_mapper.translate_strength_measure(
+                        denominator, denominator_unit
                     )
                     component_permutations.append(
                         (
@@ -416,18 +454,16 @@ class BuildRxEInput:
                             ),
                         )
                         for (scaled_n, n_unit), (scaled_d, d_unit) in product(
-                            numerator_permutations, denominator_permutations
+                            num_permut, den_permut
                         )
                     )
                 case "gas_concentration":
                     # Those are static
                     numerator: float = row[4]
-                    percent = self.rx_atoms.unit[
-                        dc.ConceptId(PERCENT_CONCEPT_ID)
-                    ]
+                    pct = self.rx_atoms.unit[dc.ConceptId(PERCENT_CONCEPT_ID)]
                     only_component = (
                         ingredient,
-                        dc.GasPercentage(numerator, percent),
+                        dc.GasPercentage(numerator, pct),
                     )
                     component_permutations.append(x for x in (only_component,))
 
