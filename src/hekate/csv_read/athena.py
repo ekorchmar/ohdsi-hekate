@@ -141,11 +141,19 @@ class ConceptTable(OMOPTable[None]):
                     # | (pl.col("concept_class_id") == "Clinical Pack Box")
                     # | (pl.col("concept_class_id") == "Branded Pack Box")
                 ),
-            ).select(
+            )
+            .select(
                 pl.all().exclude("concept_name"),
                 # For practical purposes, set Unit concept names to their codes
                 concept_name=pl.sql_expr("""
                     IF(domain_id == 'Unit', concept_code, concept_name)
+                """),
+            )
+            # Units should have their name in place of a concept code
+            .select(
+                pl.all().exclude("concept_name"),
+                concept_name=pl.sql_expr("""
+                    IF(domain_id == "Unit", concept_code, concept_name)
                 """),
             )
         )
