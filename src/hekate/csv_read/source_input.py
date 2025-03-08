@@ -12,6 +12,7 @@ from typing import Annotated, override
 
 import polars as pl
 from csv_read.generic import CSVReader, Schema
+from csv_read.athena import OMOPVocabulariesV5
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from utils.classes import SortedTuple
@@ -204,7 +205,7 @@ class BuildRxEInput:
     def __init__(
         self,
         data_path: Path,
-        rx_atoms: h.Atoms[dc.ConceptId],
+        athena_vocab: OMOPVocabulariesV5,
         delimiter: str = "\t",
         quote_char: str = '"',
     ) -> None:
@@ -212,10 +213,13 @@ class BuildRxEInput:
 
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
 
+        # Remember the target hierarchy
+        self.target_hierarchy: OMOPVocabulariesV5 = athena_vocab
+
         # Initiate containers
         self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms(self.logger)
-        self.rx_atoms: h.Atoms[dc.ConceptId] = rx_atoms
-        self.atom_mapper: h.AtomMapper = h.AtomMapper(
+        self.rx_atoms: h.Atoms[dc.ConceptId] = athena_vocab.atoms
+        self.translator: h.NodeTranslator = h.NodeTranslator(
             rx_atoms=self.rx_atoms, logger=self.logger
         )
         self.pseudo_units: list[h.PseudoUnit] = []
@@ -246,7 +250,7 @@ class BuildRxEInput:
             ),
         )
 
-        self.atom_mapper.populate_from_frame(
+        self.translator.populate_from_frame(
             frame=self.rtcs.collect(),
             pseudo_units=self.pseudo_units,
         )
@@ -477,7 +481,7 @@ class BuildRxEInput:
                 case "amount_only":
                     amount: float = row[1]
                     unit: h.PseudoUnit = row[2]
-                    am_permut = self.atom_mapper.translate_strength_measure(
+                    am_permut = self.translator.translate_strength_measure(
                         amount, unit
                     )
                     component_permutations.append([
@@ -490,10 +494,10 @@ class BuildRxEInput:
                     numerator_unit: h.PseudoUnit = row[4]
                     # Denominator is implicit 1
                     denominator_unit: h.PseudoUnit = row[6]
-                    num_permut = self.atom_mapper.translate_strength_measure(
+                    num_permut = self.translator.translate_strength_measure(
                         numerator, numerator_unit
                     )
-                    den_permut = self.atom_mapper.translate_strength_measure(
+                    den_permut = self.translator.translate_strength_measure(
                         1, denominator_unit
                     )
                     component_permutations.append([
@@ -515,10 +519,10 @@ class BuildRxEInput:
                     numerator_unit: h.PseudoUnit = row[4]
                     denominator: float = row[5]
                     denominator_unit: h.PseudoUnit = row[6]
-                    num_permut = self.atom_mapper.translate_strength_measure(
+                    num_permut = self.translator.translate_strength_measure(
                         numerator, numerator_unit
                     )
-                    den_permut = self.atom_mapper.translate_strength_measure(
+                    den_permut = self.translator.translate_strength_measure(
                         denominator, denominator_unit
                     )
                     component_permutations.append([
@@ -594,3 +598,41 @@ class BuildRxEInput:
             )
 
         return SortedTuple(ingredient_only)
+
+    def map_to_rxn(self) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
+        """
+        Map the generated nodes to RxNorm concepts.
+        """
+
+        result: dict[dc.ConceptCodeVocab, list[dc.ConceptId]] = {}
+
+        # 2 billion is conventionally used for loval concept IDs
+        def new_concept_id():
+            two_bill = 2_000_000_000
+            while True:
+                yield dc.ConceptId(two_bill)
+                two_bill += 1
+
+        cid_counter = new_concept_id()
+        for node in self.build_drug_nodes(crash_on_error=False):
+            translated_nodes = self.translator.translate_node(
+                node, lambda: next(cid_counter)
+            )
+            for option in translated_nodes:
+                visitor = h.DrugNodeFinder(
+                    option, self.target_hierarchy.hierarchy, self.logger
+                )
+                visitor.start_search()
+                try:
+                    node_result = visitor.get_search_results()
+                except NotImplementedError:
+                    # This is expected for now
+                    self.logger.warning(
+                        f"At least one valid Node for {option.identifier} could "
+                        f"not be disambiguated."
+                    )
+                else:
+                    result.setdefault(node.identifier, []).extend(
+                        node.identifier for node in node_result.values()
+                    )
+        return result

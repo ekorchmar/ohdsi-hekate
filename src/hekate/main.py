@@ -3,10 +3,11 @@ import logging
 
 from csv_read.athena import OMOPVocabulariesV5
 from csv_read.source_input import BuildRxEInput
+from utils.logger import LOGGER
 
 
 def main():
-    print("""\
+    LOGGER.info("""\
 With wing of bat and eye of toad,
 Avoiding legacy code bloat,
 With twig of fern and QA checks,
@@ -23,9 +24,11 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     ggr_source = BuildRxEInput(
         data_path=source_path,
-        rx_atoms=athena_rxne.atoms,
+        athena_vocab=athena_rxne,
     )
-    for node in ggr_source.build_drug_nodes():
-        print(node)
+    import json
 
-    print("Done")
+    mappings = ggr_source.map_to_rxn()
+    print(json.dumps(mappings, indent=2))
+
+    LOGGER.info("Done")

@@ -24,13 +24,16 @@ from rx_model.drug_classes import (
 from rx_model.hierarchy.generic import AtomicConcept, PseudoUnit
 from rx_model.hierarchy.hosts import Atoms
 from utils.classes import SortedTuple
+from utils.exceptions import ForeignNodeCreationError
 
-type AtomLookupCallable = Callable[[ConceptId], AtomicConcept[ConceptId]]
+type _AtomLookupCallable = Callable[[ConceptId], AtomicConcept[ConceptId]]
 
 
-class AtomMapper:
+class NodeTranslator:
     """
-    Maps atomic drug attributes to their corresponding RxNorm concepts.
+    Maps atomic drug attributes to their corresponding RxNorm concepts and
+    translates a source drug node definition into permutations of RxNorm-native
+    drug nodes.
     """
 
     def __init__(
@@ -49,7 +52,7 @@ class AtomMapper:
         self._unit_map: dict[PseudoUnit, OrderedDict[Unit, float]] = {}
 
         # External references to the storage dictionaries
-        self._get_atom: AtomLookupCallable = rx_atoms.lookup_unknown
+        self._get_atom: _AtomLookupCallable = rx_atoms.lookup_unknown
         self._unit_storage: Mapping[ConceptId, Unit] = rx_atoms.unit
 
     def add_concept_mappings(
@@ -180,6 +183,9 @@ class AtomMapper:
             M[node.supplier.identifier] if node.supplier else [None],
         )
 
+        # Share the identifier across all permutations
+        shared_concept_id = concept_id_factory()
+        any_creations_succeeded = False
         for *ings, df, bn, sp in attribute_permutations:
             strength_data: list[tuple[Ingredient[ConceptId], S]] = []
 
@@ -205,11 +211,32 @@ class AtomMapper:
                 if attr is not None and not isinstance(attr, class_):
                     raise ValueError(f"Expected {class_.__name__}, got {attr}")
 
-            yield ForeignDrugNode(
-                identifier=ConceptId(concept_id_factory()),
-                strength_data=SortedTuple(strength_data),
-                # We just explicitly checked that these are the correct types
-                dose_form=dose_form,  # pyright: ignore[reportArgumentType]
-                brand_name=brand_name,  # pyright: ignore[reportArgumentType]
-                supplier=supplier,  # pyright: ignore[reportArgumentType]
+            try:
+                fn = ForeignDrugNode(
+                    identifier=shared_concept_id,
+                    strength_data=SortedTuple(strength_data),
+                    # We just explicitly checked that these are the correct types
+                    dose_form=dose_form,  # pyright: ignore[reportArgumentType]
+                    brand_name=brand_name,  # pyright: ignore[reportArgumentType]
+                    supplier=supplier,  # pyright: ignore[reportArgumentType]
+                )
+                any_creations_succeeded = True
+                yield fn
+
+            except ForeignNodeCreationError as e:
+                # NOTE:
+                # Most likely to happen if the different source ingredients end
+                # up having the same RxNorm concept ID through precedence
+                # mapping. This actually could be handled differently by simply
+                # summing the strengths, but that needs a consensus from the
+                # Vocabulary team first.
+                self.logger.debug(
+                    f"Failed to create node: {e}. Skipping this permutation."
+                )
+                # In any case, this should not re-raise, unless no successful
+                # nodes are created
+        if not any_creations_succeeded:
+            raise ForeignNodeCreationError(
+                "No successful node creations from permutations. Check the "
+                "ingredient precedence mappings."
             )
