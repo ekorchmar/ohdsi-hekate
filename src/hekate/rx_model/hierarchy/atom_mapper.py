@@ -35,7 +35,7 @@ class AtomMapper:
 
     def __init__(
         self,
-        source_atoms: Atoms,
+        rx_atoms: Atoms[ConceptId],
         logger: logging.Logger,
     ):
         self.logger = logger.getChild(self.__class__.__name__)
@@ -49,8 +49,8 @@ class AtomMapper:
         self._unit_map: dict[PseudoUnit, OrderedDict[Unit, float]] = {}
 
         # External references to the storage dictionaries
-        self._get_atom: AtomLookupCallable = source_atoms.lookup_unknown
-        self._unit_storage: Mapping[ConceptId, Unit] = source_atoms.unit
+        self._get_atom: AtomLookupCallable = rx_atoms.lookup_unknown
+        self._unit_storage: Mapping[ConceptId, Unit] = rx_atoms.unit
 
     def add_concept_mappings(
         self, concept_vocab: ConceptCodeVocab, concept_ids: Sequence[ConceptId]

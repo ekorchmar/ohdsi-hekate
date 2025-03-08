@@ -195,7 +195,7 @@ class BuildRxEInput:
         self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms(self.logger)
         self.rx_atoms: h.Atoms[dc.ConceptId] = rx_atoms
         self.atom_mapper: h.AtomMapper = h.AtomMapper(
-            self.source_atoms, self.logger
+            rx_atoms=self.rx_atoms, logger=self.logger
         )
         self.pseudo_units: list[h.PseudoUnit] = []
         self.drug_nodes: list[
