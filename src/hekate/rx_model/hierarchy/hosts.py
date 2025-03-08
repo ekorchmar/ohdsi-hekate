@@ -11,6 +11,7 @@ from typing import Annotated
 import polars as pl
 import rustworkx as rx
 from rx_model import drug_classes as dc
+from utils.exceptions import InvalidConceptIdError
 
 type HierarchyChecksum = int
 type NodeIndex = int
@@ -30,12 +31,17 @@ class Atoms[Id: dc.ConceptIdentifier]:
         This method should only be used by a caller that operates on verifyable
         data.
         """
-        return ChainMap(
-            self.ingredient,
-            self.dose_form,  # pyright: ignore[reportArgumentType]
-            self.brand_name,  # pyright: ignore[reportArgumentType]
-            self.supplier,  # pyright: ignore[reportArgumentType]
-        )[identifier]
+        try:
+            return ChainMap(
+                self.ingredient,
+                self.dose_form,  # pyright: ignore[reportArgumentType]
+                self.brand_name,  # pyright: ignore[reportArgumentType]
+                self.supplier,  # pyright: ignore[reportArgumentType]
+            )[identifier]
+        except KeyError:
+            raise InvalidConceptIdError(
+                f"Concept ID {identifier} not found in Atoms container."
+            )
 
     def __init__(self, logger: logging.Logger):
         self.ingredient: dict[Id, dc.Ingredient[Id]] = {}

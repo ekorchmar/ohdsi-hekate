@@ -17,7 +17,10 @@ from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from utils.classes import SortedTuple
 from utils.constants import PERCENT_CONCEPT_ID, STRENGTH_CONFIGURATIONS_CODE
-from utils.exceptions import ForeignNodeCreationError
+from utils.exceptions import (
+    ForeignNodeCreationError,
+    UnmappedSourceConceptError,
+)
 from utils.logger import LOGGER
 
 type _ComponentPermutations = list[
@@ -265,6 +268,21 @@ class BuildRxEInput:
         self.dss: DSStage = DSStage(
             data_path / "ds_stage.tsv",
             reference_data=self.dcs.collect().select("concept_code"),
+        )
+
+        # WARN: temporarily cleaning up all concepts with 0 in amount_value
+        # There is actually a valid use case for this for drug packs, but we are
+        # not processing them yet.
+        zero_amounts = self.dss.collect().filter(pl.col("amount_value") == 0)
+        if len(zero_amounts) > 0:
+            self.logger.warning(
+                f"Found {len(zero_amounts)} drugs with 0 amount_value. "
+                "These will be ignored for now."
+            )
+        self.dss.anti_join(
+            zero_amounts,
+            left_on="drug_concept_code",
+            right_on="drug_concept_code",
         )
 
         # WARN: temporarily cleaning up all concepts with box_size
@@ -618,7 +636,20 @@ class BuildRxEInput:
             translated_nodes = self.translator.translate_node(
                 node, lambda: next(cid_counter)
             )
-            for option in translated_nodes:
+            while True:
+                try:
+                    option = next(translated_nodes)
+                except StopIteration:
+                    break
+                except UnmappedSourceConceptError as e:
+                    # This is expected for now
+                    # TODO: skip all permutations of the node
+                    self.logger.error(
+                        f"Node {node.identifier} could not be mapped to "
+                        f"RxNorm: {e}"
+                    )
+                    continue
+
                 visitor = h.DrugNodeFinder(
                     option, self.target_hierarchy.hierarchy, self.logger
                 )

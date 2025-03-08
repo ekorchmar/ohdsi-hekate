@@ -26,9 +26,9 @@ if __name__ == "__main__":
         data_path=source_path,
         athena_vocab=athena_rxne,
     )
-    import json
 
     mappings = ggr_source.map_to_rxn()
-    print(json.dumps(mappings, indent=2))
+    for source, target in mappings.items():
+        print(f"{source} -> {target}")
 
     LOGGER.info("Done")

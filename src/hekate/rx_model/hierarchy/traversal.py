@@ -22,6 +22,8 @@ from rx_model.drug_classes import (
 from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
 from utils.utils import get_first_dict_value
 
+# TODO: this should eventually become a continuous value to track preference
+# across precedence levels.
 type NodeAcceptance = bool
 
 

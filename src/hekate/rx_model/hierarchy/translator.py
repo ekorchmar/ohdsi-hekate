@@ -24,7 +24,11 @@ from rx_model.drug_classes import (
 from rx_model.hierarchy.generic import AtomicConcept, PseudoUnit
 from rx_model.hierarchy.hosts import Atoms
 from utils.classes import SortedTuple
-from utils.exceptions import ForeignNodeCreationError
+from utils.exceptions import (
+    ForeignNodeCreationError,
+    InvalidConceptIdError,
+    UnmappedSourceConceptError,
+)
 
 type _AtomLookupCallable = Callable[[ConceptId], AtomicConcept[ConceptId]]
 
@@ -167,58 +171,65 @@ class NodeTranslator:
         self.logger.debug(f"Getting permutations for node: {node}")
 
         # Order of preference is: ingredient, dose form, brand name, supplier
-        ingredient_codes: list[ConceptCodeVocab] = []
+        node_ingredients: list[Ingredient] = []
         strengths: list[S] = []
         for ingredient, strength in node.strength_data:
-            if ingredient.identifier not in self._concept_map:
-                raise ValueError(f"Unknown ingredient: {ingredient}")
-            ingredient_codes.append(ingredient.identifier)
+            node_ingredients.append(ingredient)
             strengths.append(strength)
 
-        M = self._concept_map
-        attribute_permutations = product(
-            *[M[ingredient_code] for ingredient_code in ingredient_codes],
-            M[node.dose_form.identifier] if node.dose_form else [None],
-            M[node.brand_name.identifier] if node.brand_name else [None],
-            M[node.supplier.identifier] if node.supplier else [None],
-        )
+        attribute_mappings = []
+        for node_attribute in [
+            *node_ingredients,
+            node.dose_form,
+            node.brand_name,
+            node.supplier,
+        ]:
+            if node_attribute is not None:
+                try:
+                    mappings = self._concept_map[node_attribute.identifier]
+                except KeyError:
+                    # NOTE: Not necessarily an error: maybe a new ingredient has
+                    # to be created from source.
+                    # TODO: track these cases for the reporting and hierarchy
+                    # extension
+                    raise UnmappedSourceConceptError(
+                        f"Unmapped attribute: {node_attribute}"
+                    )
+                else:
+                    attribute_mappings.append(mappings)
+            else:
+                attribute_mappings.append([None])
+
+        attribute_permutations = product(*attribute_mappings)
 
         # Share the identifier across all permutations
         shared_concept_id = concept_id_factory()
         any_creations_succeeded = False
-        for *ings, df, bn, sp in attribute_permutations:
+        for *ings, df_id, bn_id, sp_id in attribute_permutations:
             strength_data: list[tuple[Ingredient[ConceptId], S]] = []
 
             for ing, stgh in zip(ings, strengths):
-                assert ing is not None
-                ing_object = self._get_atom(ing)
+                ing_object = self._try_get_atom(ing, Ingredient)
                 assert isinstance(ing_object, Ingredient)
                 strength_data.append((ing_object, stgh))
 
-            dose_form = brand_name = supplier = None
-            if df:
-                dose_form = self._get_atom(df)
-            if bn:
-                brand_name = self._get_atom(bn)
-            if sp:
-                supplier = self._get_atom(sp)
-
-            for attr, class_ in [
-                (dose_form, DoseForm),
-                (brand_name, BrandName),
-                (supplier, Supplier),
-            ]:
-                if attr is not None and not isinstance(attr, class_):
-                    raise ValueError(f"Expected {class_.__name__}, got {attr}")
+            attrs = {
+                "dose_form": (DoseForm, df_id),
+                "brand_name": (BrandName, bn_id),
+                "supplier": (Supplier, sp_id),
+            }
+            fn_attrs = {}
+            for attr, (class_, identifier) in attrs.items():
+                if identifier is None:
+                    continue
+                fn_attrs[attr] = self._try_get_atom(identifier, class_)
 
             try:
                 fn = ForeignDrugNode(
                     identifier=shared_concept_id,
                     strength_data=SortedTuple(strength_data),
-                    # We just explicitly checked that these are the correct types
-                    dose_form=dose_form,  # pyright: ignore[reportArgumentType]
-                    brand_name=brand_name,  # pyright: ignore[reportArgumentType]
-                    supplier=supplier,  # pyright: ignore[reportArgumentType]
+                    # We explicitly checked that these are the correct types
+                    **fn_attrs,
                 )
                 any_creations_succeeded = True
                 yield fn
@@ -240,3 +251,28 @@ class NodeTranslator:
                 "No successful node creations from permutations. Check the "
                 "ingredient precedence mappings."
             )
+
+    def _try_get_atom(
+        self,
+        identifier: ConceptId,
+        expected_class: type[AtomicConcept[ConceptId]],
+    ) -> AtomicConcept[ConceptId]:
+        try:
+            value = self._get_atom(identifier)
+        except InvalidConceptIdError as e:
+            self.logger.error(
+                f"Tried getting {expected_class.__name__} "
+                f"by {identifier} which is not a valid attribute."
+            )
+            raise UnmappedSourceConceptError(
+                f"Invalid attribute: {identifier} for {expected_class.__name__}"
+            ) from e
+
+        if value is not None and not isinstance(value, expected_class):
+            self.logger.error(
+                f"Expected {expected_class.__name__}, got {value}"
+            )
+            raise UnmappedSourceConceptError(
+                f"Invalid attribute: {value} for {expected_class.__name__}"
+            )
+        return value

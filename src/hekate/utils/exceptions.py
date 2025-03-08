@@ -2,28 +2,54 @@
 
 
 class CSVReaderError(Exception):
-    """Base exception for CSVReader errors."""
+    """
+    Base exception for CSVReader errors.
+    """
 
 
 class SchemaError(CSVReaderError):
-    """Raised when the provided schema does not match the CSV file."""
+    """
+    Raised when the provided schema does not match the CSV file.
+    """
 
 
 class RxConceptError(Exception):
-    """Base exception for RxConcept errors."""
+    """
+    Base exception for RxConcept errors.
+    """
+
+
+class InvalidConceptIdError(RxConceptError):
+    """
+    Occurs when a non-existent or invalid Concept ID is referenced.
+    """
+
+
+class UnmappedSourceConceptError(RxConceptError):
+    """
+    Occurs when a source concept has no valid mappings to an RxNorm concept.
+    """
 
 
 class RxConceptCreationError(RxConceptError):
-    """Occurs when a concept cannot be created due to integrity constraints."""
+    """
+    Occurs when a concept cannot be created due to integrity constraints.
+    """
 
 
 class ForeignNodeCreationError(RxConceptError):
-    """Occurs when a foreign node cannot be created due to integrity constraints."""
+    """
+    Occurs when a foreign node cannot be created due to integrity constraints.
+    """
 
 
 class ForeignAttributeError(ForeignNodeCreationError):
-    """Occurs when a foreign node specifies an invalid attribute."""
+    """
+    Occurs when a foreign node specifies an invalid attribute.
+    """
 
 
 class ForeignDosageStrengthError(ForeignNodeCreationError):
-    """Occurs when a foreign node specifies an invalid dosage strength."""
+    """
+    Occurs when a foreign node specifies an invalid dosage strength.
+    """
