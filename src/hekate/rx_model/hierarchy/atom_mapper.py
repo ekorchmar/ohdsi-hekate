@@ -20,6 +20,7 @@ from rx_model.hierarchy.generic import PseudoUnit, AtomicConcept
 from collections import OrderedDict
 from typing import Callable
 from itertools import product
+import polars as pl
 
 type AtomLookupCallable = Callable[[ConceptId], AtomicConcept[ConceptId]]
 
@@ -61,6 +62,68 @@ class AtomMapper:
         conversion factors.
         """
         self._unit_map[pseudo_unit] = unit_map
+
+    def populate_from_frame(
+        self, frame: pl.DataFrame, pseudo_units: list[PseudoUnit]
+    ):
+        """
+        Populate the mappings from a DataFrame.
+        """
+        frame = frame.select(
+            concept_code="concept_code_1",
+            vocabulary_id="vocabulary_id_1",
+            concept_id="concept_id_2",
+            precedence=pl.coalesce(
+                pl.col("precedence"), pl.lit(1, dtype=pl.UInt8)
+            ),
+            conversion_factor="conversion_factor",
+            # NOTE: Order of precedence is supposedly preserved within
+            # each group
+            # https://docs.pola.rs/api/python/stable/reference/dataframe/api/polars.DataFrame.group_by.html
+        ).sort("precedence")
+
+        atom_frame = (
+            frame.filter(
+                ~pl.col("concept_code").is_in(pseudo_units),
+            )
+            .select("concept_code", "vocabulary_id", "concept_id")
+            .group_by("concept_code", "vocabulary_id")
+            .all()
+            .select("concept_code", "vocabulary_id", concept_ids="concept_id")
+        )
+
+        unit_frame = (
+            frame.filter(
+                pl.col("concept_code").is_in(pseudo_units),
+            )
+            .select("concept_code", "concept_id", "conversion_factor")
+            .group_by("concept_code")
+            .all()
+            .select(
+                "concept_code",
+                concept_ids="concept_id",
+                conversion_factors="conversion_factor",
+            )
+        )
+
+        for row in atom_frame.iter_rows():
+            id = ConceptCodeVocab(
+                concept_code=row[0],
+                vocabulary_id=row[1],
+            )
+            concept_ids = row[2]
+            self.add_concept_mappings(id, list(map(ConceptId, concept_ids)))
+
+        for row in unit_frame.iter_rows():
+            pseudo_unit: PseudoUnit = row[0]
+            concept_ids: list[int] = row[1]
+            conversion_factors: list[float] = row[2]
+            unit_map: OrderedDict[Unit, float] = OrderedDict()
+            for cid, factor in zip(concept_ids, conversion_factors):
+                unit: Unit = self._unit_storage[ConceptId(cid)]
+                unit_map[unit] = factor
+
+            self.add_unit_mappings(pseudo_unit, unit_map)
 
     def translate_strength_measure(
         self, value: float, unit: PseudoUnit

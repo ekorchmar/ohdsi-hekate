@@ -20,6 +20,7 @@ from rx_model.drug_classes.atom import (
 )
 
 from rx_model.drug_classes.generic import (
+    BoundStrength,
     ConceptIdentifier,
     ConceptCodeVocab,
     ConceptId,
@@ -53,6 +54,7 @@ from rx_model.drug_classes.relations import (
 
 __all__ = [
     "ALLOWED_DRUG_MULTIMAP",
+    "BoundStrength",
     "BrandName",
     "BrandedDrug",
     "BrandedDrugComponent",

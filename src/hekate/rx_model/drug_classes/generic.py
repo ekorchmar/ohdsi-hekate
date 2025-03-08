@@ -73,7 +73,7 @@ class DrugNode[Id: ConceptIdentifier, S: "st.Strength | None"](ABC):
     @abstractmethod
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, "st.Strength | None"]]:
+    ) -> SortedTuple[BoundStrength[Id, S]]:
         """
         Retrieve all strength data for this node. Every entry will always
         specify an ingredient and a strength, which may be None for nodes

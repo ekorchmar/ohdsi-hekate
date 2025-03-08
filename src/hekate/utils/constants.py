@@ -68,7 +68,7 @@ REPLACEMENT_RELATIONSHIP: Final[list[str]] = [
 PERCENT_CONCEPT_ID: Literal[8554] = 8554
 
 
-STRENGTH_CONFIGURATIONS: Final[dict[str, pl.Expr]] = {
+STRENGTH_CONFIGURATIONS_ID: Final[dict[str, pl.Expr]] = {
     # - Amount value and unit are present, rest of the fields are null
     "amount_only": (
         pl.col("amount_value").is_not_null()
@@ -105,6 +105,47 @@ STRENGTH_CONFIGURATIONS: Final[dict[str, pl.Expr]] = {
         & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
         & pl.col("denominator_value").is_null()
         & pl.col("denominator_unit_concept_id").is_null()
+    ),
+    # TODO: Box size variations, once we start using them
+}
+
+STRENGTH_CONFIGURATIONS_CODE: Final[dict[str, pl.Expr]] = {
+    # - Amount value and unit are present, rest of the fields are null
+    "amount_only": (
+        pl.col("amount_value").is_not_null()
+        & pl.col("amount_unit").is_not_null()
+        & pl.col("numerator_value").is_null()
+        & pl.col("numerator_unit").is_null()
+        & pl.col("denominator_value").is_null()
+        & pl.col("denominator_unit").is_null()
+    ),
+    # - Numerator value and unit are present, but denominator is unit only
+    "liquid_concentration": (
+        pl.col("amount_value").is_null()
+        & pl.col("amount_unit").is_null()
+        & pl.col("numerator_value").is_not_null()
+        & pl.col("numerator_unit").is_not_null()
+        & pl.col("denominator_value").is_null()
+        & pl.col("denominator_unit").is_not_null()
+    ),
+    # - Numerator and denominator values and units are present
+    "liquid_quantity": (
+        pl.col("amount_value").is_null()
+        & pl.col("amount_unit").is_null()
+        & pl.col("numerator_value").is_not_null()
+        & pl.col("numerator_unit").is_not_null()
+        & pl.col("denominator_value").is_not_null()
+        & pl.col("denominator_unit").is_not_null()
+    ),
+    # - Gases are weird. They can have numerator with percents exactly in
+    #   numerator and no denominator data.
+    "gas_concentration": (
+        pl.col("amount_value").is_null()
+        & pl.col("amount_unit").is_null()
+        & pl.col("numerator_value").is_not_null()
+        & (pl.col("numerator_unit") == "%")
+        & pl.col("denominator_value").is_null()
+        & pl.col("denominator_unit").is_null()
     ),
     # TODO: Box size variations, once we start using them
 }
