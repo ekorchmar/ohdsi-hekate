@@ -135,7 +135,6 @@ class RelationshipToConcept(SourceTable[pl.DataFrame]):
 
     TABLE_COLUMNS: list[str] = list(TABLE_SCHEMA.keys())
 
-    # TODO: Implement precedence. For now, discard all rows with precedence > 1
     @override
     def table_filter(
         self, frame: pl.LazyFrame, valid_concepts: pl.DataFrame | None = None
@@ -193,11 +192,10 @@ class BuildRxEInput:
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
 
         # Initiate containers
-        self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms()
+        self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms(self.logger)
         self.rx_atoms: h.Atoms[dc.ConceptId] = rx_atoms
         self.atom_mapper: h.AtomMapper = h.AtomMapper(
-            atom_getter=self.rx_atoms.lookup_unknown,
-            unit_storage=self.rx_atoms.unit,
+            self.source_atoms, self.logger
         )
         self.pseudo_units: list[h.PseudoUnit] = []
         self.drug_nodes: list[
@@ -337,7 +335,10 @@ class BuildRxEInput:
             sp = A.supplier.get(dc.ConceptCodeVocab(row[6], row[7]))
 
             strength_data = self.get_strength_combinations(drug_product_id)
+
+            total_combinations = 0
             for strength_combination in strength_data:
+                total_combinations += 1
                 yield dc.ForeignDrugNode(
                     identifier=drug_product_id,
                     strength_data=strength_combination,
@@ -345,6 +346,13 @@ class BuildRxEInput:
                     brand_name=bn,
                     supplier=sp,
                 )
+                self.logger.debug(
+                    f"Generated node #{total_combinations} for "
+                    f"{drug_product_id} with {strength_combination}"
+                )
+            self.logger.debug(
+                f"Generated {total_combinations} nodes for {drug_product_id}"
+            )
 
     def get_strength_combinations(
         self, drug_product_id: dc.ConceptCodeVocab
@@ -356,6 +364,9 @@ class BuildRxEInput:
         """
         Get dc.strength combinations from the DSStage data.
         """
+        self.logger.debug(
+            f"Getting strength combinations for drug product {drug_product_id}"
+        )
         strength_data = (
             self.dss.collect()
             .filter(pl.col("drug_concept_code") == drug_product_id.concept_code)
