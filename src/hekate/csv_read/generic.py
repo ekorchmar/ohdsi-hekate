@@ -84,8 +84,12 @@ class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None](ABC):
             separator=delimiter,
             quote_char=quote_char,
             has_header=True,
-            infer_schema=False,
-            schema=self.TABLE_SCHEMA,
+            # NOTE: supplying a `schema` parameter causes Polars to expect a
+            # certain column ordering, which is not guaranteed from BuildRxE
+            # input files. We use implicitly unordered `schema_overrides`
+            # instead.
+            schema_overrides=self.TABLE_SCHEMA,
+            infer_schema_length=0,  # We don't really need to infer anything
         )
 
         # Apply the filtering
