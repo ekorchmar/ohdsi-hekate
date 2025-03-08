@@ -310,7 +310,7 @@ class BuildRxEInput:
         drug_products = dcs.filter(
             pl.col("concept_class_id") == "Drug Product"
         ).select("concept_code", "vocabulary_id")
-        for attr_class in ["Dosage Form", "Brand Name", "Supplier"]:
+        for attr_class in ["Dose Form", "Brand Name", "Supplier"]:
             ir_of_attr = ir.join(
                 other=dcs.filter(pl.col("concept_class_id") == attr_class),
                 left_on="concept_code_2",
@@ -390,7 +390,9 @@ class BuildRxEInput:
                     pl.col("concept_code_1") == drug_product_id.concept_code
                 )
                 .join(
-                    self.dcs.collect(),
+                    self.dcs.collect().filter(
+                        pl.col("concept_class_id") == "Ingredient"
+                    ),
                     left_on="concept_code_2",
                     right_on="concept_code",
                 )
