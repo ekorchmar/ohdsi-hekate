@@ -29,12 +29,12 @@ class ConceptCodeVocab:
     Vocabulary and code pair for a concept in the OMOP vocabulary.
     """
 
-    vocabulary_id: str
     concept_code: str
+    vocabulary_id: str
 
     @override
     def __str__(self):
-        return f"{self.vocabulary_id}:{self.concept_code}"
+        return f"{self.vocabulary_id}/{self.concept_code}"
 
 
 type ConceptIdentifier = ConceptId | ConceptCodeVocab

@@ -104,7 +104,7 @@ class DSStage(SourceTable[pl.DataFrame]):
         "numerator_unit",
         "denominator_value",
         "denominator_unit",
-        # "box_size"  # Unused for now
+        "box_size",  # Unused for now
     ]
 
     @override
@@ -119,9 +119,7 @@ class DSStage(SourceTable[pl.DataFrame]):
             pl.col("ingredient_concept_code").is_in(
                 valid_concepts["concept_code"]
             ),
-            # WARN: temporarily discard all data mentioning box_size
-            pl.col("box_size").is_null(),
-        ).select(pl.all().exclude("box_size"))
+        )
 
 
 class RelationshipToConcept(SourceTable[pl.DataFrame]):
@@ -242,6 +240,21 @@ class BuildRxEInput:
             reference_data=self.dcs.collect().select("concept_code"),
         )
 
+        # WARN: temporarily cleaning up all concepts with box_size
+        boxed_drugs = self.dss.collect().filter(
+            pl.col("box_size").is_not_null()
+        )
+        if len(boxed_drugs) > 0:
+            self.logger.warning(
+                f"Found {len(boxed_drugs)} drugs with box_size. "
+                "These will be ignored for now."
+            )
+        self.dcs.anti_join(
+            boxed_drugs,
+            left_on="concept_code",
+            right_on="drug_concept_code",
+        )
+
     def load_valid_concepts(self) -> None:
         """
         Load valid concepts from DrugConceptStage and populate source_atoms.
@@ -316,18 +329,18 @@ class BuildRxEInput:
                 )
                 .with_columns(**{
                     f"{field_name}_code": pl.col("concept_code_2"),
-                    f"{field_name}_vocab": pl.col("vocabulary_id"),
                 })
                 .drop("concept_code_2")
             )
 
-        row: Annotated[tuple[str, ...], 8]
+        row: Annotated[tuple[str, ...], 5]
         for row in drug_products.iter_rows():
-            drug_product_id = dc.ConceptCodeVocab(row[0], row[1])
+            vocab = row[1]
+            drug_product_id = dc.ConceptCodeVocab(row[0], vocab)
             A = self.source_atoms
-            df = A.dose_form.get(dc.ConceptCodeVocab(row[2], row[3]))
-            bn = A.brand_name.get(dc.ConceptCodeVocab(row[4], row[5]))
-            sp = A.supplier.get(dc.ConceptCodeVocab(row[6], row[7]))
+            df = A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab))
+            bn = A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab))
+            sp = A.supplier.get(dc.ConceptCodeVocab(row[4], vocab))
 
             strength_data = self.get_strength_combinations(drug_product_id)
 
@@ -387,7 +400,7 @@ class BuildRxEInput:
                 )
             )
 
-            strengthless: list[
+            ingredient_only: list[
                 tuple[dc.Ingredient[dc.ConceptCodeVocab], None]
             ] = []
             for row in ingredient_codes.iter_rows():
@@ -396,10 +409,16 @@ class BuildRxEInput:
                 ingredient = self.source_atoms.ingredient[
                     dc.ConceptCodeVocab(concept_code, vocab_id)
                 ]
-                strengthless.append((ingredient, None))
+                ingredient_only.append((ingredient, None))
+
+            if len(ingredient_only) == 0:
+                raise ValueError(
+                    f"Drug {drug_product_id} has no strength data nor "
+                    f"ingredients."
+                )
 
             # One permutation as there is only one None
-            yield SortedTuple(strengthless)
+            yield SortedTuple(ingredient_only)
             return
 
         # First, determine the shape of the strength data
@@ -414,15 +433,19 @@ class BuildRxEInput:
         # most precedence values are exactly 1, so we expect only one
         # iteration per every loop.
         component_permutations: list[_ComponentPermutations] = []
+
         for row in strength_data.iter_rows():
             ingredient = self.source_atoms.ingredient[
-                dc.ConceptCodeVocab(row[0], row[1])
+                dc.ConceptCodeVocab(
+                    row[0],
+                    drug_product_id.vocabulary_id,
+                )
             ]
 
             match configuration:
                 case "amount_only":
-                    amount: float = row[2]
-                    unit: h.PseudoUnit = row[3]
+                    amount: float = row[1]
+                    unit: h.PseudoUnit = row[2]
                     am_permut = self.atom_mapper.translate_strength_measure(
                         amount, unit
                     )
@@ -432,10 +455,10 @@ class BuildRxEInput:
                     )
 
                 case "liquid_concentration":
-                    numerator: float = row[4]
-                    numerator_unit: h.PseudoUnit = row[5]
+                    numerator: float = row[3]
+                    numerator_unit: h.PseudoUnit = row[4]
                     # Denominator is implicit 1
-                    denominator_unit: h.PseudoUnit = row[7]
+                    denominator_unit: h.PseudoUnit = row[6]
                     num_permut = self.atom_mapper.translate_strength_measure(
                         numerator, numerator_unit
                     )
@@ -457,10 +480,10 @@ class BuildRxEInput:
                     )
 
                 case "liquid_quantity":
-                    numerator: float = row[4]
-                    numerator_unit: h.PseudoUnit = row[5]
-                    denominator: float = row[6]
-                    denominator_unit: h.PseudoUnit = row[7]
+                    numerator: float = row[3]
+                    numerator_unit: h.PseudoUnit = row[4]
+                    denominator: float = row[5]
+                    denominator_unit: h.PseudoUnit = row[6]
                     num_permut = self.atom_mapper.translate_strength_measure(
                         numerator, numerator_unit
                     )
@@ -483,7 +506,7 @@ class BuildRxEInput:
                     )
                 case "gas_concentration":
                     # Those are static
-                    numerator: float = row[4]
+                    numerator: float = row[3]
                     pct = self.rx_atoms.unit[dc.ConceptId(PERCENT_CONCEPT_ID)]
                     only_component = (
                         ingredient,

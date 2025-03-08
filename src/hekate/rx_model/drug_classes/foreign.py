@@ -98,7 +98,8 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         """
         if not self.strength_data:
             raise exception.ForeignNodeCreationError(
-                "Foreign nodes must have at least one strength data entry."
+                "Foreign nodes must have at least one strength data entry, but "
+                f"Node {self.identifier} has none."
             )
 
         if len(self.strength_data) == 1:
