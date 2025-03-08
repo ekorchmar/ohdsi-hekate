@@ -14,9 +14,10 @@ from rx_model.drug_classes.generic import (
 import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
-from rx_model import exception
 
 from utils.classes import SortedTuple
+from utils.exceptions import ForeignNodeCreationError
+from utils.utils import count_repeated_first_entries
 
 type _AnyComplex[Id: ConceptIdentifier] = (
     a.Ingredient[Id]  # Actually identifies possible multiple types
@@ -27,7 +28,7 @@ type _AnyComplex[Id: ConceptIdentifier] = (
     | c.ClinicalDrug[Id, st.UnquantifiedStrength]
     | c.BrandedDrug[Id, st.UnquantifiedStrength]
     | c.QuantifiedClinicalDrug[Id, c.Concentration]
-    | c.QuantifiedBrandedDrug[Id, c.Concentration]
+    | c.QuantifiedBrandedDrug[Id]
 )
 
 
@@ -97,7 +98,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         Ensures that the strength data is valid.
         """
         if not self.strength_data:
-            raise exception.ForeignNodeCreationError(
+            raise ForeignNodeCreationError(
                 "Foreign nodes must have at least one strength data entry, but "
                 f"Node {self.identifier} has none."
             )
@@ -109,17 +110,20 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         # Strength or None, this set must contain exactly one type
         strength_types = {type(strength) for _, strength in self.strength_data}
         if len(strength_types) != 1:
-            raise exception.ForeignNodeCreationError(
+            raise ForeignNodeCreationError(
                 "All strength data must be of the same type, but Node "
                 f"{self.identifier} has: {strength_types}."
             )
 
-        # Reverse goes for the Ingredient
-        ingredients = {ingredient for ingredient, _ in self.strength_data}
-        if len(ingredients) != 1:
-            raise exception.ForeignNodeCreationError(
-                "All strength data must have a unique ingredient, but Node "
-                f"{self.identifier} has: {ingredients}."
+        # Can not have more than one ingredient
+        repeated_ingredients = count_repeated_first_entries(self.strength_data)
+        if repeated_ingredients:
+            repeats = ", ".join(
+                f"{v} of {k}" for k, v in repeated_ingredients.items()
+            )
+            raise ForeignNodeCreationError(
+                "All strength data must have unique ingredients, but Node "
+                f"{self.identifier} has: {repeats}."
             )
 
         # If the strength data is quantified, ensure that denominators are
@@ -129,7 +133,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
             for other in others:
                 if first[1].denominator_matches(other[1]):
                     continue
-                raise exception.ForeignNodeCreationError(
+                raise ForeignNodeCreationError(
                     "All strength data must have the same denominator, but "
                     f"Node {self.identifier} has: {first[1].denominator_value} "
                     f"{first[1].denominator_unit} and "
@@ -145,7 +149,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
             return
 
         if len(self.precise_ingredients) != len(self.strength_data):
-            raise exception.ForeignNodeCreationError(
+            raise ForeignNodeCreationError(
                 f"If precise ingredients are provided, there must be one for "
                 f"each strength data entry, or explicitly set to None; but "
                 f"Node has: {len(self.precise_ingredients)} for "
@@ -156,7 +160,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
             if pi is None:
                 continue
             if pi.invariant != ing:
-                raise exception.ForeignNodeCreationError(
+                raise ForeignNodeCreationError(
                     f"Precise ingredient {pi} corresponds to ingredient {ing} "
                     f"in Node {self.identifier}, but it is not a known variant."
                 )
@@ -172,7 +176,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
 
         for _, strength in self.strength_data:
             if isinstance(strength, st.LiquidQuantity):
-                raise exception.ForeignNodeCreationError(
+                raise ForeignNodeCreationError(
                     f"All quantified strength data entries must have a dose "
                     f"form, but Node {self.identifier} does not have one."
                 )

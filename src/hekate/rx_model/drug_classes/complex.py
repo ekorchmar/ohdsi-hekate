@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import override  # For type annotations
 
 import rx_model.drug_classes.strength as st
-from rx_model import exception  # For custom exceptions
 from rx_model.drug_classes import atom as a
 from rx_model.drug_classes.generic import (
     BoundStrength,
@@ -11,6 +10,7 @@ from rx_model.drug_classes.generic import (
 )
 from utils.classes import SortedTuple  # To ensure consistent layout
 from utils.utils import invert_merge_dict, keep_multiple_values
+from utils.exceptions import RxConceptCreationError
 
 
 class __MulticomponentMixin[
@@ -38,7 +38,7 @@ class __MulticomponentMixin[
                 should not be used.
         """
         if len(container) == 0:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"{self.__class__.__name__} {self.identifier} must "
                 f"have at least one component."
             )
@@ -53,7 +53,7 @@ class __MulticomponentMixin[
                 f"{self.__class__.__name__} {self.identifier} contains "
                 f"components with different strength types."
             )
-            raise exception.RxConceptCreationError(msg)
+            raise RxConceptCreationError(msg)
 
         # For LiquidConcentration, check that the denominators are the same
         if isinstance(container[0].strength, st.LiquidConcentration):
@@ -68,7 +68,7 @@ class __MulticomponentMixin[
                     f"{self.__class__.__name__} {self.identifier} contains "
                     f"components with different denominator units."
                 )
-                raise exception.RxConceptCreationError(msg)
+                raise RxConceptCreationError(msg)
 
         duplicate_ingredients: dict[
             ClinicalDrugComponent[Id, S],
@@ -96,7 +96,7 @@ class __MulticomponentMixin[
                 msg += f" ({ing.__class__.__name__}), coming from: "
                 msg += " and ".join(str(cdc.identifier) for cdc in cdcs)
                 msg += ";"
-            raise exception.RxConceptCreationError(msg)
+            raise RxConceptCreationError(msg)
 
 
 # Derived concepts
@@ -118,7 +118,7 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         if self.precise_ingredient is not None:
             pi, i = self.precise_ingredient, self.ingredient
             if pi.invariant != i:
-                raise exception.RxConceptCreationError(
+                raise RxConceptCreationError(
                     f"Error creating {self.__class__.__name__} with "
                     f"identifier {self.identifier}: stated precise ingredient "
                     f"{pi.identifier} {pi.concept_name} is not a variant of "
@@ -223,7 +223,7 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
 
     def __post_init__(self):
         if len(self.ingredients) == 0:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"{self.__class__.__name__} must have at least one ingredient, "
                 f"but {self.identifier} has none provided."
             )
@@ -241,7 +241,7 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
                 if cnt > 1:
                     msg += f" {ing.identifier} {ing.concept_name}"
                     msg += f"({cnt});"
-            raise exception.RxConceptCreationError(msg)
+            raise RxConceptCreationError(msg)
 
     @override
     def is_superclass_of(
@@ -430,7 +430,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
             unique_denoms.add((value, unit))
 
         if len(unique_denoms) > 1:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Quantified clinical drug {self.identifier} must have "
                 f"consistent denominator units and values."
             )
@@ -439,7 +439,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
         if len(self.contents) != len(
             self.unquantified.clinical_drug_components
         ):
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Quantified clinical drug {self.identifier} must have the "
                 f"same number of components as its unquantified counterpart."
             )
@@ -452,13 +452,13 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
             strength = cdc.strength
 
             if ing != u_ing:
-                raise exception.RxConceptCreationError(
+                raise RxConceptCreationError(
                     f"Quantified clinical drug {self.identifier} must have "
                     f"same ingredients as its unquantified counterpart."
                 )
 
             if not quantity.matches(strength):
-                raise exception.RxConceptCreationError(
+                raise RxConceptCreationError(
                     f"Quantified clinical drug {self.identifier} must have "
                     f"same strength data as its unquantified counterpart for "
                     f"ingredient {ing.identifier} {ing.concept_name}."
@@ -523,11 +523,11 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class QuantifiedBrandedDrug[Id: ConceptIdentifier, C: Concentration](
-    DrugNode[Id, C],
+class QuantifiedBrandedDrug[Id: ConceptIdentifier](
+    DrugNode[Id, st.LiquidQuantity],
 ):
     identifier: Id
-    unbranded: QuantifiedClinicalDrug[Id, C]
+    unbranded: QuantifiedClinicalDrug[Id, Concentration]
     brand_name: a.BrandName[Id]
     # Redundant, hierarchy builder should check for ancestor consistency
     # unquantified: BrandedDrug[Id, C]

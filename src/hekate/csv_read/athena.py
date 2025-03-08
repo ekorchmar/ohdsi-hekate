@@ -12,7 +12,7 @@ import polars as pl  # For type hinting and schema definition
 from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
-from rx_model.exception import RxConceptCreationError
+from utils.exceptions import RxConceptCreationError
 
 # TODO: reexport this properly
 from rx_model.hierarchy.hosts import NodeIndex
@@ -2058,12 +2058,10 @@ class OMOPVocabulariesV5:
                     nested_break = True
                     break
 
-                if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
-                    ingredient_strength
-                ):
+                if not cdc.strength.matches(ingredient_strength):
                     self.logger.debug(
                         f"Strength mismatch for Branded Drug Component "
-                        f"{concept_id}: expected {cdc.strength} matching "  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
+                        f"{concept_id}: expected {cdc.strength} matching "
                         f"Ingredient {cdc.ingredient.identifier} from CDC "
                         f"{cdc_concept_id}, got {ingredient_strength}"
                     )
@@ -2072,7 +2070,7 @@ class OMOPVocabulariesV5:
                     break
 
                 assert isinstance(cdc, dc.ClinicalDrugComponent)
-                cdcs.append(cdc)  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                cdcs.append(cdc)
 
             if nested_break:
                 continue
@@ -2333,12 +2331,10 @@ class OMOPVocabulariesV5:
                     nested_break = True
                     break
 
-                if not cdc.strength.matches(  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
-                    ingredient_strength
-                ):
+                if not cdc.strength.matches(ingredient_strength):
                     self.logger.debug(
                         f"Strength mismatch for Clinical Drug "
-                        f"{concept_id}: expected {cdc.strength} matching "  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
+                        f"{concept_id}: expected {cdc.strength} matching "
                         f"Ingredient {cdc.ingredient.identifier} from CDC "
                         f"{cdc_concept_id}, got {ingredient_strength}"
                     )
@@ -2347,7 +2343,7 @@ class OMOPVocabulariesV5:
                     break
 
                 assert isinstance(cdc, dc.ClinicalDrugComponent)
-                cdcs.append(cdc)  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                cdcs.append(cdc)
 
             if nested_break:
                 continue
@@ -2688,9 +2684,9 @@ class OMOPVocabulariesV5:
                 bd: dc.BrandedDrug[dc.ConceptId, dc.UnquantifiedStrength] = (
                     dc.BrandedDrug(
                         identifier=dc.ConceptId(concept_id),
-                        clinical_drug=clinical_drug,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                        clinical_drug=clinical_drug,
                         branded_form=branded_form,
-                        branded_component=branded_component,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                        branded_component=branded_component,
                     )
                 )
             except RxConceptCreationError as e:
@@ -2945,7 +2941,7 @@ class OMOPVocabulariesV5:
                 ] = dc.QuantifiedClinicalDrug(
                     identifier=dc.ConceptId(concept_id),
                     contents=own_strength,
-                    unquantified=cd,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                    unquantified=cd,
                 )
             except RxConceptCreationError as e:
                 self.logger.debug(
@@ -3285,12 +3281,12 @@ class OMOPVocabulariesV5:
             assert isinstance(bd, dc.BrandedDrug)
 
             try:
-                qbd: dc.QuantifiedBrandedDrug[
-                    dc.ConceptId, dc.LiquidConcentration | dc.GasPercentage
-                ] = dc.QuantifiedBrandedDrug(
-                    identifier=dc.ConceptId(concept_id),
-                    unbranded=qcd,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
-                    brand_name=brand_name,
+                qbd: dc.QuantifiedBrandedDrug[dc.ConceptId] = (
+                    dc.QuantifiedBrandedDrug(
+                        identifier=dc.ConceptId(concept_id),
+                        unbranded=qcd,
+                        brand_name=brand_name,
+                    )
                 )
             except RxConceptCreationError as e:
                 self.logger.debug(

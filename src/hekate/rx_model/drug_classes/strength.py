@@ -6,7 +6,6 @@ from abc import (  # For abstract interfaces
 from dataclasses import dataclass
 from typing import override  # For type annotations
 
-from rx_model import exception  # For custom exceptions
 from rx_model.drug_classes import atom as a  # For unit classes
 from rx_model.drug_classes.generic import ConceptId
 from utils.constants import (
@@ -14,6 +13,7 @@ from utils.constants import (
 )
 from utils.constants import STRENGTH_CLOSURE_BOUNDARY_HIGH
 from utils.constants import STRENGTH_CLOSURE_BOUNDARY_LOW
+from utils.exceptions import RxConceptCreationError
 
 HIGH = STRENGTH_CLOSURE_BOUNDARY_HIGH
 LOW = STRENGTH_CLOSURE_BOUNDARY_LOW
@@ -69,14 +69,14 @@ class SolidStrength(_StrengthMeta):
 
     def __post_init__(self):
         if self.amount_value < 0:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Solid strength must have a non-negative value, not {
                     self.amount_value
                 }."
             )
 
         if math.isnan(self.amount_value):
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 "Solid strength must have a numeric value, not NaN."
             )
 
@@ -111,13 +111,13 @@ class LiquidConcentration(_StrengthMeta):
 
     def __post_init__(self):
         if self.numerator_value <= 0:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Liquid concentration must have a positive numerator "
                 f"value, not {self.numerator_value}."
             )
 
         if math.isnan(self.numerator_value):
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Liquid concentration must have a numeric numerator value, "
                 f"not {self.numerator_value}."
             )
@@ -160,14 +160,14 @@ class GasPercentage(_StrengthMeta):
     def __post_init__(self):
         # Numerator unit must be a percentage
         if self.numerator_unit.identifier != ConceptId(PERCENT_CONCEPT_ID):
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Gaseous concentration must be percent ({PERCENT_CONCEPT_ID})"
                 f"percentage unit, not {self.numerator_unit}."
             )
 
         # Numerator value must be a positive number < 100
         if 0 <= self.numerator_value > 100:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Gaseous concentration must have a positive numerator "
                 f"value not exceeding 100, not {self.numerator_value}."
             )
@@ -248,13 +248,13 @@ class LiquidQuantity(_StrengthMeta):
         LiquidConcentration.__post_init__(self)  # pyright: ignore[reportArgumentType]  # noqa: E501
 
         if self.denominator_value <= 0:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Liquid quantity must have a positive denominator value, not "
                 f"{self.denominator_value}."
             )
 
         if math.isnan(self.denominator_value):
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Liquid quantity must have a numeric denominator value, not "
                 f"{self.denominator_value}."
             )
@@ -263,7 +263,7 @@ class LiquidQuantity(_StrengthMeta):
             self.numerator_unit == self.denominator_unit
             and self.numerator_value >= self.denominator_value
         ):
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"Liquid quantity must have a numerator value less than the "
                 f"denominator value, not {self.numerator_value} >= "
                 f"{self.denominator_value}."

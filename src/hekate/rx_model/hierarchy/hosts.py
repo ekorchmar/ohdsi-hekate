@@ -307,9 +307,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
 
     def add_quantified_branded_drug(
         self,
-        quantified_branded_drug: dc.QuantifiedBrandedDrug[
-            Id, dc.LiquidConcentration | dc.GasPercentage
-        ],
+        quantified_branded_drug: dc.QuantifiedBrandedDrug[Id],
         branded_drug_idx: NodeIndex,
         quantified_clinical_drug_idx: NodeIndex,
     ) -> NodeIndex:

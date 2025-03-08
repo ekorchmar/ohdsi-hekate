@@ -5,8 +5,8 @@ if TYPE_CHECKING:
     import drug_classes.strength as st
 
 from utils.classes import SortedTuple
+from utils.exceptions import RxConceptCreationError
 
-from rx_model import exception
 from rx_model.drug_classes.generic import (
     BoundStrength,
     ConceptId,
@@ -27,7 +27,7 @@ class _RxAtom[Id: ConceptIdentifier]:
 
     def __post_init__(self):
         if not self.concept_name:
-            raise exception.RxConceptCreationError(
+            raise RxConceptCreationError(
                 f"{self.__class__.__name__} {self.identifier}: name must not "
                 f"be empty."
             )

@@ -15,7 +15,8 @@ from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from utils.classes import SortedTuple
-from utils.constants import STRENGTH_CONFIGURATIONS_CODE, PERCENT_CONCEPT_ID
+from utils.constants import PERCENT_CONCEPT_ID, STRENGTH_CONFIGURATIONS_CODE
+from utils.exceptions import ForeignNodeCreationError
 from utils.logger import LOGGER
 
 type _ComponentPermutations = Generator[
@@ -173,6 +174,28 @@ class InternalRelationshipStage(SourceTable[pl.DataFrame]):
         )
 
 
+class PCSStage(SourceTable[pl.DataFrame]):
+    TABLE_SCHEMA: Schema = {
+        "pack_concept_code": pl.Utf8,
+        "drug_concept_code": pl.Utf8,
+        "amount": pl.UInt16,
+        "box_size": pl.UInt16,
+    }
+    TABLE_COLUMNS: list[str] = list(TABLE_SCHEMA.keys())
+
+    @override
+    def table_filter(
+        self, frame: pl.LazyFrame, valid_concepts: pl.DataFrame | None = None
+    ) -> pl.LazyFrame:
+        if valid_concepts is None:
+            raise ValueError("Valid concepts must be provided for PCSStage.")
+
+        return frame.filter(
+            pl.col("pack_concept_code").is_in(valid_concepts["concept_code"]),
+            pl.col("drug_concept_code").is_in(valid_concepts["concept_code"]),
+        )
+
+
 class BuildRxEInput:
     """
     Class to read and prepare BuildRxE input data for evaluation.
@@ -255,6 +278,22 @@ class BuildRxEInput:
             right_on="drug_concept_code",
         )
 
+        # WARN: temporarily cleaning up all pack_concepts
+        pcs = PCSStage(
+            data_path / "pc_stage.tsv",
+            reference_data=self.dcs.collect().select("concept_code"),
+        )
+        if len(pcs.collect()) > 0:
+            self.logger.warning(
+                f"Found {len(pcs.collect())} pack_concepts. "
+                "These will be ignored for now."
+            )
+        self.dcs.anti_join(
+            pcs.collect(),
+            left_on="concept_code",
+            right_on="pack_concept_code",
+        )
+
     def load_valid_concepts(self) -> None:
         """
         Load valid concepts from DrugConceptStage and populate source_atoms.
@@ -295,7 +334,7 @@ class BuildRxEInput:
         )["concept_code"].to_list()
 
     def build_drug_nodes(
-        self,
+        self, crash_on_error: bool = False
     ) -> Generator[
         dc.ForeignDrugNode[dc.ConceptCodeVocab, dc.Strength | None], None, None
     ]:
@@ -306,7 +345,6 @@ class BuildRxEInput:
         dcs = self.dcs.collect()
 
         # First, get the unique attribute data
-
         drug_products = dcs.filter(
             pl.col("concept_class_id") == "Drug Product"
         ).select("concept_code", "vocabulary_id")
@@ -319,19 +357,27 @@ class BuildRxEInput:
             )
 
             field_name = attr_class.lower().replace(" ", "_")
-            drug_products = (
-                drug_products.join(
-                    other=ir_of_attr,
-                    left_on="concept_code",
-                    right_on="concept_code_1",
-                    how="left",
-                    validate="1:1",  # TODO: Make this an external QA check
+            try:
+                drug_products = (
+                    drug_products.join(
+                        other=ir_of_attr,
+                        left_on="concept_code",
+                        right_on="concept_code_1",
+                        how="left",
+                        validate="1:1",  # TODO: Make this an external QA check
+                    )
+                    .with_columns(**{
+                        f"{field_name}_code": pl.col("concept_code_2"),
+                    })
+                    .drop("concept_code_2")
                 )
-                .with_columns(**{
-                    f"{field_name}_code": pl.col("concept_code_2"),
-                })
-                .drop("concept_code_2")
-            )
+            except pl.exceptions.ComputeError as e:
+                if crash_on_error:
+                    raise e
+                self.logger.error(
+                    f"Error while validating uniqueness of {attr_class} data "
+                    f"for Drug Products: {e}"
+                )
 
         row: Annotated[tuple[str, ...], 5]
         for row in drug_products.iter_rows():
@@ -344,8 +390,27 @@ class BuildRxEInput:
 
             strength_data = self.get_strength_combinations(drug_product_id)
 
+            # Getting strength combinations is fallible, so we need to
+            # catch exceptions and log them instead of using for-loop
             total_combinations = 0
-            for strength_combination in strength_data:
+            while True:
+                try:
+                    strength_combination = next(strength_data)
+
+                except StopIteration:
+                    # Generator exhausted
+                    break
+
+                except ForeignNodeCreationError as e:
+                    # Combination is invalid
+                    if crash_on_error:
+                        raise e
+                    self.logger.error(
+                        f"Error while generating node for {drug_product_id}: "
+                        f"{e}"
+                    )
+                    continue
+
                 total_combinations += 1
                 yield dc.ForeignDrugNode(
                     identifier=drug_product_id,
@@ -414,7 +479,7 @@ class BuildRxEInput:
                 ingredient_only.append((ingredient, None))
 
             if len(ingredient_only) == 0:
-                raise ValueError(
+                raise ForeignNodeCreationError(
                     f"Drug {drug_product_id} has no strength data nor "
                     f"ingredients."
                 )
@@ -517,7 +582,7 @@ class BuildRxEInput:
                     component_permutations.append(x for x in (only_component,))
 
                 case "wrong":
-                    raise ValueError(
+                    raise ForeignNodeCreationError(
                         "Strength data does not match any configuration."
                     )
 
