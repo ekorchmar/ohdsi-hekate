@@ -188,7 +188,7 @@ class BuildRxEInput:
         self,
         data_path: Path,
         rx_atoms: h.Atoms[dc.ConceptId],
-        delimiter: str = "\\t",
+        delimiter: str = "\t",
         quote_char: str = '"',
     ) -> None:
         self.data_path: Path = data_path
