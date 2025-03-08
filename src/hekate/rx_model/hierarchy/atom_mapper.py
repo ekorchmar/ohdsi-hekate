@@ -3,24 +3,27 @@ Contains the AtomMapper class, which is used to map atomic drug attributes to
 their corresponding RxNorm concepts.
 """
 
-from collections.abc import Sequence, Generator, Mapping
-from rx_model.drug_classes.strength import Strength
-from utils.classes import SortedTuple
-from rx_model.drug_classes import ForeignDrugNode
-from rx_model.drug_classes import (
-    ConceptId,
-    ConceptCodeVocab,
-    Unit,
-    Ingredient,
-    BrandName,
-    DoseForm,
-    Supplier,
-)
-from rx_model.hierarchy.generic import PseudoUnit, AtomicConcept
+import logging
 from collections import OrderedDict
-from typing import Callable
+from collections.abc import Generator, Mapping, Sequence
 from itertools import product
+from typing import Callable
+
 import polars as pl
+from rx_model.drug_classes import (
+    BrandName,
+    ConceptCodeVocab,
+    ConceptId,
+    DoseForm,
+    ForeignDrugNode,
+    Ingredient,
+    Strength,
+    Supplier,
+    Unit,
+)
+from rx_model.hierarchy.generic import AtomicConcept, PseudoUnit
+from rx_model.hierarchy.hosts import Atoms
+from utils.classes import SortedTuple
 
 type AtomLookupCallable = Callable[[ConceptId], AtomicConcept[ConceptId]]
 
@@ -32,9 +35,12 @@ class AtomMapper:
 
     def __init__(
         self,
-        atom_getter: AtomLookupCallable,
-        unit_storage: dict[ConceptId, Unit],
+        source_atoms: Atoms,
+        logger: logging.Logger,
     ):
+        self.logger = logger.getChild(self.__class__.__name__)
+        self.logger.info("Initializing AtomMapper")
+
         # Maps atomic attributes to their corresponding RxNorm concepts
         # in order of precedence
         self._concept_map: dict[ConceptCodeVocab, Sequence[ConceptId]] = {}
@@ -43,8 +49,8 @@ class AtomMapper:
         self._unit_map: dict[PseudoUnit, OrderedDict[Unit, float]] = {}
 
         # External references to the storage dictionaries
-        self._get_atom: AtomLookupCallable = atom_getter
-        self._unit_storage: Mapping[ConceptId, Unit] = unit_storage
+        self._get_atom: AtomLookupCallable = source_atoms.lookup_unknown
+        self._unit_storage: Mapping[ConceptId, Unit] = source_atoms.unit
 
     def add_concept_mappings(
         self, concept_vocab: ConceptCodeVocab, concept_ids: Sequence[ConceptId]
@@ -92,6 +98,10 @@ class AtomMapper:
             .select("concept_code", "vocabulary_id", concept_ids="concept_id")
         )
 
+        self.logger.info(
+            f"Adding mappings for attribites of {len(atom_frame)} atoms"
+        )
+
         unit_frame = (
             frame.filter(
                 pl.col("concept_code").is_in(pseudo_units),
@@ -105,6 +115,8 @@ class AtomMapper:
                 conversion_factors="conversion_factor",
             )
         )
+
+        self.logger.info(f"Adding mappings for {len(unit_frame)} units")
 
         for row in atom_frame.iter_rows():
             id = ConceptCodeVocab(
@@ -149,6 +161,7 @@ class AtomMapper:
 
         This produces all possible node variations in order of precedence.
         """
+        self.logger.debug(f"Getting permutations for node: {node}")
 
         # Order of preference is: ingredient, dose form, brand name, supplier
         ingredient_codes: list[ConceptCodeVocab] = []
@@ -166,6 +179,7 @@ class AtomMapper:
             M[node.brand_name.identifier] if node.brand_name else [None],
             M[node.supplier.identifier] if node.supplier else [None],
         )
+
         for *ings, df, bn, sp in attribute_permutations:
             strength_data: list[tuple[Ingredient[ConceptId], S]] = []
 
@@ -175,22 +189,27 @@ class AtomMapper:
                 assert isinstance(ing_object, Ingredient)
                 strength_data.append((ing_object, stgh))
 
-            # TODO: Assertions should be replaced with proper error handling
-            df = bn = sp = None
+            dose_form = brand_name = supplier = None
             if df:
                 dose_form = self._get_atom(df)
-                assert isinstance(dose_form, DoseForm)
             if bn:
                 brand_name = self._get_atom(bn)
-                assert isinstance(brand_name, BrandName)
             if sp:
                 supplier = self._get_atom(sp)
-                assert isinstance(supplier, Supplier)
+
+            for attr, class_ in [
+                (dose_form, DoseForm),
+                (brand_name, BrandName),
+                (supplier, Supplier),
+            ]:
+                if attr is not None and not isinstance(attr, class_):
+                    raise ValueError(f"Expected {class_.__name__}, got {attr}")
 
             yield ForeignDrugNode(
                 identifier=ConceptId(concept_id_factory()),
                 strength_data=SortedTuple(strength_data),
-                dose_form=df,
-                brand_name=bn,
-                supplier=sp,
+                # We just explicitly checked that these are the correct types
+                dose_form=dose_form,  # pyright: ignore[reportArgumentType]
+                brand_name=brand_name,  # pyright: ignore[reportArgumentType]
+                supplier=supplier,  # pyright: ignore[reportArgumentType]
             )
