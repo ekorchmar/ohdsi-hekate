@@ -20,6 +20,7 @@ from rx_model.drug_classes import (
     Strength,
 )
 from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
+from utils.utils import get_first_dict_value
 
 type NodeAcceptance = bool
 
@@ -143,14 +144,39 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self,
     ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
         """
+        Returns the search results.
+        """
+        with_dups = self._get_raw_search_results()
+
+        # Base case
+        if len(with_dups) == 1:
+            return with_dups
+
+        # If there are multple options, check if the node is multi-mappable
+        if len(with_dups) == self.number_components:
+            if isinstance(list(with_dups.values())[0], ALLOWED_DRUG_MULTIMAP):
+                # NOTE: Check if there are repeated ingredients
+                ings = set()
+                for node in with_dups.values():
+                    ings.update(ing for ing, _ in node.get_strength_data())
+                if len(ings) == self.number_components:
+                    return with_dups
+
+        # Disambiguate the results
+        return self._disambiguate_search_results(with_dups)
+
+    def _get_raw_search_results(
+        self,
+    ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
+        """
         Returns NOT DISAMBIGUATED best case nodes found during the search.
         """
         if not self.final_nodes:
             raise ValueError("No nodes found. Did you call start_search()?")
 
-        best_nodes = reversed(self.final_nodes)
-        best_node_idx = next(best_nodes)
-        best_node = self.final_nodes[best_node_idx]
+        # The best node is guaranteed to be the last one in BFS
+        reversed_nodes = list(self.final_nodes.keys())[::-1]
+        best_node = self.final_nodes[reversed_nodes[0]]
 
         best_class_: type[DrugNode[Id, Strength | None]]
         for best_class_ in DRUG_CLASS_PREFERENCE_ORDER:
@@ -162,7 +188,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
                 f"which node {best_node.identifier} is an instance of."
             )
 
-        best_nodes = {best_node_idx: best_node}
+        best_nodes = {reversed_nodes[0]: best_node}
         for idx in best_nodes:
             node = best_nodes[idx]
             if isinstance(node, best_class_):
@@ -172,3 +198,23 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
             f"Found {len(best_nodes)} best case nodes: {best_nodes}"
         )
         return best_nodes
+
+    def _disambiguate_search_results(
+        self, choices: dict[NodeIndex, DrugNode[Id, Strength | None]]
+    ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
+        """
+        Disambiguates the search results.
+        """
+        # NOTE: Algorithm for disambiguation is a subject of an active
+        # discussion between the members of the OHDSI working group.
+        # This is a placeholder for the future implementation. For now,
+        # it will return the first node found.
+        # TODO: Implement the disambiguation algorithm
+        first_node = get_first_dict_value(choices)
+        if not isinstance(first_node, ALLOWED_DRUG_MULTIMAP):
+            return choices
+        else:
+            raise NotImplementedError(
+                "Disambiguation of multi-mapped nodes is not implemented yet. "
+                "Not even a placeholder."
+            )

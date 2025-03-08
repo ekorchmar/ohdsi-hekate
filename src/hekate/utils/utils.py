@@ -26,3 +26,8 @@ def invert_merge_dict(data: dict[T, U]) -> dict[U, list[T]]:
     for k, v in data.items():
         inverted.setdefault(v, []).append(k)
     return inverted
+
+
+def get_first_dict_value(data: dict[T, U]) -> U:
+    """Get the first value from the dictionary."""
+    return next(iter(data.values()))
