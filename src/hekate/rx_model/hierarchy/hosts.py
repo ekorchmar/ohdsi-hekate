@@ -2,6 +2,7 @@
 Contains the classes that hosts the drug concept hierarchy.
 """
 
+import logging
 from rx_model.hierarchy.generic import NumDenomU, AtomicConcept
 from collections.abc import Iterable
 from collections import ChainMap
@@ -36,12 +37,15 @@ class Atoms[Id: dc.ConceptIdentifier]:
             self.supplier,  # pyright: ignore[reportArgumentType]
         )[identifier]
 
-    def __init__(self):
+    def __init__(self, logger: logging.Logger):
         self.ingredient: dict[Id, dc.Ingredient[Id]] = {}
         self.dose_form: dict[Id, dc.DoseForm[Id]] = {}
         self.brand_name: dict[Id, dc.BrandName[Id]] = {}
         self.supplier: dict[Id, dc.Supplier[Id]] = {}
         self.unit: dict[Id, dc.Unit] = {}
+
+        self.logger = logger.getChild(self.__class__.__name__)
+        self.logger.info("Initialized Atoms container.")
 
         # Precise ingredients are stored in a dict from ingredients
         # NOTE: This is not generic, as we do not expect RxE to have precise
@@ -82,6 +86,7 @@ class Atoms[Id: dc.ConceptIdentifier]:
         name: str
         cls: str
         identifier: Annotated[list[int], 1] | Annotated[list[str], 2]
+
         for *identifier, name, cls in frame.iter_rows():
             if cls == "Precise Ingredient":
                 continue
@@ -109,6 +114,8 @@ class Atoms[Id: dc.ConceptIdentifier]:
                 identifier=atom_identifier,  # pyright: ignore[reportArgumentType] # noqa: E501
                 concept_name=name,
             )
+
+        self.logger.info(f"Added {len(frame)} atoms to the container.")
 
     def add_precise_ingredient(
         self, precise_ingredient: dc.PreciseIngredient
@@ -155,7 +162,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     points.
     """
 
-    def __init__(self):
+    def __init__(self, logger):
         self.graph: rx.PyDAG[dc.DrugNode[Id, dc.Strength | None], None] = (
             rx.PyDAG(
                 check_cycle=False,  # Will be really hard to create a cycle
@@ -166,6 +173,8 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         )
         # Cached indices of ingredients (roots)
         self.ingredients: dict[dc.Ingredient[Id], NodeIndex] = {}
+        self.logger = logger.getChild(self.__class__.__name__)
+        self.logger.info("Initialized RxHierarchy.")
 
     def add_root(self, root: dc.Ingredient[Id]) -> None:
         """
@@ -327,4 +336,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         of the hierarchy.
         """
         # WARN: This is not really implemented yet.
+        self.logger.warning(
+            "Checksum calculation is not implemented. Returning 0."
+        )
         return 0

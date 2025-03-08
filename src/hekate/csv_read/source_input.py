@@ -271,6 +271,8 @@ class BuildRxEInput:
             )
         )
 
+        self.logger.info(f"Loaded {len(atom_concepts)} valid concepts.")
+
         # Units must be excluded, as they are actually pseudo-units
         self.source_atoms.add_from_frame(
             atom_concepts.filter(pl.col("concept_class_id") != "Unit")

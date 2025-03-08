@@ -7,10 +7,12 @@ It will not stop the search, only discard the successor nodes.
 """
 
 from typing import override
+import logging
 
 import rustworkx as rx
 from rx_model.drug_classes import (
     ALLOWED_DRUG_MULTIMAP,
+    DRUG_CLASS_PREFERENCE_ORDER,
     ConceptIdentifier,
     DrugNode,
     ForeignDrugNode,
@@ -32,12 +34,17 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self,
         node: ForeignDrugNode[Id, Strength | None],
         hierarchy: RxHierarchy[Id],
+        logger: logging.Logger,
     ):
         """
         Initializes the visitor with the hierarchy and the new node to be
         tested.
         """
         self.node: ForeignDrugNode[Id, Strength | None] = node
+        self.logger = logger.getChild(
+            f"{self.__class__.__name__}({node.identifier})"
+        )
+
         self.history: dict[NodeIndex, NodeAcceptance] = {}
 
         self.aim_for: type[DrugNode[Id, Strength | None]] = (
@@ -123,6 +130,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         ingredient roots.
         """
 
+        self.logger.debug("Starting search for the matching node")
         self.__matched_ingredient_count = 0
 
         rx.bfs_search(
@@ -135,6 +143,32 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self,
     ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
         """
-        Returns the final nodes that have been found.
+        Returns NOT DISAMBIGUATED best case nodes found during the search.
         """
-        return self.final_nodes
+        if not self.final_nodes:
+            raise ValueError("No nodes found. Did you call start_search()?")
+
+        best_nodes = reversed(self.final_nodes)
+        best_node_idx = next(best_nodes)
+        best_node = self.final_nodes[best_node_idx]
+
+        best_class_: type[DrugNode[Id, Strength | None]]
+        for best_class_ in DRUG_CLASS_PREFERENCE_ORDER:
+            if isinstance(best_node, best_class_):
+                break
+        else:
+            raise ValueError(
+                f"Encountered unexpected type {best_node.__class__.__name__} "
+                f"which node {best_node.identifier} is an instance of."
+            )
+
+        best_nodes = {best_node_idx: best_node}
+        for idx in best_nodes:
+            node = best_nodes[idx]
+            if isinstance(node, best_class_):
+                best_nodes[idx] = node
+
+        self.logger.debug(
+            f"Found {len(best_nodes)} best case nodes: {best_nodes}"
+        )
+        return best_nodes

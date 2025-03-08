@@ -801,9 +801,9 @@ class OMOPVocabulariesV5:
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
 
         # Initiate hierarchy containers
-        self.atoms: h.Atoms[dc.ConceptId] = h.Atoms()
+        self.atoms: h.Atoms[dc.ConceptId] = h.Atoms(self.logger)
         self.strengths: h.KnownStrengths[dc.ConceptId] = h.KnownStrengths()
-        self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
+        self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy(self.logger)
 
         self.logger.info(
             f"Starting processing of Athena Vocabularies from "
