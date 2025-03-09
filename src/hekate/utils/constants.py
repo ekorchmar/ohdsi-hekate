@@ -4,6 +4,7 @@ import polars as pl
 
 from typing import Final, Literal
 
+VALID_CONCEPT_START_DATE: Literal[1970_01_01] = 1970_01_01
 VALID_CONCEPT_END_DATE: Literal[2099_12_31] = 2099_12_31
 
 # List of all concept_relationship_ids that are relevant to the project.

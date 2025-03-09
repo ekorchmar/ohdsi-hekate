@@ -19,3 +19,8 @@ profile.html
 profile.json
 program.prof
 
+# run files
+run/
+
+# build files
+**.egg-info/

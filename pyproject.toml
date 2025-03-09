@@ -41,6 +41,11 @@ dependencies = [
 [project.optional-dependencies]
 database = ["sqlalchemy", "pandas"]
 
+[project.scripts]
+hekate = "main:_main"
+
+[tool.setuptools.package-data]
+hekate = [ "__version__" ]
 
 [project.urls]
 "Homepage" = "https://github.com/OHDSI/Vocabulary-v5.0/wiki/International-Drug-Vocabulary-Implementation-Process"

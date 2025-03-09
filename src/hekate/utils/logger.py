@@ -11,4 +11,3 @@ logging.basicConfig(
     handlers=[_stdout_handler],
 )
 LOGGER = logging.getLogger("Hekate")
-LOGGER.info("Logging started")
