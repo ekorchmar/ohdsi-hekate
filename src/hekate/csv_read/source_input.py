@@ -210,7 +210,7 @@ class BuildRxEInput:
         data_path: Path,
         athena_vocab: OMOPVocabulariesV5,
         delimiter: str = "\t",
-        quote_char: str = '"',
+        quote_char: str | None = None,
     ) -> None:
         self.data_path: Path = data_path
 
