@@ -50,7 +50,6 @@ class HekateRunner:
 
         self.athena_rxne: OMOPVocabulariesV5
         self.build_rxe_source: BuildRxEInput
-        self.run()
 
     def run(self):
         LOGGER.info("Run started")
