@@ -8,10 +8,19 @@ contact me via `korchmar@ohdsi.org` if you would like to join the development, a
 ## Testing
 
 ### Unit tests
-TBD
+We use `pytest` for unit testing. To run the tests, execute the following command in the root of the repository:
+```bash
+PYTHONPATH=. pytest src/hekate/
+```
+
+Note that `.justfile` contains a shortcut for running the tests -- `just test`.
+
+The exemplary input data used for fixtures for testing come from GRR Vocabulary. Right now, I am working to clarify the
+IP rights to the mapping data, so the fixtures are not included in the repository.
 
 ### Testing environment
-TBD
+No reproducible environment is provided at the moment.
+
 
 ## Tooling
 
@@ -32,14 +41,14 @@ venv\Scripts\activate
 ```
 
 `requirements.txt` file contains all development dependencies, including `pre-commit` hooks and `scalene` profiler. To
-install all dependencies, run:
+install all optional dependencies, run:
 ```bash
 pip install -r requirements.txt
 ```
 
 > [!WARNING]
-> We are using bleeding edge libraries like Polars that has an unstable API. It is recommended to use the exact
-> versions of the libraries specified in `requirements.txt` to avoid any compatibility issues.
+> We are well aware of shortcomings of `venv` and `requirements.txt` for managing dependencies. However, switching to
+> a different tool is not a priority at the moment. Please be cautious when managing dependencies.
 
 ### Code style
 We use `ruff` for Python code formatting. SQL scripts in `reference/` are formatted with `sqlfluff`.
@@ -48,8 +57,7 @@ It is highly recommended to install `pre-commit` and run `pre-commit install` in
 that your code is properly formatted before committing.
 
 ### Type annotations
-All Python code should be annotated with type hints. We use `basedpyright` to lint the code and ensure that all type
-hints are correct.
+All Python code should be annotated with type hints. We use `pyright` to and ensure that all type hints are correct.
 
 #### Additional type annotation rules
 - `typing.Any` is absolutely disallowed. Use explicit type unions and generic function typing. We work with huge data
@@ -60,8 +68,24 @@ hints are correct.
 - Some of the rules are explicitly disabled in `pyproject.toml`. Any additions to that list will be followed up with a
   justification.
 - Currently, there are exactly 0 errrors and 0 warnings produced by the static type checkers. Keeping it this way is
-  easier than fixing elusive errors on edge cases in long term.
+  easier than fixing elusive errors on edge cases in long term. If you need to indicate a certain predicate to be true
+  for the type checker, use an `assert` statement with a type hint. If you are using `# pyright: ignore[...]`,
+  make sue to add a comment explaining why the type checker is wrong.
 
 ### Just
 We use [`just`](https://github.com/casey/just) as a task runner. You are not required to use it, but it is recommended
-for testing convenience.
+for testing convenience. Set environment variables `$ATHENA_DOWNLOAD_DIR` and `$BUILD_RXE_DOWNLOAD_DIR` to source data
+paths to avoid having to provide `-a` and `-b` every time you run the program.
+
+### Profiling
+High performance is an intended feature of Hekate. We use `scalene` and `snakeviz` for profiling. Make sure to profile
+your changes to avoid introducing performance bottlenecks.
+
+#### cProfile
+`just profile` will run cProfile and save the results to the `program.prof` file. You can then run
+`snakeviz program.prof` to visualize the results.
+
+#### Scalene
+Scalene can be used by running `just scalene`. Main feature of Scalene is it's ability to profile not just the Python
+code, but also the binary dependencies. However, you will have to install `polars` and `rustworkx` from source, as the
+PyPI versions are not compiled with debug symbols.
