@@ -148,7 +148,7 @@ class HekateRunner:
             invalid_reason=pl.lit(None).cast(
                 self.RESULTS_SCHEMA["invalid_reason"]
             ),
-        )
+        ).select(list(self.RESULTS_SCHEMA.keys()))
 
         print(data := mappings_df.collect())
         data.write_csv(self.run_dir / "hekate_results.csv")
