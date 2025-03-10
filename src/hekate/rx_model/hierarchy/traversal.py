@@ -136,11 +136,13 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self.logger.debug("Starting search for the matching node")
         self.__matched_ingredient_count = 0
 
-        rx.bfs_search(
-            self.hierarchy.graph,
-            list(self.hierarchy.ingredients.values()),
-            self,
-        )
+        # We always know the first match level
+        ing_indices: list[NodeIndex] = [
+            self.hierarchy.ingredients[ing]
+            for ing, _ in self.node.get_strength_data()
+        ]
+
+        rx.bfs_search(self.hierarchy.graph, ing_indices, self)
 
     def get_search_results(
         self,

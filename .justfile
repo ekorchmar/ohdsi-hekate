@@ -1,12 +1,14 @@
+default_opts := "-a $ATHENA_DOWNLOAD_DIR -b $BUILD_RXE_DOWNLOAD_DIR"
+
 test args="-v":
   PYTHONPATH=src/hekate pytest {{args}}
 
-run args="-a $ATHENA_DOWNLOAD_DIR -b $BUILD_RXE_DOWNLOAD_DIR":
+run args="":
   pip install -e .
-  hekate {{args}}
+  hekate {{args}} {{default_opts}}
 
-scalene args="-a $ATHENA_DOWNLOAD_DIR -b $BUILD_RXE_DOWNLOAD_DIR":
-  scalene src/hekate/main.py {{args}}
+scalene args="":
+  scalene src/hekate/main.py {{args}} {{default_opts}}
 
 profile:
-  python -m cProfile -o program.prof src/hekate/main.py
+  python -m cProfile -o program.prof src/hekate/main.py {{default_opts}}
