@@ -239,4 +239,4 @@ class ForeignStrength(NamedTuple):
     numerator_unit: PseudoUnit | None
     denominator_value: float | None
     denominator_unit: PseudoUnit | None
-    # box_size: int | None
+    box_size: int | None
