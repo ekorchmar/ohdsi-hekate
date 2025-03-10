@@ -148,7 +148,8 @@ class NodeTranslator:
         self, value: float, unit: PseudoUnit
     ) -> Generator[tuple[float, Unit], None, None]:
         """
-        Translate a strength measure to a sequence of possible value-unit pairs.
+        Translate a single strength measure (a pair of value and unit) to a
+        sequence of possible value-unit pairs in RxNorm-native units.
         """
 
         if unit not in self._unit_map:
@@ -166,7 +167,10 @@ class NodeTranslator:
         Translate a source drug node definitions int a sequence of RxNorm-native
         drug node definitions.
 
-        This produces all possible node variations in order of precedence.
+        This produces all possible node variations in order of precedence. These
+        nodes are known as "virtual nodes", and should only exist until
+        evaluated. They must be then disambiguated by heuristic comparison of
+        mapping results.
         """
         self.logger.debug(f"Getting permutations for node: {node}")
 
