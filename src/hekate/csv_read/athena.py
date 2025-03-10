@@ -24,6 +24,7 @@ from utils.constants import (
     DEFINING_ATTRIBUTE_RELATIONSHIP,
     PERCENT_CONCEPT_ID,
     STRENGTH_CONFIGURATIONS_ID,
+    StrengthConfiguration as SC,
 )
 from utils.classes import (
     Cardinality,
@@ -576,7 +577,7 @@ class OMOPVocabulariesV5:
         # We want to be very strict about the strength data, so we will
         # look for explicit data shapes
         for label, expression in STRENGTH_CONFIGURATIONS_ID.items():
-            strength_df = strength_df.with_columns(**{label: expression})
+            strength_df = strength_df.with_columns(**{label.value: expression})
         confirmed_drugs: pl.Series = self.filter_strength_chunk(strength_df)
         strength_df = strength_df.filter(
             pl.col("drug_concept_id").is_in(confirmed_drugs)
@@ -714,9 +715,7 @@ class OMOPVocabulariesV5:
         # Find drugs that match no known configuration
         # NOTE: This is probably redundant after initial validation
         invalid_mask = (
-            strength_chunk.select(
-                *STRENGTH_CONFIGURATIONS_ID.keys()
-            ).sum_horizontal()
+            strength_chunk.select([s.value for s in SC]).sum_horizontal()
         ) == 0
 
         if n_invalid := invalid_mask.sum():
@@ -730,17 +729,12 @@ class OMOPVocabulariesV5:
 
         # Find drugs that match more than one configuration over rows
         collapsed_df = (
-            strength_chunk.select(
-                "drug_concept_id", *STRENGTH_CONFIGURATIONS_ID.keys()
-            )
+            strength_chunk.select("drug_concept_id", *[s.value for s in SC])
             .group_by("drug_concept_id")
             .max()  # T > F
         )
         muliple_match_mask = (
-            collapsed_df.select(
-                *STRENGTH_CONFIGURATIONS_ID.keys()
-            ).sum_horizontal()
-            > 1
+            collapsed_df.select([s.value for s in SC]).sum_horizontal() > 1
         )
 
         if n_unmatched := muliple_match_mask.sum():
@@ -1724,9 +1718,9 @@ class OMOPVocabulariesV5:
                     "Branded Drug",
                 ])
                 & (
-                    STRENGTH_CONFIGURATIONS_ID["amount_only"]
-                    | STRENGTH_CONFIGURATIONS_ID["liquid_concentration"]
-                    | STRENGTH_CONFIGURATIONS_ID["gas_concentration"]
+                    STRENGTH_CONFIGURATIONS_ID[SC.AMOUNT_ONLY]
+                    | STRENGTH_CONFIGURATIONS_ID[SC.LIQUID_CONCENTRATION]
+                    | STRENGTH_CONFIGURATIONS_ID[SC.GAS_PERCENTAGE]
                 )
             )
             |
@@ -1736,7 +1730,7 @@ class OMOPVocabulariesV5:
                     "Quant Clinical Drug",
                     "Quant Branded Drug",
                 ])
-                & STRENGTH_CONFIGURATIONS_ID["liquid_quantity"]
+                & STRENGTH_CONFIGURATIONS_ID[SC.LIQUID_QUANTITY]
             )
         )
 

@@ -46,7 +46,11 @@ from rx_model.drug_classes.complex import (
     QuantifiedClinicalDrug,
     QuantifiedBrandedDrug,
 )
-from rx_model.drug_classes.foreign import ForeignDrugNode
+from rx_model.drug_classes.foreign import (
+    ForeignDrugNode,
+    PseudoUnit,
+    ForeignStrength,
+)
 from rx_model.drug_classes.relations import (
     ALLOWED_DRUG_MULTIMAP,
     DRUG_CLASS_PREFERENCE_ORDER,
@@ -69,6 +73,8 @@ __all__ = [
     "DrugNode",
     "DRUG_CLASS_PREFERENCE_ORDER",
     "ForeignDrugNode",
+    "ForeignStrength",
+    "PseudoUnit",
     "GasPercentage",
     "Ingredient",
     "LiquidConcentration",

@@ -1,3 +1,12 @@
+"""
+Contains classes for representing exhaustive list of known strength
+configurations.
+
+Strength classes represent only the dosage information inside the standardized
+RxNorm and RxNorm Extension content. Source data is represented by the
+`ForeigStrength` class, which is not tied to the atomic Unit class.
+"""
+
 import math  # For NaN checks
 from abc import (  # For abstract interfaces
     ABC,
@@ -10,9 +19,9 @@ from rx_model.drug_classes import atom as a  # For unit classes
 from rx_model.drug_classes.generic import ConceptId
 from utils.constants import (
     PERCENT_CONCEPT_ID,  # For gaseous percentage check
+    STRENGTH_CLOSURE_BOUNDARY_HIGH,
+    STRENGTH_CLOSURE_BOUNDARY_LOW,
 )
-from utils.constants import STRENGTH_CLOSURE_BOUNDARY_HIGH
-from utils.constants import STRENGTH_CLOSURE_BOUNDARY_LOW
 from utils.exceptions import RxConceptCreationError
 
 HIGH = STRENGTH_CLOSURE_BOUNDARY_HIGH

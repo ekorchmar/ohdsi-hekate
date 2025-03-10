@@ -5,7 +5,7 @@ drug concept hierarchy.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import NoReturn, override
+from typing import NoReturn, override, NamedTuple
 from rx_model.drug_classes.generic import (
     ConceptIdentifier,
     BoundStrength,
@@ -30,6 +30,9 @@ type _AnyComplex[Id: ConceptIdentifier] = (
     | c.QuantifiedClinicalDrug[Id, c.Concentration]
     | c.QuantifiedBrandedDrug[Id]
 )
+
+# PseudoUnit is verbatim string representation of a unit in source data
+type PseudoUnit = str
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,3 +223,20 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         entries.
         """
         return len(self.strength_data) > 1
+
+
+class ForeignStrength(NamedTuple):
+    """
+    Represents a strength entry in a foreign node.
+
+    It is purposefully detached from the ingredient information, as the logic
+    for handling mapping information is processed separately.
+    """
+
+    amount_value: float | None
+    amount_unit: PseudoUnit | None
+    numerator_value: float | None
+    numerator_unit: PseudoUnit | None
+    denominator_value: float | None
+    denominator_unit: PseudoUnit | None
+    # box_size: int | None

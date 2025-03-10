@@ -13,6 +13,3 @@ type AtomicConcept[Id: dc.ConceptIdentifier] = (
 )
 
 type NumDenomU = tuple[dc.Unit, dc.Unit]
-
-# Unit in source datra is reduced to it's concept_code value
-type PseudoUnit = str

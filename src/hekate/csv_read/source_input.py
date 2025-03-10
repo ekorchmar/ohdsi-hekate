@@ -15,17 +15,21 @@ from csv_read.generic import CSVReader, Schema
 from csv_read.athena import OMOPVocabulariesV5
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
+from rx_model.drug_classes.generic import ConceptCodeVocab
 from utils.classes import SortedTuple
-from utils.constants import PERCENT_CONCEPT_ID, STRENGTH_CONFIGURATIONS_CODE
+from utils.constants import (
+    STRENGTH_CONFIGURATIONS_CODE,
+    StrengthConfiguration as SC,
+)
 from utils.exceptions import (
     ForeignNodeCreationError,
     UnmappedSourceConceptError,
 )
 from utils.logger import LOGGER
 
-type _ComponentPermutations = list[
-    dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength]
-]
+type _Permutation = dc.BoundStrength[ConceptCodeVocab, dc.Strength]
+type _ComponentPermutations = list[_Permutation]
+type _AllComponentPermutations = list[_ComponentPermutations]
 
 
 class SourceTable[IdS: pl.DataFrame | None](CSVReader[IdS], ABC):
@@ -86,7 +90,7 @@ class DrugConceptStage(SourceTable[None]):
 
 
 class DSStage(SourceTable[pl.DataFrame]):
-    type dss_strength_tuple = tuple[float | None, h.PseudoUnit]
+    type dss_strength_tuple = tuple[float | None, dc.PseudoUnit]
 
     TABLE_SCHEMA: Schema = {
         "drug_concept_code": pl.Utf8,
@@ -225,7 +229,7 @@ class BuildRxEInput:
         self.translator: h.NodeTranslator = h.NodeTranslator(
             rx_atoms=self.rx_atoms, logger=self.logger
         )
-        self.pseudo_units: list[h.PseudoUnit] = []
+        self.pseudo_units: list[dc.PseudoUnit] = []
         self.drug_nodes: list[
             dc.DrugNode[dc.ConceptCodeVocab, dc.Strength | None]
         ] = []
@@ -475,104 +479,46 @@ class BuildRxEInput:
             return
 
         # First, determine the shape of the strength data
-        configuration: str = "wrong"
-        for configuration, expression in STRENGTH_CONFIGURATIONS_CODE.items():
-            if len(strength_data.filter(expression)) > 0:
+        configuration: SC
+        for configuration in SC:
+            if (
+                len(
+                    strength_data.filter(
+                        STRENGTH_CONFIGURATIONS_CODE[configuration]
+                    )
+                )
+                > 0
+            ):
                 break
+        else:
+            raise ForeignNodeCreationError(
+                "Strength data does not match any configuration."
+            )
 
         # Define a generator for all possible permutations of individual
         # strength components
         # NOTE: This might seem like a lot of nested loops, but in practice
         # most precedence values are exactly 1, so we expect only one
         # iteration per every loop.
-        component_permutations: list[_ComponentPermutations] = []
-
-        for row in strength_data.iter_rows():
-            comp_ingredient = self.source_atoms.ingredient[
+        component_permutations: _AllComponentPermutations = []
+        for ingredient, *strength in strength_data.iter_rows():
+            ingredient = self.source_atoms.ingredient[
                 dc.ConceptCodeVocab(
-                    row[0],
+                    ingredient,
                     drug_product_id.vocabulary_id,
                 )
             ]
+            possible_strengths = self.translator.get_strength_variations(
+                dc.ForeignStrength(*strength), configuration
+            )
+            # Append all possible permutations of the strength component
+            possible_component_variations: _ComponentPermutations = [
+                (ingredient, var_strength)
+                for var_strength in possible_strengths
+            ]
+            component_permutations.append(possible_component_variations)
 
-            match configuration:
-                case "amount_only":
-                    amount: float = row[1]
-                    unit: h.PseudoUnit = row[2]
-                    am_permut = self.translator.translate_strength_measure(
-                        amount, unit
-                    )
-                    component_permutations.append([
-                        (comp_ingredient, dc.SolidStrength(scaled_v, true_unit))
-                        for scaled_v, true_unit in am_permut
-                    ])
-
-                case "liquid_concentration":
-                    numerator: float = row[3]
-                    numerator_unit: h.PseudoUnit = row[4]
-                    # Denominator is implicit 1
-                    denominator_unit: h.PseudoUnit = row[6]
-                    num_permut = self.translator.translate_strength_measure(
-                        numerator, numerator_unit
-                    )
-                    den_permut = self.translator.translate_strength_measure(
-                        1, denominator_unit
-                    )
-                    component_permutations.append([
-                        (
-                            comp_ingredient,
-                            dc.LiquidConcentration(
-                                numerator_value=scaled_n / scaled_d,
-                                numerator_unit=n_unit,
-                                denominator_unit=d_unit,
-                            ),
-                        )
-                        for (scaled_n, n_unit), (scaled_d, d_unit) in product(
-                            num_permut, den_permut
-                        )
-                    ])
-
-                case "liquid_quantity":
-                    numerator: float = row[3]
-                    numerator_unit: h.PseudoUnit = row[4]
-                    denominator: float = row[5]
-                    denominator_unit: h.PseudoUnit = row[6]
-                    num_permut = self.translator.translate_strength_measure(
-                        numerator, numerator_unit
-                    )
-                    den_permut = self.translator.translate_strength_measure(
-                        denominator, denominator_unit
-                    )
-                    component_permutations.append([
-                        (
-                            comp_ingredient,
-                            dc.LiquidQuantity(
-                                numerator_value=scaled_n,
-                                numerator_unit=n_unit,
-                                denominator_value=scaled_d,
-                                denominator_unit=d_unit,
-                            ),
-                        )
-                        for (scaled_n, n_unit), (scaled_d, d_unit) in product(
-                            num_permut, den_permut
-                        )
-                    ])
-                case "gas_concentration":
-                    # Those are static
-                    numerator: float = row[3]
-                    pct = self.rx_atoms.unit[dc.ConceptId(PERCENT_CONCEPT_ID)]
-                    only_component = (
-                        comp_ingredient,
-                        dc.GasPercentage(numerator, pct),
-                    )
-                    component_permutations.append([only_component])
-
-                case "wrong":
-                    raise ForeignNodeCreationError(
-                        "Strength data does not match any configuration."
-                    )
-
-            # Yield all possible permutations of strength components
+        # Yield all possible permutations of strength components
         for combination in product(*component_permutations):
             yield SortedTuple(combination)
 
