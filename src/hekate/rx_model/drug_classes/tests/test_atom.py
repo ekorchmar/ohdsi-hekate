@@ -35,6 +35,15 @@ def haloperidol_decanoate(haloperidol):
     )
 
 
+@permafixture
+def haloperidol_etherate(haloperidol):
+    return a.PreciseIngredient(
+        g.ConceptId(19068899),
+        "haloperidol fake pi",
+        haloperidol,
+    )
+
+
 ## Brand Names
 @permafixture
 def _tylenol():
