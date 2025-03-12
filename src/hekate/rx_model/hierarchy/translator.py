@@ -7,13 +7,13 @@ import logging
 from collections import OrderedDict
 from collections.abc import Generator, Mapping, Sequence
 from itertools import product
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import polars as pl
 from rx_model import drug_classes as dc
+from rx_model.drug_classes.generic import ConceptCodeVocab
 from rx_model.hierarchy.generic import AtomicConcept
 from rx_model.hierarchy.hosts import Atoms
-from utils.classes import SortedTuple
 from utils.constants import StrengthConfiguration as SC
 from utils.exceptions import (
     ForeignNodeCreationError,
@@ -22,6 +22,40 @@ from utils.exceptions import (
 )
 
 type _AtomLookupCallable = Callable[[dc.ConceptId], AtomicConcept[dc.ConceptId]]
+type _Attribute[Id: dc.ConceptIdentifier] = (
+    dc.DoseForm[Id] | dc.BrandName[Id] | dc.Supplier[Id]
+)
+type _PrecedentedTarget[A: _Attribute[dc.ConceptId]] = tuple[int, A | None]
+type _PrecedentedDoseForm = _PrecedentedTarget[dc.DoseForm[dc.ConceptId]]
+type _PrecedentedBrandName = _PrecedentedTarget[dc.BrandName[dc.ConceptId]]
+type _PrecedentedSupplier = _PrecedentedTarget[dc.Supplier[dc.ConceptId]]
+
+# NOTE: Precedence of bound strength is determined only by the ingredient. Unit
+# mapping precedence is meaningless for disambiguation.
+type _PrecedentedBoundStrength = tuple[
+    int, dc.BoundStrength[dc.ConceptId, dc.Strength | None]
+]
+
+
+class AttributePermutations(NamedTuple):
+    dose_form: list[_PrecedentedDoseForm]
+    brand_name: list[_PrecedentedBrandName]
+    supplier: list[_PrecedentedSupplier]
+
+    def explode(
+        self,
+    ) -> product[
+        tuple[
+            _PrecedentedDoseForm,
+            _PrecedentedBrandName,
+            _PrecedentedSupplier,
+        ],
+    ]:
+        """
+        Generate all possible permutations of the attributes in order of
+        precedence.
+        """
+        return product(*self)
 
 
 class NodeTranslator:
@@ -36,7 +70,7 @@ class NodeTranslator:
         rx_atoms: Atoms[dc.ConceptId],
         logger: logging.Logger,
     ):
-        self.logger = logger.getChild(self.__class__.__name__)
+        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
         self.logger.info("Initializing AtomMapper")
 
         # Maps atomic attributes to their corresponding RxNorm concepts
@@ -121,9 +155,11 @@ class NodeTranslator:
         self.logger.info(f"Adding mappings for {len(unit_frame)} units")
 
         for row in atom_frame.iter_rows():
+            concept_code: str = row[0]
+            vocab_id: str = row[1]
             id = dc.ConceptCodeVocab(
-                concept_code=row[0],
-                vocabulary_id=row[1],
+                concept_code=concept_code,
+                vocabulary_id=vocab_id,
             )
             concept_ids = row[2]
             self.add_concept_mappings(id, list(map(dc.ConceptId, concept_ids)))
@@ -153,11 +189,31 @@ class NodeTranslator:
         for rx_unit, conversion_factor in self._unit_map[unit].items():
             yield value * conversion_factor, rx_unit
 
+    def _translate_strength_row(
+        self,
+        ingredient: dc.Ingredient[dc.ConceptCodeVocab],
+        strength: dc.ForeignStrength,
+        expected_class: SC,
+    ) -> Generator[_PrecedentedBoundStrength, None, None]:
+        """
+        Translate a single strength row into a sequence of possible strength
+        data variations in RxNorm-native units, including the ingredient and
+        its precedence.
+
+        """
+        ingredients: list[dc.Ingredient[dc.ConceptId]]
+        ingredients = self.try_map_atom(ingredient.identifier, dc.Ingredient)
+        strengths = self._get_unbound_strength_variations(
+            strength, expected_class
+        )
+        for i, ing_id in enumerate(ingredients):
+            yield from ((i, (ing_id, s)) for s in strengths)
+
     def translate_node[S: dc.Strength | None](
         self,
         node: dc.ForeignDrugNode[dc.ConceptCodeVocab, S],
         concept_id_factory: Callable[[], dc.ConceptId],
-    ) -> Generator[dc.ForeignDrugNode[dc.ConceptId, S], None, None]:
+    ) -> Generator[dc.VirtualNode[S], None, None]:
         """
         Translate a source drug node definitions int a sequence of RxNorm-native
         drug node definitions.
@@ -168,69 +224,22 @@ class NodeTranslator:
         mapping results.
         """
         self.logger.debug(f"Getting permutations for node: {node}")
-
-        # Order of preference is: ingredient, dose form, brand name, supplier
-        node_ingredients: list[dc.Ingredient] = []
-        strengths: list[S] = []
-        for ingredient, strength in node.strength_data:
-            node_ingredients.append(ingredient)
-            strengths.append(strength)
-
-        attribute_mappings = []
-        for node_attribute in [
-            *node_ingredients,
-            node.dose_form,
-            node.brand_name,
-            node.supplier,
-        ]:
-            if node_attribute is not None:
-                try:
-                    mappings = self._concept_map[node_attribute.identifier]
-                except KeyError:
-                    # NOTE: Not necessarily an error: maybe a new ingredient has
-                    # to be created from source.
-                    # TODO: track these cases for the reporting and hierarchy
-                    # extension
-                    raise UnmappedSourceConceptError(
-                        f"Unmapped attribute: {node_attribute}"
-                    )
-                else:
-                    attribute_mappings.append(mappings)
-            else:
-                attribute_mappings.append([None])
-
-        attribute_permutations = product(*attribute_mappings)
-
         # Share the identifier across all permutations
         shared_concept_id = concept_id_factory()
+
+        attribute_permutations = self.get_attribute_permutations(node)
+        strength_permutations = self.get_strength_permutations(node)
+
+        raise NotImplementedError
         any_creations_succeeded = False
-        for *ings, df_id, bn_id, sp_id in attribute_permutations:
-            strength_data: list[tuple[dc.Ingredient[dc.ConceptId], S]] = []
-
-            for ing, stgh in zip(ings, strengths):
-                ing_object = self._try_get_atom(ing, dc.Ingredient)
-                assert isinstance(ing_object, dc.Ingredient)
-                strength_data.append((ing_object, stgh))
-
-            attrs = {
-                "dose_form": (dc.DoseForm, df_id),
-                "brand_name": (dc.BrandName, bn_id),
-                "supplier": (dc.Supplier, sp_id),
-            }
-            fn_attrs = {}
-            for attr, (class_, identifier) in attrs.items():
-                if identifier is None:
-                    continue
-                fn_attrs[attr] = self._try_get_atom(identifier, class_)
-
+        for df_mapped, bn_mapped, sp_mapped in product(
+            strength_permutations, attribute_permutations
+        ):
+            raise NotImplementedError
             try:
                 fn = dc.ForeignDrugNode(
-                    identifier=shared_concept_id,
-                    strength_data=SortedTuple(strength_data),
-                    # We explicitly checked that these are the correct types
-                    **fn_attrs,
+                    concept_id=shared_concept_id,
                 )
-                any_creations_succeeded = True
                 yield fn
 
             except ForeignNodeCreationError as e:
@@ -245,17 +254,23 @@ class NodeTranslator:
                 )
                 # In any case, this should not re-raise, unless no successful
                 # nodes are created
+            else:
+                any_creations_succeeded = True
+
         if not any_creations_succeeded:
             raise ForeignNodeCreationError(
                 "No successful node creations from permutations. Check the "
                 "ingredient precedence mappings."
             )
 
-    def _try_get_atom(
-        self,
-        identifier: dc.ConceptId,
-        expected_class: type[AtomicConcept[dc.ConceptId]],
-    ) -> AtomicConcept[dc.ConceptId]:
+    def _try_get_atom[
+        A: _Attribute[dc.ConceptId] | dc.Ingredient[dc.ConceptId]
+    ](self, identifier: dc.ConceptId, expected_class: type[A]) -> A:
+        """
+        Try to get an atomic attribute by its identifier and check if it's of
+        the expected class. If the attribute is not of the expected class, raise
+        an UnmappedSourceConceptError.
+        """
         try:
             value = self._get_atom(identifier)
         except InvalidConceptIdError as e:
@@ -276,7 +291,29 @@ class NodeTranslator:
             )
         return value
 
-    def get_strength_variations(
+    def try_map_atom[A: _Attribute[dc.ConceptId] | dc.Ingredient[dc.ConceptId]](
+        self, identifier: dc.ConceptCodeVocab, expected_class: type[A]
+    ) -> list[A]:
+        """
+        Try to map an atomic attribute by its source identifier and check if
+        it's of the expected class. If the attribute is not of the expected class, raise
+        """
+        try:
+            ids = self._concept_map[identifier]
+        except KeyError as e:
+            self.logger.error(
+                f"Tried mapping {expected_class.__name__} "
+                f"by {identifier} which is not a valid attribute."
+            )
+            raise UnmappedSourceConceptError(
+                f"Invalid attribute: {identifier} for {expected_class.__name__}"
+            ) from e
+
+        return [
+            self._try_get_atom(dc.ConceptId(id), expected_class) for id in ids
+        ]
+
+    def _get_unbound_strength_variations(
         self,
         strength_data: dc.ForeignStrength,
         expected_class: SC,
@@ -351,3 +388,27 @@ class NodeTranslator:
                 raise ValueError(
                     f"Unknown strength configuration: {expected_class}"
                 )
+
+    def get_attribute_permutations[S: dc.Strength | None](
+        self, node: dc.ForeignDrugNode[ConceptCodeVocab, S]
+    ) -> AttributePermutations:
+        """
+        Get all possible permutations of the node's atomic attributes in order
+        of precedence.
+        """
+
+        # NOTE: Pyright ignore comments are here because types are checked
+        # explicitly on runtime inside try_map_atom and _try_get_atom methods
+        all_attrs = []
+        for attr, class_ in (
+            (node.dose_form, dc.DoseForm),
+            (node.brand_name, dc.BrandName),
+            (node.supplier, dc.Supplier),
+        ):
+            if attr is not None:
+                attrs = self.try_map_atom(attr.identifier, class_)  # pyright: ignore[reportUnknownVariableType]  # noqa: E501
+            else:
+                attrs = [None]
+            all_attrs.append(list(enumerate(attrs)))  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # noqa: E501
+
+        return AttributePermutations(*all_attrs)
