@@ -591,7 +591,7 @@ class OMOPVocabulariesV5:
         failed_concept_ids: list[int] = []
 
         for row in strength_df.iter_rows():
-            row = self._StrengthDataRow(*row)
+            row = self._StrengthDataRow._make(row)
 
             if row.drug_concept_id in failed_concept_ids:
                 # We already know this concept is bad
