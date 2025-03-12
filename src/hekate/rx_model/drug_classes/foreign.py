@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import NoReturn, override, NamedTuple
 from rx_model.drug_classes.generic import (
+    ConceptId,
     ConceptIdentifier,
     BoundStrength,
     DrugNode,
@@ -240,3 +241,17 @@ class ForeignStrength(NamedTuple):
     denominator_value: float | None
     denominator_unit: PseudoUnit | None
     box_size: int | None
+
+
+class VirtualNode[S: st.Strength | None](NamedTuple):
+    """
+    Represents a virtual node as a possible variation of the source data defined
+    ForeignDrugNode, with possible variations in the contributing attribute
+    mapping targets.
+    """
+
+    variant: ForeignDrugNode[ConceptId, S]
+    ingredient_precedence_diff: tuple[int, ...]
+    dose_form_diff: int = 0
+    brand_name_diff: int = 0
+    supplier_diff: int = 0

@@ -50,6 +50,7 @@ from rx_model.drug_classes.foreign import (
     ForeignDrugNode,
     PseudoUnit,
     ForeignStrength,
+    VirtualNode,
 )
 from rx_model.drug_classes.relations import (
     ALLOWED_DRUG_MULTIMAP,
@@ -87,4 +88,5 @@ __all__ = [
     "Supplier",
     "Unit",
     "UnquantifiedStrength",
+    "VirtualNode",
 ]
