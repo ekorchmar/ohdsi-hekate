@@ -310,7 +310,7 @@ class NodeTranslator:
                 for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                     num_permut, den_permut
                 ):
-                    dc.LiquidConcentration(
+                    yield dc.LiquidConcentration(
                         numerator_value=scaled_n / scaled_d,
                         numerator_unit=n_unit,
                         denominator_unit=d_unit,
@@ -331,7 +331,7 @@ class NodeTranslator:
                 for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                     num_permut, den_permut
                 ):
-                    dc.LiquidQuantity(
+                    yield dc.LiquidQuantity(
                         numerator_value=scaled_n,
                         numerator_unit=n_unit,
                         denominator_value=scaled_d,
@@ -348,6 +348,6 @@ class NodeTranslator:
                     )
             case _:
                 # Unreachable
-                raise ValueError(  # pyright: ignore[reportUnreachable]
+                raise ValueError(
                     f"Unknown strength configuration: {expected_class}"
                 )
