@@ -59,13 +59,15 @@ where = ["src/hekate"]
 version = {file = "src/hekate/__version__"}
 
 [tool.pyright]
-include = ["src"]
+include = ["src/hekate"]
 ignore = ["**/tests/*", "**/docs/*"]
 
 reportImplicitStringConcatenation = false  # Intentionally using it
 reportUninitializedInstanceVariable = false  # Pyright doesn't understand dataclasses
 reportImplicitRelativeImport = false  # Importing in python is a headache
 reportImportCycles = false  # Impossible to resolve for TYPE_CHECKING cond
+reportUnnecessaryComparison = false  # Never unnecessary in a dynamic language
+reportUnreachable = false  # Only pops up for exhaustive pattern matching
 
 [tool.ruff]
 line-length = 80
