@@ -47,10 +47,12 @@ from rx_model.drug_classes.complex import (
     QuantifiedBrandedDrug,
 )
 from rx_model.drug_classes.foreign import (
+    BoundForeignStrength,
+    PrecedenceData,
     ForeignDrugNode,
+    ForeignNodePrototype,
     PseudoUnit,
     ForeignStrength,
-    VirtualNode,
 )
 from rx_model.drug_classes.relations import (
     ALLOWED_DRUG_MULTIMAP,
@@ -60,6 +62,7 @@ from rx_model.drug_classes.relations import (
 __all__ = [
     "ALLOWED_DRUG_MULTIMAP",
     "BoundStrength",
+    "BoundForeignStrength",
     "BrandName",
     "BrandedDrug",
     "BrandedDrugComponent",
@@ -74,12 +77,14 @@ __all__ = [
     "DrugNode",
     "DRUG_CLASS_PREFERENCE_ORDER",
     "ForeignDrugNode",
+    "ForeignNodePrototype",
     "ForeignStrength",
     "PseudoUnit",
     "GasPercentage",
     "Ingredient",
     "LiquidConcentration",
     "LiquidQuantity",
+    "PrecedenceData",
     "PreciseIngredient",
     "QuantifiedBrandedDrug",
     "QuantifiedClinicalDrug",
@@ -88,5 +93,4 @@ __all__ = [
     "Supplier",
     "Unit",
     "UnquantifiedStrength",
-    "VirtualNode",
 ]

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import NoReturn, override, NamedTuple
 from rx_model.drug_classes.generic import (
+    ConceptCodeVocab,
     ConceptId,
     ConceptIdentifier,
     BoundStrength,
@@ -17,6 +18,7 @@ import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
 
 from utils.classes import SortedTuple
+from utils.constants import StrengthConfiguration
 from utils.exceptions import ForeignNodeCreationError
 from utils.utils import count_repeated_first_entries
 
@@ -34,29 +36,100 @@ type _AnyComplex[Id: ConceptIdentifier] = (
 
 # PseudoUnit is verbatim string representation of a unit in source data
 type PseudoUnit = str
+type BoundForeignStrength = tuple[
+    a.Ingredient[ConceptCodeVocab], ForeignStrength
+]
+
+
+class ForeignStrength(NamedTuple):
+    """
+    Represents a strength entry in a foreign node.
+
+    It is purposefully detached from the ingredient information, as the logic
+    for handling mapping information is processed separately.
+    """
+
+    amount_value: float | None
+    amount_unit: PseudoUnit | None
+    numerator_value: float | None
+    numerator_unit: PseudoUnit | None
+    denominator_value: float | None
+    denominator_unit: PseudoUnit | None
+    box_size: int | None
+
+    def derive_configuration(self) -> StrengthConfiguration:
+        """
+        Fallible way of deriving the strength configuration from the strength
+        data. Implicitly assumes that the strength data is valid, as it is not
+        the concern of this class.
+        """
+        if self.amount_value is not None:
+            return StrengthConfiguration.AMOUNT_ONLY
+        if self.denominator_value is not None:
+            return StrengthConfiguration.LIQUID_QUANTITY
+        if self.numerator_unit == "%":
+            return StrengthConfiguration.GAS_PERCENTAGE
+        return StrengthConfiguration.LIQUID_CONCENTRATION
+
+
+class ForeignNodePrototype(NamedTuple):
+    """
+    Represents a data pack prototype of a foreign node, with all the information
+    require to create a ForeignDrugNode instance.
+
+    The prototype contents are derived from the source data and use definitions
+    native to the source data. It is job of a translator to convert these
+    definitions to valid ForeignDrugNode instances.
+    """
+
+    identifier: ConceptCodeVocab
+    strength_data: Sequence[BoundForeignStrength]
+    brand_name: a.BrandName[ConceptCodeVocab] | None = None
+    dose_form: a.DoseForm[ConceptCodeVocab] | None = None
+    supplier: a.Supplier[ConceptCodeVocab] | None = None
+
+    # WARN: precise_ingredients are not specifiable in the source for now
+
+
+class PrecedenceData(NamedTuple):
+    """
+    Metadata package that represents the precedence data for a foreign node,
+    which is used to disambiguate the best result when multiple nodes are
+    matched.
+
+    Each value of the tuple represents the precedence ordering of the specific
+    attribute, with lower values indicating higher precedence.
+    """
+
+    ingredient_precedence_diff: int
+    dose_form_diff: int = 0
+    brand_name_diff: int = 0
+    supplier_diff: int = 0
 
 
 @dataclass(frozen=True, slots=True)
-class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
-    DrugNode[Id, S]
-):
+class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     """
     Represents an unknown node in the drug concept hierarchy. This is used to
     represent source drug concepts that may not be present in the RxHierarchy,
     """
 
-    identifier: Id
-    strength_data: SortedTuple[BoundStrength[Id, S]]
-    brand_name: a.BrandName[Id] | None = None
-    dose_form: a.DoseForm[Id] | None = None
-    supplier: a.Supplier[Id] | None = None
+    # Metadata populated at creation
+    precedence_data: PrecedenceData
+    identifier: ConceptId
 
+    strength_data: SortedTuple[BoundStrength[ConceptId, S]]
+    brand_name: a.BrandName[ConceptId] | None = None
+    dose_form: a.DoseForm[ConceptId] | None = None
+    supplier: a.Supplier[ConceptId] | None = None
+
+    # Is curently None for practical purposes
     precise_ingredients: Sequence[a.PreciseIngredient | None] | None = None
 
     @override
     def is_superclass_of(
         self,
-        other: DrugNode[Id, st.Strength | None],
+        other: DrugNode[ConceptId, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> NoReturn:
         del passed_hierarchy_checks, other
@@ -67,7 +140,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
     @override
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, S]]:
+    ) -> SortedTuple[BoundStrength[ConceptId, S]]:
         return self.strength_data
 
     @override
@@ -80,20 +153,21 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         return self.precise_ingredients
 
     @override
-    def get_brand_name(self) -> a.BrandName[Id] | None:
+    def get_brand_name(self) -> a.BrandName[ConceptId] | None:
         return self.brand_name
 
     @override
-    def get_dose_form(self) -> a.DoseForm[Id] | None:
+    def get_dose_form(self) -> a.DoseForm[ConceptId] | None:
         return self.dose_form
 
     @override
-    def get_supplier(self) -> a.Supplier[Id] | None:
+    def get_supplier(self) -> a.Supplier[ConceptId] | None:
         return self.supplier
 
     def __post_init__(self):
         self.validate_strength_data()
         self.validate_precise_ingredients()
+        self.validate_precedence_data()
         self.forbid_formless_quantities()
         # TODO: Marketed Product checks
 
@@ -185,7 +259,7 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
                     f"form, but Node {self.identifier} does not have one."
                 )
 
-    def best_case_class(self) -> type[_AnyComplex[Id]]:
+    def best_case_class(self) -> type[_AnyComplex[ConceptId]]:
         """
         Tries to infer the target class of this foreign node based on the
         presence of attributes and shape of the strength data.
@@ -225,33 +299,26 @@ class ForeignDrugNode[Id: ConceptIdentifier, S: st.Strength | None](
         """
         return len(self.strength_data) > 1
 
+    def validate_precedence_data(self):
+        """
+        Ensures that the precedence data is valid.
+        """
+        if any(p < 0 for p in self.precedence_data):
+            raise ForeignNodeCreationError(
+                f"Precedence values must be non-negative, but Node "
+                f"{self.identifier} has: {self.precedence_data}."
+            )
 
-class ForeignStrength(NamedTuple):
-    """
-    Represents a strength entry in a foreign node.
-
-    It is purposefully detached from the ingredient information, as the logic
-    for handling mapping information is processed separately.
-    """
-
-    amount_value: float | None
-    amount_unit: PseudoUnit | None
-    numerator_value: float | None
-    numerator_unit: PseudoUnit | None
-    denominator_value: float | None
-    denominator_unit: PseudoUnit | None
-    box_size: int | None
-
-
-class VirtualNode[S: st.Strength | None](NamedTuple):
-    """
-    Represents a virtual node as a possible variation of the source data defined
-    ForeignDrugNode, with possible variations in the contributing attribute
-    mapping targets.
-    """
-
-    variant: ForeignDrugNode[ConceptId, S]
-    ingredient_precedence_diff: tuple[int, ...]
-    dose_form_diff: int = 0
-    brand_name_diff: int = 0
-    supplier_diff: int = 0
+        # Non-zero precedence values for unset attributes are indicative of
+        # things going very wrong
+        pd = self.precedence_data
+        for name, attr, prc in (
+            ("dose form", self.dose_form, pd.dose_form_diff),
+            ("brand name", self.brand_name, pd.brand_name_diff),
+            ("supplier", self.supplier, pd.supplier_diff),
+        ):
+            if attr is None and prc != 0:
+                raise ForeignNodeCreationError(
+                    f"Precedence value for unset attribute {name} must be 0, "
+                    f"but Node {self.identifier} has: {prc}."
+                )
