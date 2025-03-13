@@ -6,7 +6,6 @@ into ForeignDrugNode objects for evaluation.
 import logging
 from abc import ABC
 from collections.abc import Generator
-from itertools import product
 from pathlib import Path
 from typing import Annotated, override
 
@@ -15,21 +14,11 @@ from csv_read.generic import CSVReader, Schema
 from csv_read.athena import OMOPVocabulariesV5
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
-from rx_model.drug_classes.generic import ConceptCodeVocab
-from utils.classes import SortedTuple
-from utils.constants import (
-    STRENGTH_CONFIGURATIONS_CODE,
-    StrengthConfiguration as SC,
-)
 from utils.exceptions import (
     ForeignNodeCreationError,
     UnmappedSourceConceptError,
 )
 from utils.logger import LOGGER
-
-type _Permutation = dc.BoundStrength[ConceptCodeVocab, dc.Strength]
-type _ComponentPermutations = list[_Permutation]
-type _AllComponentPermutations = list[_ComponentPermutations]
 
 
 class SourceTable[IdS: pl.DataFrame | None](CSVReader[IdS], ABC):
@@ -107,13 +96,8 @@ class DSStage(SourceTable[pl.DataFrame]):
     TABLE_COLUMNS: list[str] = [
         "drug_concept_code",
         "ingredient_concept_code",
-        "amount_value",
-        "amount_unit",
-        "numerator_value",
-        "numerator_unit",
-        "denominator_value",
-        "denominator_unit",
-        "box_size",  # Unused for now
+        # Use matching order for strength tuple
+        *dc.ForeignStrength._fields,
     ]
 
     @override
@@ -359,13 +343,12 @@ class BuildRxEInput:
             pl.col("concept_class_id") == "Unit",
         )["concept_code"].to_list()
 
-    def build_drug_nodes(
+    def prepare_drug_nodes(
         self, crash_on_error: bool = False
-    ) -> Generator[
-        dc.ForeignDrugNode[dc.ConceptCodeVocab, dc.Strength | None], None, None
-    ]:
+    ) -> Generator[dc.ForeignNodePrototype, None, None]:
         """
-        Build DrugNodes using the DSStage and InternalRelationshipStage data.
+        Build Node prototypes using the DSStage and InternalRelationshipStage
+        data.
         """
         ir = self.ir.collect()
         dcs = self.dcs.collect()
@@ -410,158 +393,17 @@ class BuildRxEInput:
             vocab = row[1]
             drug_product_id = dc.ConceptCodeVocab(row[0], vocab)
             A = self.source_atoms
-            df = A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab))
-            bn = A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab))
-            sp = A.supplier.get(dc.ConceptCodeVocab(row[4], vocab))
-
-            strength_data = self.get_strength_combinations(drug_product_id)
-
-            # Getting strength combinations is fallible, so we need to
-            # catch exceptions and log them instead of using for-loop
-            total_combinations = 0
-            while True:
-                try:
-                    strength_combination = next(strength_data)
-
-                except StopIteration:
-                    # Generator exhausted
-                    break
-
-                except ForeignNodeCreationError as e:
-                    # Combination is invalid
-                    if crash_on_error:
-                        raise e
-                    self.logger.error(
-                        f"Error while generating node for {drug_product_id}: "
-                        f"{e}"
-                    )
-                    continue
-
-                total_combinations += 1
-                yield dc.ForeignDrugNode(
-                    identifier=drug_product_id,
-                    strength_data=strength_combination,
-                    dose_form=df,
-                    brand_name=bn,
-                    supplier=sp,
-                )
-                self.logger.debug(
-                    f"Generated node #{total_combinations} for "
-                    f"{drug_product_id} with {strength_combination}"
-                )
-            self.logger.debug(
-                f"Generated {total_combinations} nodes for {drug_product_id}"
-            )
-
-    def get_strength_combinations(
-        self, drug_product_id: dc.ConceptCodeVocab
-    ) -> Generator[
-        SortedTuple[dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength | None]],
-        None,
-        None,
-    ]:
-        """
-        Get dc.strength combinations from the DSStage data.
-        """
-        self.logger.debug(
-            f"Getting strength combinations for drug product {drug_product_id}"
-        )
-        strength_data = (
-            self.dss.collect()
-            .filter(pl.col("drug_concept_code") == drug_product_id.concept_code)
-            .select(pl.all().exclude("drug_concept_code"))
-        )
-
-        # For drugs without strength data, just return the ingredients from
-        # the IRS
-        if len(strength_data) == 0:
-            yield self._get_strength_ingredients_only(drug_product_id)
-            return
-
-        # First, determine the shape of the strength data
-        configuration: SC
-        for configuration in SC:
-            if (
-                len(
-                    strength_data.filter(
-                        STRENGTH_CONFIGURATIONS_CODE[configuration]
-                    )
-                )
-                > 0
-            ):
-                break
-        else:
-            raise ForeignNodeCreationError(
-                "Strength data does not match any configuration."
-            )
-
-        # Define a generator for all possible permutations of individual
-        # strength components
-        # NOTE: This might seem like a lot of nested loops, but in practice
-        # most precedence values are exactly 1, so we expect only one
-        # iteration per every loop.
-        component_permutations: _AllComponentPermutations = []
-        for ingredient, *strength in strength_data.iter_rows():
-            ingredient = self.source_atoms.ingredient[
-                dc.ConceptCodeVocab(
-                    ingredient,
-                    drug_product_id.vocabulary_id,
-                )
+            attributes = [
+                A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab)),
+                A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
+                A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
             ]
-            possible_strengths = self.translator.get_strength_variations(
-                dc.ForeignStrength(*strength), configuration
+
+            yield dc.ForeignNodePrototype(
+                identifier=drug_product_id,
+                strength_data=self.get_concept_strength(drug_product_id),
+                *attributes,
             )
-            # Append all possible permutations of the strength component
-            possible_component_variations: _ComponentPermutations = [
-                (ingredient, var_strength)
-                for var_strength in possible_strengths
-            ]
-            component_permutations.append(possible_component_variations)
-
-        # Yield all possible permutations of strength components
-        for combination in product(*component_permutations):
-            yield SortedTuple(combination)
-
-    def _get_strength_ingredients_only(
-        self, drug_product_id: dc.ConceptCodeVocab
-    ) -> SortedTuple[dc.BoundStrength[dc.ConceptCodeVocab, dc.Strength | None]]:
-        """
-        Get a SortedTuple of ingredients only for a drug product without
-        any strength data, with None as stand-in.
-        """
-        ingredient_codes = (
-            self.ir.collect()
-            .filter(pl.col("concept_code_1") == drug_product_id.concept_code)
-            .join(
-                self.dcs.collect().filter(
-                    pl.col("concept_class_id") == "Ingredient"
-                ),
-                left_on="concept_code_2",
-                right_on="concept_code",
-            )
-            .select(
-                concept_code="concept_code_2",
-                vocabulary_id="vocabulary_id",
-            )
-        )
-
-        ingredient_only: list[
-            tuple[dc.Ingredient[dc.ConceptCodeVocab], None]
-        ] = []
-        for row in ingredient_codes.iter_rows():
-            concept_code: str = row[0]
-            vocab_id: str = row[1]
-            ingredient = self.source_atoms.ingredient[
-                dc.ConceptCodeVocab(concept_code, vocab_id)
-            ]
-            ingredient_only.append((ingredient, None))
-
-        if len(ingredient_only) == 0:
-            raise ForeignNodeCreationError(
-                f"Drug {drug_product_id} has no strength data nor ingredients."
-            )
-
-        return SortedTuple(ingredient_only)
 
     def map_to_rxn(self) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
         """
@@ -578,7 +420,7 @@ class BuildRxEInput:
                 two_bill += 1
 
         cid_counter = new_concept_id()
-        for node in self.build_drug_nodes(crash_on_error=False):
+        for node in self.prepare_drug_nodes(crash_on_error=False):
             translated_nodes = self.translator.translate_node(
                 node, lambda: next(cid_counter)
             )
@@ -605,7 +447,7 @@ class BuildRxEInput:
                 except NotImplementedError:
                     # This is expected for now
                     self.logger.warning(
-                        f"At least one valid Node for {option.identifier} could "
+                        f"At least one valid Node for {node.identifier} could "
                         f"not be disambiguated."
                     )
                 else:
@@ -613,3 +455,35 @@ class BuildRxEInput:
                         node.identifier for node in node_result.values()
                     )
         return result
+
+    def get_concept_strength(
+        self, drug_id: dc.ConceptCodeVocab
+    ) -> list[dc.BoundForeignStrength]:
+        """
+        Extract strength combinations for a given drug concept.
+        """
+        strength_data = (
+            self.dss.collect()
+            .filter(pl.col("drug_concept_code") == drug_id.concept_code)
+            .select(pl.all().exclude("drug_concept_code"))
+        )
+
+        ingredient_concept_code: str
+        strength_combinations: list[dc.BoundForeignStrength] = []
+        for ingredient_concept_code, *strength in strength_data.iter_rows():
+            id = dc.ConceptCodeVocab(
+                ingredient_concept_code, drug_id.vocabulary_id
+            )
+            try:
+                ingredient = self.source_atoms.ingredient[id]
+            except KeyError:
+                raise ForeignNodeCreationError(
+                    f"Ingredient with code {ingredient_concept_code} not found "
+                    f"for drug {drug_id}."
+                )
+            strength_combinations.append((
+                ingredient,
+                dc.ForeignStrength._make(strength),
+            ))
+
+        return strength_combinations
