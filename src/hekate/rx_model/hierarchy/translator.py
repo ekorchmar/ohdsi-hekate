@@ -215,7 +215,7 @@ class NodeTranslator:
         # Share the identifier across all permutations
         shared_concept_id = concept_id_factory()
 
-        attribute_permutations = self.get_attribute_permutations(
+        dfs, bns, supps = self.get_attribute_permutations(
             node_prototype.dose_form,
             node_prototype.brand_name,
             node_prototype.supplier,
@@ -239,11 +239,29 @@ class NodeTranslator:
         )
 
         any_creations_succeeded = False
-        combinations = product(strength_permutations, attribute_permutations)
-        for (s_prc, strength_opt), p_attr_opt in combinations:
-            del s_prc, strength_opt, p_attr_opt, shared_concept_id
+        combinations = product(
+            strength_permutations,
+            dfs,
+            bns,
+            supps,
+        )
+        for (p_s, st), (p_d, d), (p_b, b), (p_s, s) in combinations:
+            precedence_data = dc.PrecedenceData(
+                ingredient_precedence_diff=p_s,
+                dose_form_diff=p_d,
+                brand_name_diff=p_b,
+                supplier_diff=p_s,
+            )
+
             try:
-                raise NotImplementedError("This is a placeholder")
+                foreign_node = dc.ForeignDrugNode(
+                    precedence_data=precedence_data,
+                    strength_data=st,
+                    identifier=shared_concept_id,
+                    dose_form=d,
+                    brand_name=b,
+                    supplier=s,
+                )
 
             except ForeignNodeCreationError as e:
                 # NOTE:
@@ -259,6 +277,8 @@ class NodeTranslator:
                 # nodes are created
             else:
                 any_creations_succeeded = True
+                # NOTE: again the yield is covariant
+                yield foreign_node  # pyright: ignore[reportReturnType]
 
         if not any_creations_succeeded:
             raise ForeignNodeCreationError(
