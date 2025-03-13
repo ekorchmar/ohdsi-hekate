@@ -14,7 +14,7 @@ from rx_model import drug_classes as dc
 from rx_model.drug_classes.generic import ConceptCodeVocab
 from rx_model.hierarchy.generic import AtomicConcept
 from rx_model.hierarchy.hosts import Atoms
-from utils.constants import StrengthConfiguration as SC
+from utils.classes import SortedTuple
 from utils.exceptions import (
     ForeignNodeCreationError,
     InvalidConceptIdError,
@@ -23,7 +23,7 @@ from utils.exceptions import (
 
 type _AtomLookupCallable = Callable[[dc.ConceptId], AtomicConcept[dc.ConceptId]]
 type _Attribute[Id: dc.ConceptIdentifier] = (
-    dc.DoseForm[Id] | dc.BrandName[Id] | dc.Supplier[Id]
+    dc.DoseForm[Id] | dc.BrandName[Id] | dc.Supplier[Id] | dc.Ingredient[Id]
 )
 type _PrecedentedTarget[A: _Attribute[dc.ConceptId]] = tuple[int, A | None]
 type _PrecedentedDoseForm = _PrecedentedTarget[dc.DoseForm[dc.ConceptId]]
@@ -32,8 +32,13 @@ type _PrecedentedSupplier = _PrecedentedTarget[dc.Supplier[dc.ConceptId]]
 
 # NOTE: Precedence of bound strength is determined only by the ingredient. Unit
 # mapping precedence is meaningless for disambiguation.
-type _PrecedentedBoundStrength = tuple[
-    int, dc.BoundStrength[dc.ConceptId, dc.Strength | None]
+type _PrecedentedBoundStrength[S: dc.Strength | None] = tuple[
+    int, dc.BoundStrength[dc.ConceptId, S]
+]
+# Precedence of strength data is determined by the sum of all contributing
+# components' precedences.
+type _PrecedentedStrengthData[S: dc.Strength | None] = tuple[
+    int, SortedTuple[dc.BoundStrength[dc.ConceptId, S]]
 ]
 
 
@@ -41,21 +46,6 @@ class AttributePermutations(NamedTuple):
     dose_form: list[_PrecedentedDoseForm]
     brand_name: list[_PrecedentedBrandName]
     supplier: list[_PrecedentedSupplier]
-
-    def explode(
-        self,
-    ) -> product[
-        tuple[
-            _PrecedentedDoseForm,
-            _PrecedentedBrandName,
-            _PrecedentedSupplier,
-        ],
-    ]:
-        """
-        Generate all possible permutations of the attributes in order of
-        precedence.
-        """
-        return product(*self)
 
 
 class NodeTranslator:
@@ -175,7 +165,7 @@ class NodeTranslator:
 
             self.add_unit_mappings(pseudo_unit, unit_map)
 
-    def translate_strength_measure(
+    def _translate_strength_measure(
         self, value: float, unit: dc.PseudoUnit
     ) -> Generator[tuple[float, dc.Unit], None, None]:
         """
@@ -188,26 +178,6 @@ class NodeTranslator:
 
         for rx_unit, conversion_factor in self._unit_map[unit].items():
             yield value * conversion_factor, rx_unit
-
-    def _translate_strength_row(
-        self,
-        ingredient: dc.Ingredient[dc.ConceptCodeVocab],
-        strength: dc.ForeignStrength,
-        expected_class: SC,
-    ) -> Generator[_PrecedentedBoundStrength, None, None]:
-        """
-        Translate a single strength row into a sequence of possible strength
-        data variations in RxNorm-native units, including the ingredient and
-        its precedence.
-
-        """
-        ingredients: list[dc.Ingredient[dc.ConceptId]]
-        ingredients = self.try_map_atom(ingredient.identifier, dc.Ingredient)
-        strengths = self._get_unbound_strength_variations(
-            strength, expected_class
-        )
-        for i, ing_id in enumerate(ingredients):
-            yield from ((i, (ing_id, s)) for s in strengths)
 
     def translate_node[S: dc.Strength | None](
         self,
@@ -291,7 +261,7 @@ class NodeTranslator:
             )
         return value
 
-    def try_map_atom[A: _Attribute[dc.ConceptId] | dc.Ingredient[dc.ConceptId]](
+    def try_map_atom[A: _Attribute[dc.ConceptId]](
         self, identifier: dc.ConceptCodeVocab, expected_class: type[A]
     ) -> list[A]:
         """
@@ -313,11 +283,11 @@ class NodeTranslator:
             self._try_get_atom(dc.ConceptId(id), expected_class) for id in ids
         ]
 
-    def _get_unbound_strength_variations(
+    def _get_unbound_strength_variations[S: dc.Strength](
         self,
         strength_data: dc.ForeignStrength,
-        expected_class: SC,
-    ) -> Generator[dc.Strength, None, None]:
+        expected_class: type[S],
+    ) -> Generator[S, None, None]:
         """
         Translate a slice of DS_STAGE dosage information into
         RxNorm-native strength data.
@@ -325,72 +295,114 @@ class NodeTranslator:
         As units may be mapped with precedence, this method may yield multiple
         strength data variations for a single input.
         """
+        # NOTE: Pyright complains about the non-covariant generator return type,
+        # but it is.
+
         match expected_class:
-            case SC.AMOUNT_ONLY:
+            case dc.SolidStrength:
                 assert strength_data.amount_value
                 assert strength_data.amount_unit
-                for scaled_v, true_unit in self.translate_strength_measure(
+                for scaled_v, true_unit in self._translate_strength_measure(
                     strength_data.amount_value, strength_data.amount_unit
                 ):
-                    yield dc.SolidStrength(scaled_v, true_unit)
+                    yield dc.SolidStrength(scaled_v, true_unit)  # pyright: ignore[reportReturnType] # noqa: E501
+                return
 
-            case SC.LIQUID_CONCENTRATION:
+            case dc.LiquidConcentration:
                 assert strength_data.numerator_value
                 assert strength_data.numerator_unit
                 assert strength_data.denominator_unit
-                num_permut = self.translate_strength_measure(
+                num_permut = self._translate_strength_measure(
                     strength_data.numerator_value, strength_data.numerator_unit
                 )
-                den_permut = self.translate_strength_measure(
+                den_permut = self._translate_strength_measure(
                     1, strength_data.denominator_unit
                 )
                 for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                     num_permut, den_permut
                 ):
-                    yield dc.LiquidConcentration(
+                    yield dc.LiquidConcentration(  # pyright: ignore[reportReturnType] # noqa: E501
                         numerator_value=scaled_n / scaled_d,
                         numerator_unit=n_unit,
                         denominator_unit=d_unit,
                     )
+                return
 
-            case SC.LIQUID_QUANTITY:
+            case dc.LiquidQuantity:
                 assert strength_data.numerator_value
                 assert strength_data.numerator_unit
                 assert strength_data.denominator_value
                 assert strength_data.denominator_unit
-                num_permut = self.translate_strength_measure(
+                num_permut = self._translate_strength_measure(
                     strength_data.numerator_value, strength_data.numerator_unit
                 )
-                den_permut = self.translate_strength_measure(
+                den_permut = self._translate_strength_measure(
                     strength_data.denominator_value,
                     strength_data.denominator_unit,
                 )
                 for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                     num_permut, den_permut
                 ):
-                    yield dc.LiquidQuantity(
+                    yield dc.LiquidQuantity(  # pyright: ignore[reportReturnType] # noqa: E501
                         numerator_value=scaled_n,
                         numerator_unit=n_unit,
                         denominator_value=scaled_d,
                         denominator_unit=d_unit,
                     )
-            case SC.GAS_PERCENTAGE:
+                return
+
+            case dc.GasPercentage:
                 # Those are static
                 assert strength_data.numerator_value
                 assert strength_data.numerator_unit
                 pct_map = self._unit_map[strength_data.numerator_unit]
                 for pct_u, conv in pct_map.items():  # What if?...
-                    yield dc.GasPercentage(
+                    yield dc.GasPercentage(  # pyright: ignore[reportReturnType] # noqa: E501
                         conv * strength_data.numerator_value, pct_u
                     )
+                return
             case _:
                 # Unreachable
                 raise ValueError(
                     f"Unknown strength configuration: {expected_class}"
                 )
 
-    def get_attribute_permutations[S: dc.Strength | None](
-        self, node: dc.ForeignDrugNode[ConceptCodeVocab, S]
+    def _get_ingredient_permutations(
+        self, ingredients: Sequence[dc.Ingredient[dc.ConceptCodeVocab]]
+    ) -> Generator[_PrecedentedStrengthData[None], None, None]:
+        """
+        Get all possible permutations of the node that has only ingredients and
+        no strength data.
+        """
+
+        # Stand-in for the strength data
+        _strength = None
+
+        precedented_targets: list[
+            tuple[int, dc.BoundStrength[dc.ConceptId, None]]
+        ]
+        all_ingredient_permutations: list[
+            list[tuple[int, dc.BoundStrength[dc.ConceptId, None]]]
+        ] = []
+        for ingredient in ingredients:
+            targets: list[dc.Ingredient[dc.ConceptId]] = self.try_map_atom(
+                ingredient.identifier, dc.Ingredient
+            )
+            precedented_targets = [
+                (i, (t, _strength)) for i, t in enumerate(targets)
+            ]
+            all_ingredient_permutations.append(precedented_targets)
+
+        for combo_permutation in product(*all_ingredient_permutations):
+            precedence = sum(p for p, _ in combo_permutation)
+            strengths = SortedTuple(i for _, i in combo_permutation)
+            yield precedence, strengths
+
+    def get_attribute_permutations(
+        self,
+        dose_form: dc.DoseForm[dc.ConceptCodeVocab] | None,
+        brand_name: dc.BrandName[dc.ConceptCodeVocab] | None,
+        supplier: dc.Supplier[dc.ConceptCodeVocab] | None,
     ) -> AttributePermutations:
         """
         Get all possible permutations of the node's atomic attributes in order
@@ -401,9 +413,9 @@ class NodeTranslator:
         # explicitly on runtime inside try_map_atom and _try_get_atom methods
         all_attrs = []
         for attr, class_ in (
-            (node.dose_form, dc.DoseForm),
-            (node.brand_name, dc.BrandName),
-            (node.supplier, dc.Supplier),
+            (dose_form, dc.DoseForm),
+            (brand_name, dc.BrandName),
+            (supplier, dc.Supplier),
         ):
             if attr is not None:
                 attrs = self.try_map_atom(attr.identifier, class_)  # pyright: ignore[reportUnknownVariableType]  # noqa: E501
@@ -412,3 +424,51 @@ class NodeTranslator:
             all_attrs.append(list(enumerate(attrs)))  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # noqa: E501
 
         return AttributePermutations(*all_attrs)
+
+    def _translate_strength_row[S: dc.Strength](
+        self,
+        ingredient: dc.Ingredient[dc.ConceptCodeVocab],
+        strength: dc.ForeignStrength,
+        expected_class: type[S],
+    ) -> Generator[_PrecedentedBoundStrength[S], None, None]:
+        """
+        Translate a single strength row into a sequence of possible strength
+        data variations in RxNorm-native units, including the ingredient and
+        its precedence.
+
+        """
+        ingredient_targets: list[dc.Ingredient[dc.ConceptId]]
+        ingredient_targets = self.try_map_atom(
+            ingredient.identifier, dc.Ingredient
+        )
+
+        strengths = self._get_unbound_strength_variations(
+            strength, expected_class
+        )
+
+        for (i, ing_id), s in product(enumerate(ingredient_targets), strengths):
+            yield i, (ing_id, s)
+
+    def get_strength_permutations[S: dc.Strength](
+        self,
+        rows: list[tuple[dc.Ingredient[ConceptCodeVocab], dc.ForeignStrength]],
+        expected_class: type[S],
+    ) -> Generator[_PrecedentedStrengthData[S], None, None]:
+        """
+        Get all possible permutations of the node's strength data in order of
+        precedence of the contributing ingredient mappings.
+
+        Precedence returned is accumulated as sum of all precedences of the
+        contributing ingredients.
+        """
+        row_permutations: list[list[_PrecedentedBoundStrength[S]]] = []
+        for ingredient, strength in rows:
+            permutations = self._translate_strength_row(
+                ingredient, strength, expected_class
+            )
+            row_permutations.append(list(permutations))
+
+        for strength_permutation in product(*row_permutations):
+            precedence = sum(p for p, _ in strength_permutation)
+            strength = SortedTuple(s for _, s in strength_permutation)
+            yield precedence, strength
