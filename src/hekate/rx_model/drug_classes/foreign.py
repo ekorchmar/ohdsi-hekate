@@ -119,8 +119,8 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     identifier: ConceptId
 
     strength_data: SortedTuple[BoundStrength[ConceptId, S]]
-    brand_name: a.BrandName[ConceptId] | None = None
     dose_form: a.DoseForm[ConceptId] | None = None
+    brand_name: a.BrandName[ConceptId] | None = None
     supplier: a.Supplier[ConceptId] | None = None
 
     # Is curently None for practical purposes
