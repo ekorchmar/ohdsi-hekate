@@ -11,9 +11,9 @@ from typing import Callable, NamedTuple
 
 import polars as pl
 from rx_model import drug_classes as dc
-from rx_model.drug_classes.generic import ConceptCodeVocab
 from rx_model.hierarchy.generic import AtomicConcept
 from rx_model.hierarchy.hosts import Atoms
+from utils.constants import StrengthConfiguration
 from utils.classes import SortedTuple
 from utils.exceptions import (
     ForeignNodeCreationError,
@@ -35,8 +35,8 @@ type _PrecedentedSupplier = _PrecedentedTarget[dc.Supplier[dc.ConceptId]]
 type _PrecedentedBoundStrength[S: dc.Strength | None] = tuple[
     int, dc.BoundStrength[dc.ConceptId, S]
 ]
-# Precedence of strength data is determined by the sum of all contributing
-# components' precedences.
+# NOTE: Precedence of strength data is determined by the sum of all contributing
+# components' precedences -- meaning the sum of all ingredient precedences.
 type _PrecedentedStrengthData[S: dc.Strength | None] = tuple[
     int, SortedTuple[dc.BoundStrength[dc.ConceptId, S]]
 ]
@@ -54,6 +54,13 @@ class NodeTranslator:
     translates a source drug node definition into permutations of RxNorm-native
     drug nodes.
     """
+
+    STRENGTH_CLASS: dict[StrengthConfiguration, type[dc.Strength]] = {
+        StrengthConfiguration.AMOUNT_ONLY: dc.SolidStrength,
+        StrengthConfiguration.LIQUID_CONCENTRATION: dc.LiquidConcentration,
+        StrengthConfiguration.LIQUID_QUANTITY: dc.LiquidQuantity,
+        StrengthConfiguration.GAS_PERCENTAGE: dc.GasPercentage,
+    }
 
     def __init__(
         self,
@@ -179,11 +186,20 @@ class NodeTranslator:
         for rx_unit, conversion_factor in self._unit_map[unit].items():
             yield value * conversion_factor, rx_unit
 
-    def translate_node[S: dc.Strength | None](
+    def _derive_strength_class(
+        self, strength: dc.BoundForeignStrength
+    ) -> type[dc.Strength]:
+        """
+        Derive the expected strength class from the strength data.
+        """
+        expected = strength[1].derive_configuration()
+        return self.STRENGTH_CLASS[expected]
+
+    def translate_node(
         self,
-        node: dc.ForeignDrugNode[dc.ConceptCodeVocab, S],
+        node_prototype: dc.ForeignNodePrototype,
         concept_id_factory: Callable[[], dc.ConceptId],
-    ) -> Generator[dc.VirtualNode[S], None, None]:
+    ) -> Generator[dc.ForeignDrugNode[dc.Strength | None], None, None]:
         """
         Translate a source drug node definitions int a sequence of RxNorm-native
         drug node definitions.
@@ -193,24 +209,41 @@ class NodeTranslator:
         evaluated. They must be then disambiguated by heuristic comparison of
         mapping results.
         """
-        self.logger.debug(f"Getting permutations for node: {node}")
+        self.logger.debug(
+            f"Getting permutations for node {node_prototype.identifier}"
+        )
         # Share the identifier across all permutations
         shared_concept_id = concept_id_factory()
 
-        attribute_permutations = self.get_attribute_permutations(node)
-        strength_permutations = self.get_strength_permutations(node)
+        attribute_permutations = self.get_attribute_permutations(
+            node_prototype.dose_form,
+            node_prototype.brand_name,
+            node_prototype.supplier,
+        )
 
-        raise NotImplementedError
+        strength_data = node_prototype.strength_data
+
+        # Redundant check
+        strength_classes = {
+            self._derive_strength_class(strength) for strength in strength_data
+        }
+        assert len(strength_classes) == 1, (
+            f"Incorrect strength configurations in the strength data "
+            f"for the node prototype {node_prototype.identifier}: total "
+            f"of {len(strength_classes)}"
+        )
+
+        strength_permutations = self._get_strength_permutations(
+            rows=list(strength_data),
+            expected_class=strength_classes.pop(),
+        )
+
         any_creations_succeeded = False
-        for df_mapped, bn_mapped, sp_mapped in product(
-            strength_permutations, attribute_permutations
-        ):
-            raise NotImplementedError
+        combinations = product(strength_permutations, attribute_permutations)
+        for (s_prc, strength_opt), p_attr_opt in combinations:
+            del s_prc, strength_opt, p_attr_opt, shared_concept_id
             try:
-                fn = dc.ForeignDrugNode(
-                    concept_id=shared_concept_id,
-                )
-                yield fn
+                raise NotImplementedError("This is a placeholder")
 
             except ForeignNodeCreationError as e:
                 # NOTE:
@@ -449,9 +482,9 @@ class NodeTranslator:
         for (i, ing_id), s in product(enumerate(ingredient_targets), strengths):
             yield i, (ing_id, s)
 
-    def get_strength_permutations[S: dc.Strength](
+    def _get_strength_permutations[S: dc.Strength](
         self,
-        rows: list[tuple[dc.Ingredient[ConceptCodeVocab], dc.ForeignStrength]],
+        rows: list[dc.BoundForeignStrength],
         expected_class: type[S],
     ) -> Generator[_PrecedentedStrengthData[S], None, None]:
         """
