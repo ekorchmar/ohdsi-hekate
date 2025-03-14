@@ -37,7 +37,7 @@ type _AnyComplex[Id: ConceptIdentifier] = (
 # PseudoUnit is verbatim string representation of a unit in source data
 type PseudoUnit = str
 type BoundForeignStrength = tuple[
-    a.Ingredient[ConceptCodeVocab], ForeignStrength
+    a.Ingredient[ConceptCodeVocab], ForeignStrength | None
 ]
 
 

@@ -477,6 +477,12 @@ class BuildRxEInput:
             .select(pl.all().exclude("drug_concept_code"))
         )
 
+        if len(strength_data) == 0:
+            # TODO: generate ingredient-only data from the IRS
+            raise ForeignNodeCreationError(
+                f"Source drug {drug_id} does have any strength data"
+            )
+
         ingredient_concept_code: str
         strength_combinations: list[dc.BoundForeignStrength] = []
         for ingredient_concept_code, *strength in strength_data.iter_rows():

@@ -26,6 +26,7 @@ type _Attribute[Id: dc.ConceptIdentifier] = (
     dc.DoseForm[Id] | dc.BrandName[Id] | dc.Supplier[Id] | dc.Ingredient[Id]
 )
 type _PrecedentedTarget[A: _Attribute[dc.ConceptId]] = tuple[int, A | None]
+type _PrecedentedIngredient = tuple[int, dc.Ingredient[dc.ConceptId]]
 type _PrecedentedDoseForm = _PrecedentedTarget[dc.DoseForm[dc.ConceptId]]
 type _PrecedentedBrandName = _PrecedentedTarget[dc.BrandName[dc.ConceptId]]
 type _PrecedentedSupplier = _PrecedentedTarget[dc.Supplier[dc.ConceptId]]
@@ -188,11 +189,15 @@ class NodeTranslator:
 
     def _derive_strength_class(
         self, strength: dc.BoundForeignStrength
-    ) -> type[dc.Strength]:
+    ) -> type[dc.Strength] | None:
         """
         Derive the expected strength class from the strength data.
+
+        Returns None if the strength data is also None.
         """
-        expected = strength[1].derive_configuration()
+        if (foreign_strength := strength[1]) is None:
+            return None
+        expected = foreign_strength.derive_configuration()
         return self.STRENGTH_CLASS[expected]
 
     def translate_node(
@@ -233,10 +238,15 @@ class NodeTranslator:
             f"of {len(strength_classes)}"
         )
 
-        strength_permutations = self._get_strength_permutations(
-            rows=list(strength_data),
-            expected_class=strength_classes.pop(),
-        )
+        if (strength_shape := strength_classes.pop()) is None:
+            strength_permutations = self._get_ingredient_permutations(
+                ingredients=[ing for ing, _ in strength_data]
+            )
+        else:
+            strength_permutations = self._get_strength_permutations(
+                rows=list(strength_data),
+                expected_class=strength_shape,
+            )
 
         any_creations_succeeded = False
         combinations = product(
@@ -278,7 +288,7 @@ class NodeTranslator:
             else:
                 any_creations_succeeded = True
                 # NOTE: again the yield is covariant
-                yield foreign_node  # pyright: ignore[reportReturnType]
+                yield foreign_node
 
         if not any_creations_succeeded:
             raise ForeignNodeCreationError(
@@ -516,6 +526,12 @@ class NodeTranslator:
         """
         row_permutations: list[list[_PrecedentedBoundStrength[S]]] = []
         for ingredient, strength in rows:
+            if strength is None:
+                raise ValueError(
+                    "Strength data is None. Such cases must be passed to "
+                    "_get_ingredient_only_permutations method."
+                )
+
             permutations = self._translate_strength_row(
                 ingredient, strength, expected_class
             )
@@ -525,3 +541,22 @@ class NodeTranslator:
             precedence = sum(p for p, _ in strength_permutation)
             strength = SortedTuple(s for _, s in strength_permutation)
             yield precedence, strength
+
+    def _get_ingredient_only_permutations(
+        self,
+        ingredients: Sequence[dc.Ingredient[dc.ConceptCodeVocab]],
+    ) -> Generator[_PrecedentedStrengthData[None], None, None]:
+        """
+        Get all possible permutations of the node that has only ingredients and
+        no strength data.
+        """
+        row_permutations: list[list[_PrecedentedIngredient]] = []
+        mappings: list[dc.Ingredient[dc.ConceptId]]
+        for ingredient in ingredients:
+            mappings = self.try_map_atom(ingredient.identifier, dc.Ingredient)
+            row_permutations.append(list(enumerate(mappings)))
+
+        for ing_permutation in product(*row_permutations):
+            precedence = sum(p for p, _ in ing_permutation)
+            ings_combo = SortedTuple((i, None) for _, i in ing_permutation)
+            yield precedence, ings_combo
