@@ -50,7 +50,7 @@ class Atoms[Id: dc.ConceptIdentifier]:
         self.supplier: dict[Id, dc.Supplier[Id]] = {}
         self.unit: dict[Id, dc.Unit] = {}
 
-        self.logger = logger.getChild(self.__class__.__name__)
+        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
         self.logger.info("Initialized Atoms container.")
 
         # Precise ingredients are stored in a dict from ingredients
@@ -168,7 +168,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     points.
     """
 
-    def __init__(self, logger):
+    def __init__(self, logger: logging.Logger):
         self.graph: rx.PyDAG[dc.DrugNode[Id, dc.Strength | None], None] = (
             rx.PyDAG(
                 check_cycle=False,  # Will be really hard to create a cycle
@@ -179,7 +179,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         )
         # Cached indices of ingredients (roots)
         self.ingredients: dict[dc.Ingredient[Id], NodeIndex] = {}
-        self.logger = logger.getChild(self.__class__.__name__)
+        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
         self.logger.info("Initialized RxHierarchy.")
 
     def add_root(self, root: dc.Ingredient[Id]) -> None:
