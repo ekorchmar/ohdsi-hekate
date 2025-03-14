@@ -33,6 +33,8 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
     appropriate location for a new node.
     """
 
+    SENTINEL: DrugNode[ConceptId, None] = Ingredient(ConceptId(0), "__SENTINEL")
+
     def __init__(
         self,
         node: ForeignDrugNode[Strength | None],
@@ -80,6 +82,10 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         Called when a new vertex is discovered.
         """
         drug_node = self.hierarchy.graph[v]
+
+        if drug_node is self.SENTINEL:
+            # Implicitly accept
+            return
 
         if isinstance(drug_node, Ingredient):
             if self.__matched_ingredient_count >= self.number_components:
@@ -138,13 +144,23 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         self.logger.debug("Starting search for the matching node")
         self.__matched_ingredient_count = 0
 
-        # We always know the first match level
-        ing_indices = [
-            self.hierarchy.ingredients[ing]
-            for ing, _ in self.node.get_strength_data()
-        ]
+        # NOTE: to make sure that all starting ingredients are found at the same
+        # search level, we create an artificial root node that will be the
+        # starting point of the search.
 
-        rx.bfs_search(self.hierarchy.graph, ing_indices, self)
+        # We make it an Ingredient, so that type checker accepts it
+        temporary_root_idx = self.hierarchy.graph.add_node(self.SENTINEL)
+
+        for ing, _ in self.node.get_strength_data():
+            ing_idx = self.hierarchy.ingredients[ing]
+            _ = self.hierarchy.graph.add_edge(temporary_root_idx, ing_idx, None)
+
+        try:
+            rx.bfs_search(self.hierarchy.graph, [temporary_root_idx], self)
+        finally:
+            # Remove the temporary root node with edges in case we are
+            # ever going multithreaded.
+            self.hierarchy.graph.remove_node(temporary_root_idx)
 
     def get_search_results(
         self,
@@ -184,7 +200,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         reversed_nodes = list(self.final_nodes.keys())[::-1]
         best_node = self.final_nodes[reversed_nodes[0]]
 
-        best_class_: type[DrugNode[Strength | None]]
+        best_class_: type[DrugNode]
         for best_class_ in DRUG_CLASS_PREFERENCE_ORDER:
             if isinstance(best_node, best_class_):
                 break
