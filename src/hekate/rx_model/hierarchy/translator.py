@@ -244,7 +244,7 @@ class NodeTranslator:
             )
         else:
             strength_permutations = self._get_strength_permutations(
-                rows=list(strength_data),
+                rows=strength_data,
                 expected_class=strength_shape,
             )
 
@@ -363,8 +363,8 @@ class NodeTranslator:
 
         match expected_class:
             case dc.SolidStrength:
-                assert strength_data.amount_value
-                assert strength_data.amount_unit
+                assert strength_data.amount_value is not None
+                assert strength_data.amount_unit is not None
                 for scaled_v, true_unit in self._translate_strength_measure(
                     strength_data.amount_value, strength_data.amount_unit
                 ):

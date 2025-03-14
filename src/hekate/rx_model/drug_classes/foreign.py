@@ -63,7 +63,7 @@ class ForeignStrength(NamedTuple):
         data. Implicitly assumes that the strength data is valid, as it is not
         the concern of this class.
         """
-        if self.amount_value is not None:
+        if self.amount_unit is not None:
             return StrengthConfiguration.AMOUNT_ONLY
         if self.denominator_value is not None:
             return StrengthConfiguration.LIQUID_QUANTITY

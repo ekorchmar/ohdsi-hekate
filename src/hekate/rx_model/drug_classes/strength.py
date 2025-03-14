@@ -103,8 +103,14 @@ class SolidStrength(_StrengthMeta):
     @override
     def _values_match(self, other: _StrengthMeta) -> bool:
         assert isinstance(other, SolidStrength)
-        diff = self.amount_value / other.amount_value
-        return LOW <= diff <= HIGH
+
+        # NOTE: amount_value is the only strength metric where 0 is possible
+        try:
+            diff = self.amount_value / other.amount_value
+        except ZeroDivisionError:
+            return self.amount_value == 0
+        else:
+            return LOW <= diff <= HIGH
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)

@@ -258,21 +258,6 @@ class BuildRxEInput:
             reference_data=self.dcs.collect().select("concept_code"),
         )
 
-        # WARN: temporarily cleaning up all concepts with 0 in amount_value
-        # There is actually a valid use case for this for drug packs, but we are
-        # not processing them yet.
-        zero_amounts = self.dss.collect().filter(pl.col("amount_value") == 0)
-        if len(zero_amounts) > 0:
-            self.logger.warning(
-                f"Found {len(zero_amounts)} drugs with 0 amount_value. "
-                "These will be ignored for now."
-            )
-        self.dss.anti_join(
-            zero_amounts,
-            left_on="drug_concept_code",
-            right_on="drug_concept_code",
-        )
-
         # WARN: temporarily cleaning up all concepts with box_size
         boxed_drugs = self.dss.collect().filter(
             pl.col("box_size").is_not_null()
@@ -289,17 +274,17 @@ class BuildRxEInput:
         )
 
         # WARN: temporarily cleaning up all pack_concepts
-        pcs = PCSStage(
+        self.pcs = PCSStage(
             data_path / "pc_stage.tsv",
             reference_data=self.dcs.collect().select("concept_code"),
         )
-        if len(pcs.collect()) > 0:
+        if len(self.pcs.collect()) > 0:
             self.logger.warning(
-                f"Found {len(pcs.collect())} pack_concepts. "
+                f"Found {len(self.pcs.collect())} pack_concepts. "
                 "These will be ignored for now."
             )
         self.dcs.anti_join(
-            pcs.collect(),
+            self.pcs.collect(),
             left_on="concept_code",
             right_on="pack_concept_code",
         )
@@ -402,16 +387,25 @@ class BuildRxEInput:
             vocab = row[1]
             drug_product_id = dc.ConceptCodeVocab(row[0], vocab)
             A = self.source_atoms
-            attributes = [
-                A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab)),
-                A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
-                A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
-            ]
+
+            try:
+                node_strength = self.get_concept_strength(drug_product_id)
+            except ForeignNodeCreationError:
+                self.logger.error(
+                    f"Failed creating strength data for node {drug_product_id}"
+                )
+                if crash_on_error:
+                    raise
+                else:
+                    # Continue to the next row
+                    continue
 
             yield dc.ForeignNodePrototype(
-                drug_product_id,
-                self.get_concept_strength(drug_product_id),
-                *attributes,  # pyright: ignore[reportArgumentType]
+                identifier=drug_product_id,
+                strength_data=node_strength,
+                dose_form=A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab)),
+                brand_name=A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
+                supplier=A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
             )
 
     def map_to_rxn(self) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
@@ -478,10 +472,45 @@ class BuildRxEInput:
         )
 
         if len(strength_data) == 0:
-            # TODO: generate ingredient-only data from the IRS
-            raise ForeignNodeCreationError(
-                f"Source drug {drug_id} does have any strength data"
+            # Return ingredient only
+            ing_ir = (
+                self.ir.collect()
+                .filter(pl.col("concept_code_1") == drug_id.concept_code)
+                .join(
+                    other=self.dcs.collect().filter(
+                        pl.col("concept_class_id") == "Ingredient"
+                    ),
+                    left_on="concept_code_2",
+                    right_on="concept_code",
+                    how="semi",
+                )["concept_code_2"]
             )
+
+            if len(ing_ir) == 0:
+                raise ForeignNodeCreationError(
+                    f"No strength nor ingredient data found for drug {drug_id}."
+                )
+
+            ingredient_data: list[
+                tuple[dc.Ingredient[dc.ConceptCodeVocab], None]
+            ] = []
+            for ingredient_concept_code in ing_ir:
+                try:
+                    ingredient = self.source_atoms.ingredient[
+                        dc.ConceptCodeVocab(
+                            ingredient_concept_code, drug_id.vocabulary_id
+                        )
+                    ]
+                except KeyError:
+                    raise ForeignNodeCreationError(
+                        f"Ingredient with code {ingredient_concept_code} not "
+                        f"found for drug {drug_id}."
+                    )
+                else:
+                    bfs: dc.BoundForeignStrength = (ingredient, None)
+                    ingredient_data.append(bfs)
+
+            return ingredient_data
 
         ingredient_concept_code: str
         strength_combinations: list[dc.BoundForeignStrength] = []
@@ -496,9 +525,11 @@ class BuildRxEInput:
                     f"Ingredient with code {ingredient_concept_code} not found "
                     f"for drug {drug_id}."
                 )
-            strength_combinations.append((
+            bfs: dc.BoundForeignStrength = (
                 ingredient,
                 dc.ForeignStrength._make(strength),
-            ))
+            )
+
+            strength_combinations.append(bfs)
 
         return strength_combinations
