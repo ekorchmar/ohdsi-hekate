@@ -400,9 +400,9 @@ class BuildRxEInput:
             ]
 
             yield dc.ForeignNodePrototype(
-                identifier=drug_product_id,
-                strength_data=self.get_concept_strength(drug_product_id),
-                *attributes,
+                drug_product_id,
+                self.get_concept_strength(drug_product_id),
+                *attributes,  # pyright: ignore[reportArgumentType]
             )
 
     def map_to_rxn(self) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
