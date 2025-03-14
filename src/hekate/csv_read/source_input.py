@@ -354,9 +354,18 @@ class BuildRxEInput:
         dcs = self.dcs.collect()
 
         # First, get the unique attribute data
-        drug_products = dcs.filter(
-            pl.col("concept_class_id") == "Drug Product"
-        ).select("concept_code", "vocabulary_id")
+        drug_products = (
+            dcs.filter(pl.col("concept_class_id") == "Drug Product")
+            .join(
+                # Exclude Drug Products having explicit mappings in RTC
+                other=self.rtcs.collect(),
+                left_on=["concept_code", "vocabulary_id"],
+                right_on=["concept_code_1", "vocabulary_id_1"],
+                how="anti",
+            )
+            .select("concept_code", "vocabulary_id")
+        )
+
         for attr_class in ["Dose Form", "Brand Name", "Supplier"]:
             ir_of_attr = ir.join(
                 other=dcs.filter(pl.col("concept_class_id") == attr_class),
