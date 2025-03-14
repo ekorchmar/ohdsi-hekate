@@ -13,7 +13,7 @@ import rustworkx as rx
 from rx_model.drug_classes import (
     ALLOWED_DRUG_MULTIMAP,
     DRUG_CLASS_PREFERENCE_ORDER,
-    ConceptIdentifier,
+    ConceptId,
     DrugNode,
     ForeignDrugNode,
     Ingredient,
@@ -27,7 +27,7 @@ from utils.utils import get_first_dict_value
 type NodeAcceptance = bool
 
 
-class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
+class DrugNodeFinder(rx.visit.BFSVisitor):
     """
     A visitor class that traverses the RxHierarchy tree (BFS) and finds a new
     appropriate location for a new node.
@@ -35,22 +35,22 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
 
     def __init__(
         self,
-        node: ForeignDrugNode[Id, Strength | None],
-        hierarchy: RxHierarchy[Id],
+        node: ForeignDrugNode[Strength | None],
+        hierarchy: RxHierarchy[ConceptId],
         logger: logging.Logger,
     ):
         """
         Initializes the visitor with the hierarchy and the new node to be
         tested.
         """
-        self.node: ForeignDrugNode[Id, Strength | None] = node
-        self.logger = logger.getChild(
+        self.node: ForeignDrugNode[Strength | None] = node
+        self.logger: logging.Logger = logger.getChild(
             f"{self.__class__.__name__}({node.identifier})"
         )
 
         self.history: dict[NodeIndex, NodeAcceptance] = {}
 
-        self.aim_for: type[DrugNode[Id, Strength | None]] = (
+        self.aim_for: type[DrugNode[ConceptId, Strength | None]] = (
             self.node.best_case_class()
         )
 
@@ -67,17 +67,19 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         else:
             self.number_components = 1
 
-        self.hierarchy: RxHierarchy[Id] = hierarchy
+        self.hierarchy: RxHierarchy[ConceptId] = hierarchy
 
         # Container for the results
-        self.final_nodes: dict[NodeIndex, DrugNode[Id, Strength | None]] = {}
+        self.final_nodes: dict[
+            NodeIndex, DrugNode[ConceptId, Strength | None]
+        ] = {}
 
     @override
     def discover_vertex(self, v: NodeIndex) -> None:
         """
         Called when a new vertex is discovered.
         """
-        drug_node: DrugNode[Id, Strength | None] = self.hierarchy.graph[v]
+        drug_node = self.hierarchy.graph[v]
 
         if isinstance(drug_node, Ingredient):
             if self.__matched_ingredient_count >= self.number_components:
@@ -107,7 +109,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         """
         Accepts a node and remembers it.
         """
-        drug_node: DrugNode[Id, Strength | None] = self.hierarchy.graph[v]
+        drug_node = self.hierarchy.graph[v]
         self.final_nodes[v] = drug_node
         if isinstance(drug_node, self.aim_for):
             # We are almost there. However, this might be a node for
@@ -137,7 +139,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         self.__matched_ingredient_count = 0
 
         # We always know the first match level
-        ing_indices: list[NodeIndex] = [
+        ing_indices = [
             self.hierarchy.ingredients[ing]
             for ing, _ in self.node.get_strength_data()
         ]
@@ -146,7 +148,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
 
     def get_search_results(
         self,
-    ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
+    ) -> dict[NodeIndex, DrugNode[ConceptId, Strength | None]]:
         """
         Returns the search results.
         """
@@ -171,7 +173,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
 
     def _get_raw_search_results(
         self,
-    ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
+    ) -> dict[NodeIndex, DrugNode[ConceptId, Strength | None]]:
         """
         Returns NOT DISAMBIGUATED best case nodes found during the search.
         """
@@ -182,7 +184,7 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         reversed_nodes = list(self.final_nodes.keys())[::-1]
         best_node = self.final_nodes[reversed_nodes[0]]
 
-        best_class_: type[DrugNode[Id, Strength | None]]
+        best_class_: type[DrugNode[Strength | None]]
         for best_class_ in DRUG_CLASS_PREFERENCE_ORDER:
             if isinstance(best_node, best_class_):
                 break
@@ -204,8 +206,8 @@ class DrugNodeFinder[Id: ConceptIdentifier](rx.visit.BFSVisitor):
         return best_nodes
 
     def _disambiguate_search_results(
-        self, choices: dict[NodeIndex, DrugNode[Id, Strength | None]]
-    ) -> dict[NodeIndex, DrugNode[Id, Strength | None]]:
+        self, choices: dict[NodeIndex, DrugNode[ConceptId, Strength | None]]
+    ) -> dict[NodeIndex, DrugNode[ConceptId, Strength | None]]:
         """
         Disambiguates the search results.
         """
