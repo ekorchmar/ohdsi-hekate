@@ -12,7 +12,6 @@ import logging
 import rustworkx as rx
 from rx_model.drug_classes import (
     ALLOWED_DRUG_MULTIMAP,
-    DRUG_CLASS_PREFERENCE_ORDER,
     ConceptId,
     DrugNode,
     ForeignDrugNode,
@@ -72,9 +71,8 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         self.hierarchy: RxHierarchy[ConceptId] = hierarchy
 
         # Container for the results
-        self.final_nodes: dict[
-            NodeIndex, DrugNode[ConceptId, Strength | None]
-        ] = {}
+        self.terminal_node_indices: set[NodeIndex] = set()
+        self.accepted_nodes: set[NodeIndex] = set()
 
     @override
     def discover_vertex(self, v: NodeIndex) -> None:
@@ -95,7 +93,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         else:
             # Check if the node's predecessors are available in history
             if any(
-                p_idx not in self.final_nodes
+                p_idx not in self.accepted_nodes
                 for p_idx in self.hierarchy.graph.predecessor_indices(v)
             ):
                 # Not all predecessors are accepted
@@ -116,18 +114,21 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         Accepts a node and remembers it.
         """
         drug_node = self.hierarchy.graph[v]
-        self.final_nodes[v] = drug_node
-        if isinstance(drug_node, self.aim_for):
-            # We are almost there. However, this might be a node for
-            # multi-mapping.
-            can_be_multi = self.number_components > 1 and isinstance(
-                drug_node, ALLOWED_DRUG_MULTIMAP
-            )
+        self.accepted_nodes.add(v)
 
-            if not can_be_multi:
-                # This is the node we are looking for. But we still may
-                # match sister nodes.
-                raise rx.visit.PruneSearch
+        # Update the terminal node list, removing the node(s) that is
+        # superseded as terminal nodes by the current node.
+        self.terminal_node_indices -= {
+            idx
+            for idx in self.terminal_node_indices
+            if self.hierarchy.graph.has_edge(idx, v)
+        }
+        self.terminal_node_indices.add(v)
+
+        if isinstance(drug_node, self.aim_for):
+            # This is the node we are looking for. But we still may
+            # match sister nodes, and disambiguation will be needed.
+            raise rx.visit.PruneSearch
 
     def _remember_node(self, v: NodeIndex, acceptance: NodeAcceptance) -> None:
         """
@@ -193,33 +194,17 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         """
         Returns NOT DISAMBIGUATED best case nodes found during the search.
         """
-        if not self.final_nodes:
+        if not self.terminal_node_indices:
             raise ValueError("No nodes found. Did you call start_search()?")
 
-        # The best node is guaranteed to be the last one in BFS
-        reversed_nodes = list(self.final_nodes.keys())[::-1]
-        best_node = self.final_nodes[reversed_nodes[0]]
+        msg = f"Found {len(self.terminal_node_indices)} best case nodes:"
+        for idx in sorted(self.terminal_node_indices):
+            msg += f"\n - {self.hierarchy.graph[idx]}"
+        self.logger.debug(msg)
 
-        best_class_: type[DrugNode]
-        for best_class_ in DRUG_CLASS_PREFERENCE_ORDER:
-            if isinstance(best_node, best_class_):
-                break
-        else:
-            raise ValueError(
-                f"Encountered unexpected type {best_node.__class__.__name__} "
-                f"which node {best_node.identifier} is an instance of."
-            )
-
-        best_nodes = {reversed_nodes[0]: best_node}
-        for idx in best_nodes:
-            node = best_nodes[idx]
-            if isinstance(node, best_class_):
-                best_nodes[idx] = node
-
-        self.logger.debug(
-            f"Found {len(best_nodes)} best case nodes: {best_nodes}"
-        )
-        return best_nodes
+        return {
+            idx: self.hierarchy.graph[idx] for idx in self.terminal_node_indices
+        }
 
     def _disambiguate_search_results(
         self, choices: dict[NodeIndex, DrugNode[ConceptId, Strength | None]]
