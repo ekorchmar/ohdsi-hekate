@@ -79,7 +79,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         """
         Called when a new vertex is discovered.
         """
-        drug_node = self.hierarchy.graph[v]
+        drug_node = self.hierarchy[v]
 
         if drug_node is self.SENTINEL:
             # Implicitly accept
@@ -94,7 +94,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
             # Check if the node's predecessors are available in history
             if any(
                 p_idx not in self.accepted_nodes
-                for p_idx in self.hierarchy.graph.predecessor_indices(v)
+                for p_idx in self.hierarchy.predecessor_indices(v)
             ):
                 # Not all predecessors are accepted
                 self._remember_node(v, False)
@@ -113,7 +113,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         """
         Accepts a node and remembers it.
         """
-        drug_node = self.hierarchy.graph[v]
+        drug_node = self.hierarchy[v]
         self.accepted_nodes.add(v)
 
         # Update the terminal node list, removing the node(s) that is
@@ -121,7 +121,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         self.terminal_node_indices -= {
             idx
             for idx in self.terminal_node_indices
-            if self.hierarchy.graph.has_edge(idx, v)
+            if self.hierarchy.has_edge(idx, v)
         }
         self.terminal_node_indices.add(v)
 
@@ -150,18 +150,18 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         # starting point of the search.
 
         # We make it an Ingredient, so that type checker accepts it
-        temporary_root_idx = self.hierarchy.graph.add_node(self.SENTINEL)
+        temporary_root_idx = self.hierarchy.add_node(self.SENTINEL)
 
         for ing, _ in self.node.get_strength_data():
             ing_idx = self.hierarchy.ingredients[ing]
-            _ = self.hierarchy.graph.add_edge(temporary_root_idx, ing_idx, None)
+            _ = self.hierarchy.add_edge(temporary_root_idx, ing_idx, None)
 
         try:
-            rx.bfs_search(self.hierarchy.graph, [temporary_root_idx], self)
+            rx.bfs_search(self.hierarchy, [temporary_root_idx], self)
         finally:
             # Remove the temporary root node with edges in case we are
             # ever going multithreaded.
-            self.hierarchy.graph.remove_node(temporary_root_idx)
+            self.hierarchy.remove_node(temporary_root_idx)
 
     def get_search_results(
         self,
@@ -199,12 +199,10 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
 
         msg = f"Found {len(self.terminal_node_indices)} best case nodes:"
         for idx in sorted(self.terminal_node_indices):
-            msg += f"\n - {self.hierarchy.graph[idx]}"
+            msg += f"\n - {self.hierarchy[idx]}"
         self.logger.debug(msg)
 
-        return {
-            idx: self.hierarchy.graph[idx] for idx in self.terminal_node_indices
-        }
+        return {idx: self.hierarchy[idx] for idx in self.terminal_node_indices}
 
     def _disambiguate_search_results(
         self, choices: dict[NodeIndex, DrugNode[ConceptId, Strength | None]]

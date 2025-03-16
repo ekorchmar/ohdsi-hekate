@@ -791,7 +791,9 @@ class OMOPVocabulariesV5:
         # Initiate hierarchy containers
         self.atoms: h.Atoms[dc.ConceptId] = h.Atoms(self.logger)
         self.strengths: h.KnownStrengths[dc.ConceptId] = h.KnownStrengths()
-        self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy(self.logger)
+
+        self.hierarchy: h.RxHierarchy[dc.ConceptId] = h.RxHierarchy()
+        self.hierarchy.set_logger(self.logger)
 
         self.logger.info(
             f"Starting processing of Athena Vocabularies from "
@@ -1828,7 +1830,7 @@ class OMOPVocabulariesV5:
                 continue
 
             try:
-                cdf = self.hierarchy.graph[cdf_node_idx]
+                cdf = self.hierarchy[cdf_node_idx]
             except IndexError:
                 self.logger.debug(
                     f"Branded Drug Form {concept_id} had Clinical Drug Form "
@@ -2017,7 +2019,7 @@ class OMOPVocabulariesV5:
                     break
 
                 try:
-                    cdc = self.hierarchy.graph[cdc_node_idx]
+                    cdc = self.hierarchy[cdc_node_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Branded Drug Comp {concept_id} had Clinical Drug "
@@ -2227,7 +2229,7 @@ class OMOPVocabulariesV5:
                 continue
 
             try:
-                cdf = self.hierarchy.graph[cdf_node_idx]
+                cdf = self.hierarchy[cdf_node_idx]
             except IndexError:
                 self.logger.debug(
                     f"Clinical Drug {concept_id} had Clinical Drug Form "
@@ -2290,7 +2292,7 @@ class OMOPVocabulariesV5:
                     break
 
                 try:
-                    cdc = self.hierarchy.graph[cdc_node_idx]
+                    cdc = self.hierarchy[cdc_node_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Clinical Drug {concept_id} had Clinical Drug "
@@ -2569,7 +2571,7 @@ class OMOPVocabulariesV5:
                     break
 
                 try:
-                    parent_concepts[cls] = self.hierarchy.graph[parent_node_idx]
+                    parent_concepts[cls] = self.hierarchy[parent_node_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Branded Drug {concept_id} had {cls} {parent_id} not "
@@ -2847,7 +2849,7 @@ class OMOPVocabulariesV5:
                 continue
 
             try:
-                cd = self.hierarchy.graph[cd_idx]
+                cd = self.hierarchy[cd_idx]
             except IndexError:
                 self.logger.debug(
                     f"Quant Clinical Drug {concept_id} had Clinical Drug "
@@ -3147,7 +3149,7 @@ class OMOPVocabulariesV5:
                     continue
 
                 try:
-                    parent_concepts[cls] = self.hierarchy.graph[parent_node_idx]
+                    parent_concepts[cls] = self.hierarchy[parent_node_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Quant Branded Drug {concept_id} had {cls} "

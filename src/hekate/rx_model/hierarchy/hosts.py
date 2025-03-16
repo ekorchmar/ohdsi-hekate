@@ -157,7 +157,9 @@ class KnownStrengths[Id: dc.ConceptIdentifier]:
         raise NotImplementedError
 
 
-class RxHierarchy[Id: dc.ConceptIdentifier]:
+class RxHierarchy[Id: dc.ConceptIdentifier](
+    rx.PyDAG[dc.DrugNode[Id, dc.Strength | None], None]
+):
     """
     The drug concept hierarchy that contains all the atomic and composite
     concepts.
@@ -168,25 +170,30 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
     points.
     """
 
-    def __init__(self, logger: logging.Logger):
-        self.graph: rx.PyDAG[dc.DrugNode[Id, dc.Strength | None], None] = (
-            rx.PyDAG(
-                check_cycle=False,  # Will be really hard to create a cycle
-                multigraph=False,  # Hierarchical structure
-                # node_count_hint = 1000,  # TODO: Estimate the number of nodes
-                # edge_count_hint = 1000,  # TODO: Estimate the number of edges
-            )
-        )
+    def __init__(
+        self,
+        check_cycle: bool = False,  # Will be really hard to create a cycle
+        multigraph: bool = False,  # Hierarchical structure
+        # node_count_hint = 1000,  # TODO: Estimate the number of nodes
+        # edge_count_hint = 1000,  # TODO: Estimate the number of edges
+    ):
+        super().__init__()
+
         # Cached indices of ingredients (roots)
         self.ingredients: dict[dc.Ingredient[Id], NodeIndex] = {}
-        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
+
+        # Placeholder logger: calling class should set a logger explicitly
+        self.logger: logging.Logger = logging.getLogger(self.__class__.__name__)
+
+    def set_logger(self, logger: logging.Logger) -> None:
+        self.logger = logger.getChild(self.__class__.__name__)
         self.logger.info("Initialized RxHierarchy.")
 
     def add_root(self, root: dc.Ingredient[Id]) -> None:
         """
         Add a root ingredient to the hierarchy.
         """
-        self.ingredients[root] = self.graph.add_node(root)
+        self.ingredients[root] = self.add_node(root)
 
     def add_clinical_drug_form(
         self,
@@ -196,9 +203,9 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         Add a clinical drug form to the hierarchy. Returns the index of the
         added node in the graph.
         """
-        node_idx = self.graph.add_node(clinical_drug_form)
+        node_idx = self.add_node(clinical_drug_form)
         for ingredient in clinical_drug_form.ingredients:
-            _ = self.graph.add_edge(  # Discard edge index
+            _ = self.add_edge(  # Discard edge index
                 self.ingredients[ingredient], node_idx, None
             )
         return node_idx
@@ -213,8 +220,8 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         """
         # TODO: add strength data
 
-        node_idx = self.graph.add_node(clinical_drug_component)
-        _ = self.graph.add_edge(  # Discard edge index
+        node_idx = self.add_node(clinical_drug_component)
+        _ = self.add_edge(  # Discard edge index
             self.ingredients[clinical_drug_component.ingredient],
             node_idx,
             None,
@@ -230,8 +237,8 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         Add a branded drug form to the hierarchy. Returns the index of the
         added node in the graph.
         """
-        node_idx = self.graph.add_node(branded_drug_form)
-        _ = self.graph.add_edge(  # Discard edge index
+        node_idx = self.add_node(branded_drug_form)
+        _ = self.add_edge(  # Discard edge index
             clinical_drug_form_idx, node_idx, None
         )
         return node_idx
@@ -245,9 +252,9 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         Add a branded drug component to the hierarchy. Returns the index of
         the added node in the graph.
         """
-        node_idx = self.graph.add_node(branded_drug_component)
+        node_idx = self.add_node(branded_drug_component)
         for cdc_idx in clinical_drug_component_idxs:
-            _ = self.graph.add_edge(  # Discard edge index
+            _ = self.add_edge(  # Discard edge index
                 cdc_idx, node_idx, None
             )
         return node_idx
@@ -262,12 +269,12 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         Add a clinical drug to the hierarchy. Returns the index of the added
         node in the graph.
         """
-        node_idx = self.graph.add_node(clinical_drug)
-        _ = self.graph.add_edge(  # Discard edge index
+        node_idx = self.add_node(clinical_drug)
+        _ = self.add_edge(  # Discard edge index
             clinical_drug_form_idx, node_idx, None
         )
         for cdc_idx in clinical_drug_component_idxs:
-            _ = self.graph.add_edge(  # Discard edge index
+            _ = self.add_edge(  # Discard edge index
                 cdc_idx, node_idx, None
             )
         return node_idx
@@ -283,13 +290,13 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         Add a branded drug to the hierarchy. Returns the index of the added
         node in the graph.
         """
-        node_idx = self.graph.add_node(branded_drug)
+        node_idx = self.add_node(branded_drug)
         for idx in [
             clinical_drug_idx,
             branded_drug_form_idx,
             branded_drug_component_idx,
         ]:
-            _ = self.graph.add_edge(  # Discard edge index
+            _ = self.add_edge(  # Discard edge index
                 idx, node_idx, None
             )
         return node_idx
@@ -305,8 +312,8 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         Add a quantified clinical drug to the hierarchy. Returns the index of
         the added node in the graph.
         """
-        node_idx = self.graph.add_node(quantified_clinical_drug)
-        _ = self.graph.add_edge(  # Discard edge index
+        node_idx = self.add_node(quantified_clinical_drug)
+        _ = self.add_edge(  # Discard edge index
             clinical_drug_idx, node_idx, None
         )
         return node_idx
@@ -322,25 +329,12 @@ class RxHierarchy[Id: dc.ConceptIdentifier]:
         the added node in the graph.
         """
 
-        node_idx = self.graph.add_node(quantified_branded_drug)
+        node_idx = self.add_node(quantified_branded_drug)
         for idx in [
             branded_drug_idx,
             quantified_clinical_drug_idx,
         ]:
-            _ = self.graph.add_edge(  # Discard edge index
+            _ = self.add_edge(  # Discard edge index
                 idx, node_idx, None
             )
         return node_idx
-
-    def get_checksum(self) -> HierarchyChecksum:
-        """
-        Get a checksum of the hierarchy. This is useful to verify the integrity
-        of the hierarchy after serialization and deserialization, as well as
-        for dependent classes to be able to associate data with a certain state
-        of the hierarchy.
-        """
-        # WARN: This is not really implemented yet.
-        self.logger.warning(
-            "Checksum calculation is not implemented. Returning 0."
-        )
-        return 0
