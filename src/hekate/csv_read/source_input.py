@@ -4,8 +4,7 @@ into ForeignDrugNode objects for evaluation.
 """
 
 import logging
-from abc import ABC
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from pathlib import Path
 from typing import Annotated, override
 
@@ -21,18 +20,7 @@ from utils.exceptions import (
 from utils.logger import LOGGER
 
 
-class SourceTable[IdS: pl.DataFrame | None](CSVReader[IdS], ABC):
-    """
-    Abstract class for reading BuildRxE input tables in CSV/TSV format.
-
-
-    Attributes:
-     TABLE_SCHEMA: Schema for the table.
-        TABLE_COLUMNS: Ordered sequence of columns to keep from the table.
-    """
-
-
-class DrugConceptStage(SourceTable[None]):
+class DrugConceptStage(CSVReader[None]):
     TABLE_SCHEMA: Schema = {
         "concept_code": pl.Utf8,
         "concept_name": pl.Utf8,
@@ -78,7 +66,7 @@ class DrugConceptStage(SourceTable[None]):
         )
 
 
-class DSStage(SourceTable[pl.DataFrame]):
+class DSStage(CSVReader[pl.DataFrame]):
     type dss_strength_tuple = tuple[float | None, dc.PseudoUnit]
 
     TABLE_SCHEMA: Schema = {
@@ -115,7 +103,7 @@ class DSStage(SourceTable[pl.DataFrame]):
         )
 
 
-class RelationshipToConcept(SourceTable[pl.DataFrame]):
+class RelationshipToConcept(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
         "concept_code_1": pl.Utf8,
         "vocabulary_id_1": pl.Utf8,
@@ -143,7 +131,7 @@ class RelationshipToConcept(SourceTable[pl.DataFrame]):
         )
 
 
-class InternalRelationshipStage(SourceTable[pl.DataFrame]):
+class InternalRelationshipStage(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
         "concept_code_1": pl.Utf8,
         "concept_code_2": pl.Utf8,
@@ -166,7 +154,7 @@ class InternalRelationshipStage(SourceTable[pl.DataFrame]):
         )
 
 
-class PCSStage(SourceTable[pl.DataFrame]):
+class PCSStage(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
         "pack_concept_code": pl.Utf8,
         "drug_concept_code": pl.Utf8,
@@ -274,7 +262,7 @@ class BuildRxEInput:
         )
 
         # WARN: temporarily cleaning up all pack_concepts
-        self.pcs = PCSStage(
+        self.pcs: PCSStage = PCSStage(
             data_path / "pc_stage.tsv",
             reference_data=self.dcs.collect().select("concept_code"),
         )
@@ -461,7 +449,7 @@ class BuildRxEInput:
 
     def get_concept_strength(
         self, drug_id: dc.ConceptCodeVocab
-    ) -> list[dc.BoundForeignStrength]:
+    ) -> Sequence[dc.BoundForeignStrength]:
         """
         Extract strength combinations for a given drug concept.
         """
@@ -471,6 +459,7 @@ class BuildRxEInput:
             .select(pl.all().exclude("drug_concept_code"))
         )
 
+        bfs: dc.BoundForeignStrength
         if len(strength_data) == 0:
             # Return ingredient only
             ing_ir = (
@@ -491,7 +480,7 @@ class BuildRxEInput:
                     f"No strength nor ingredient data found for drug {drug_id}."
                 )
 
-            ingredient_data: list[
+            ingredient_data: Sequence[
                 tuple[dc.Ingredient[dc.ConceptCodeVocab], None]
             ] = []
             for ingredient_concept_code in ing_ir:
@@ -507,7 +496,7 @@ class BuildRxEInput:
                         f"found for drug {drug_id}."
                     )
                 else:
-                    bfs: dc.BoundForeignStrength = (ingredient, None)
+                    bfs = (ingredient, None)
                     ingredient_data.append(bfs)
 
             return ingredient_data
@@ -525,11 +514,9 @@ class BuildRxEInput:
                     f"Ingredient with code {ingredient_concept_code} not found "
                     f"for drug {drug_id}."
                 )
-            bfs: dc.BoundForeignStrength = (
+            strength_combinations.append((
                 ingredient,
                 dc.ForeignStrength._make(strength),
-            )
-
-            strength_combinations.append(bfs)
+            ))
 
         return strength_combinations
