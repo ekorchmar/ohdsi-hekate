@@ -10,12 +10,10 @@ from typing import Annotated, override
 
 import polars as pl
 from csv_read.generic import CSVReader, Schema
-from csv_read.athena import OMOPVocabulariesV5
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from utils.exceptions import (
     ForeignNodeCreationError,
-    UnmappedSourceConceptError,
 )
 from utils.logger import LOGGER
 
@@ -184,7 +182,6 @@ class BuildRxEInput:
     def __init__(
         self,
         data_path: Path,
-        athena_vocab: OMOPVocabulariesV5,
         delimiter: str = "\t",
         quote_char: str | None = None,
     ) -> None:
@@ -192,15 +189,8 @@ class BuildRxEInput:
 
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
 
-        # Remember the target hierarchy
-        self.target_hierarchy: OMOPVocabulariesV5 = athena_vocab
-
         # Initiate containers
         self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms(self.logger)
-        self.rx_atoms: h.Atoms[dc.ConceptId] = athena_vocab.atoms
-        self.translator: h.NodeTranslator = h.NodeTranslator(
-            rx_atoms=self.rx_atoms, logger=self.logger
-        )
         self.pseudo_units: list[dc.PseudoUnit] = []
         self.drug_nodes: list[
             dc.DrugNode[dc.ConceptCodeVocab, dc.Strength | None]
@@ -227,11 +217,6 @@ class BuildRxEInput:
             reference_data=self.dcs.collect().select(
                 "concept_code", "vocabulary_id"
             ),
-        )
-
-        self.translator.populate_from_frame(
-            frame=self.rtcs.collect(),
-            pseudo_units=self.pseudo_units,
         )
 
         self.ir: InternalRelationshipStage = InternalRelationshipStage(
@@ -395,57 +380,6 @@ class BuildRxEInput:
                 brand_name=A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
                 supplier=A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
             )
-
-    def map_to_rxn(self) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
-        """
-        Map the generated nodes to RxNorm concepts.
-        """
-
-        result: dict[dc.ConceptCodeVocab, list[dc.ConceptId]] = {}
-
-        # 2 billion is conventionally used for loval concept IDs
-        def new_concept_id():
-            two_bill = 2_000_000_000
-            while True:
-                yield dc.ConceptId(two_bill)
-                two_bill += 1
-
-        cid_counter = new_concept_id()
-        for node in self.prepare_drug_nodes(crash_on_error=False):
-            translated_nodes = self.translator.translate_node(
-                node, lambda: next(cid_counter)
-            )
-            while True:
-                try:
-                    option = next(translated_nodes)
-                except StopIteration:
-                    break
-                except UnmappedSourceConceptError as e:
-                    # This is expected for now
-                    # TODO: skip all permutations of the node
-                    self.logger.error(
-                        f"Node {node.identifier} could not be mapped to "
-                        f"RxNorm: {e}"
-                    )
-                    continue
-
-                visitor = h.DrugNodeFinder(
-                    option, self.target_hierarchy.hierarchy, self.logger
-                )
-                visitor.start_search()
-                try:
-                    node_result = visitor.get_search_results()
-                except NotImplementedError:
-                    # This is expected for now
-                    self.logger.warning(
-                        f"At least one valid Node for {node.identifier} could "
-                        f"not be disambiguated."
-                    )
-                else:
-                    result.setdefault(node.identifier, []).extend(
-                        node.identifier for node in node_result.values()
-                    )
-        return result
 
     def get_concept_strength(
         self, drug_id: dc.ConceptCodeVocab

@@ -10,11 +10,12 @@ from itertools import product
 from typing import Callable, NamedTuple
 
 import polars as pl
+from csv_read.source_input import BuildRxEInput
 from rx_model import drug_classes as dc
 from rx_model.hierarchy.generic import AtomicConcept
 from rx_model.hierarchy.hosts import Atoms
-from utils.constants import StrengthConfiguration
 from utils.classes import SortedTuple
+from utils.constants import StrengthConfiguration
 from utils.exceptions import (
     ForeignNodeCreationError,
     InvalidConceptIdError,
@@ -103,28 +104,30 @@ class NodeTranslator:
         """
         self._unit_map[pseudo_unit] = unit_map
 
-    def populate_from_frame(
-        self, frame: pl.DataFrame, pseudo_units: list[dc.PseudoUnit]
-    ):
+    def read_translations(self, source: BuildRxEInput):
         """
         Populate the mappings from a DataFrame.
         """
-        frame = frame.select(
-            concept_code="concept_code_1",
-            vocabulary_id="vocabulary_id_1",
-            concept_id="concept_id_2",
-            precedence=pl.coalesce(
-                pl.col("precedence"), pl.lit(1, dtype=pl.UInt8)
-            ),
-            conversion_factor="conversion_factor",
-            # NOTE: Order of precedence is supposedly preserved within
-            # each group
-            # https://docs.pola.rs/api/python/stable/reference/dataframe/api/polars.DataFrame.group_by.html
-        ).sort("precedence")
+        frame = (
+            source.rtcs.collect()
+            .select(
+                concept_code="concept_code_1",
+                vocabulary_id="vocabulary_id_1",
+                concept_id="concept_id_2",
+                precedence=pl.coalesce(
+                    pl.col("precedence"), pl.lit(1, dtype=pl.UInt8)
+                ),
+                conversion_factor="conversion_factor",
+                # NOTE: Order of precedence is supposedly preserved within
+                # each group
+                # https://docs.pola.rs/api/python/stable/reference/dataframe/api/polars.DataFrame.group_by.html
+            )
+            .sort("precedence")
+        )
 
         atom_frame = (
             frame.filter(
-                ~pl.col("concept_code").is_in(pseudo_units),
+                ~pl.col("concept_code").is_in(source.pseudo_units),
             )
             .select("concept_code", "vocabulary_id", "concept_id")
             .group_by("concept_code", "vocabulary_id")
@@ -138,7 +141,7 @@ class NodeTranslator:
 
         unit_frame = (
             frame.filter(
-                pl.col("concept_code").is_in(pseudo_units),
+                pl.col("concept_code").is_in(source.pseudo_units),
             )
             .select("concept_code", "concept_id", "conversion_factor")
             .group_by("concept_code")
@@ -514,7 +517,7 @@ class NodeTranslator:
 
     def _get_strength_permutations[S: dc.Strength](
         self,
-        rows: list[dc.BoundForeignStrength],
+        rows: Sequence[dc.BoundForeignStrength],
         expected_class: type[S],
     ) -> Generator[_PrecedentedStrengthData[S], None, None]:
         """
