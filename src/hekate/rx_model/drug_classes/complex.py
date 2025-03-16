@@ -202,6 +202,12 @@ NB: Contains multiple components in one!\
                 for cdc in self.clinical_drug_components
             ):
                 return False
+        else:
+            # We are the first jump to multicomponent classes
+            if len(self.clinical_drug_components) != len(
+                other.get_strength_data()
+            ):
+                return False
 
         # Only check the brand name
         return self.brand_name == other.get_brand_name()
@@ -252,6 +258,10 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         if not passed_hierarchy_checks:
             # Check all ingredients
             if not all(ing.is_superclass_of(other) for ing in self.ingredients):
+                return False
+        else:
+            # We are the first jump to multicomponent classes
+            if len(self.ingredients) != len(other.get_strength_data()):
                 return False
 
         # Only check the dose form
