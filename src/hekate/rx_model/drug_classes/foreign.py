@@ -75,7 +75,7 @@ class ForeignStrength(NamedTuple):
 class ForeignNodePrototype(NamedTuple):
     """
     Represents a data pack prototype of a foreign node, with all the information
-    require to create a ForeignDrugNode instance.
+    required to create a ForeignDrugNode instance.
 
     The prototype contents are derived from the source data and use definitions
     native to the source data. It is job of a translator to convert these

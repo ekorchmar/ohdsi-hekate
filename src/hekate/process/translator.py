@@ -1,6 +1,6 @@
 """
-Contains the AtomMapper class, which is used to map atomic drug attributes to
-their corresponding RxNorm concepts.
+Contains the NodeTranslator class, which is used to produce virtual nodes
+from source drug node definitions.
 """
 
 import logging
