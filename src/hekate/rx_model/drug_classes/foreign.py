@@ -101,7 +101,7 @@ class PrecedenceData(NamedTuple):
     attribute, with lower values indicating higher precedence.
     """
 
-    ingredient_precedence_diff: int
+    ingredient_diff: int
     dose_form_diff: int = 0
     brand_name_diff: int = 0
     supplier_diff: int = 0
@@ -111,7 +111,8 @@ class PrecedenceData(NamedTuple):
 class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     """
     Represents an unknown node in the drug concept hierarchy. This is used to
-    represent source drug concepts that may not be present in the RxHierarchy,
+    model a virtual representation of a source drug concept in form native to
+    RxNorm/RxNorm-Extension model.
     """
 
     # Metadata populated at creation

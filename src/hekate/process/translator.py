@@ -260,7 +260,7 @@ class NodeTranslator:
         )
         for (p_s, st), (p_d, d), (p_b, b), (p_s, s) in combinations:
             precedence_data = dc.PrecedenceData(
-                ingredient_precedence_diff=p_s,
+                ingredient_diff=p_s,
                 dose_form_diff=p_d,
                 brand_name_diff=p_b,
                 supplier_diff=p_s,

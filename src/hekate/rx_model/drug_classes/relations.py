@@ -1,24 +1,19 @@
+from hekate.rx_model.drug_classes.generic import DrugNode, ConceptId
 import rx_model.drug_classes.atom as a
-from rx_model.drug_classes.complex import (
-    BrandedDrug,
-    BrandedDrugComponent,
-    BrandedDrugForm,
-    ClinicalDrug,
-    ClinicalDrugComponent,
-    ClinicalDrugForm,
-    QuantifiedBrandedDrug,
-    QuantifiedClinicalDrug,
-)
+import rx_model.drug_classes.strength as st
+import rx_model.drug_classes.complex as c
 
-DRUG_CLASS_PREFERENCE_ORDER = [
-    QuantifiedBrandedDrug,
-    QuantifiedClinicalDrug,
-    BrandedDrug,
-    ClinicalDrug,
-    BrandedDrugForm,
-    ClinicalDrugForm,
-    BrandedDrugComponent,
-    ClinicalDrugComponent,
+DRUG_CLASS_PREFERENCE_ORDER: list[
+    type[DrugNode[ConceptId, st.Strength | None]]
+] = [
+    c.QuantifiedBrandedDrug,
+    c.QuantifiedClinicalDrug,
+    c.BrandedDrug,
+    c.ClinicalDrug,
+    c.BrandedDrugForm,
+    c.ClinicalDrugForm,
+    c.BrandedDrugComponent,
+    c.ClinicalDrugComponent,
     a.Ingredient,
 ]
 
@@ -26,5 +21,5 @@ DRUG_CLASS_PREFERENCE_ORDER = [
 # generic.
 ALLOWED_DRUG_MULTIMAP = (
     a.Ingredient,
-    ClinicalDrugComponent,
+    c.ClinicalDrugComponent,
 )

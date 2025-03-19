@@ -53,3 +53,10 @@ class ForeignDosageStrengthError(ForeignNodeCreationError):
     """
     Occurs when a foreign node specifies an invalid dosage strength.
     """
+
+
+class ResolutionError(Exception):
+    """
+    Base exception for resolution errors, which happen when disambiguating
+    between multiple mapping results.
+    """
