@@ -16,7 +16,7 @@ from utils.exceptions import RxConceptCreationError
 
 # TODO: reexport this properly
 from rx_model.hierarchy.hosts import NodeIndex
-from utils.classes import SortedTuple
+from utils.classes import SortedTuple, RealNumber
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     ATHENA_OVERFILTERING_TRESHOLD,
@@ -185,11 +185,11 @@ class StrengthTable(OMOPTable[pl.Series]):
     TABLE_SCHEMA: Schema = {
         "drug_concept_id": pl.UInt32,
         "ingredient_concept_id": pl.UInt32,
-        "amount_value": pl.Float64,
+        "amount_value": RealNumber,
         "amount_unit_concept_id": pl.UInt32,
-        "numerator_value": pl.Float64,
+        "numerator_value": RealNumber,
         "numerator_unit_concept_id": pl.UInt32,
-        "denominator_value": pl.Float64,
+        "denominator_value": RealNumber,
         "denominator_unit_concept_id": pl.UInt32,
         "box_size": pl.UInt32,
         "valid_start_date": pl.UInt32,

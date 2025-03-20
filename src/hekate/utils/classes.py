@@ -8,6 +8,8 @@ if TYPE_CHECKING:
 from collections.abc import Iterable
 from typing import override
 
+import polars as pl
+
 
 class SortedTuple[T: SupportsRichComparison](tuple[T]):
     """Tuple that sorts input arguments before creating self"""
@@ -36,6 +38,11 @@ class Cardinality(enum.Enum):
     OPTIONAL = "0..1"
     NONZERO = "1..*"
 
+
+RealNumber = pl.Decimal(
+    precision=None,  # infer
+    scale=6,  # Down to 6 decimal places
+)
 
 CARDINALITY_REQUIRED = [Cardinality.ONE, Cardinality.NONZERO]
 CARDINALITY_SINGLE = [Cardinality.ONE, Cardinality.OPTIONAL]

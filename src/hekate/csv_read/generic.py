@@ -14,7 +14,7 @@ import polars as pl
 
 from utils.logger import LOGGER
 
-type Schema = Mapping[str, type[pl.DataType]]
+type Schema = Mapping[str, type[pl.DataType] | pl.Decimal]
 type LineFilter[D: pl.DataFrame | pl.Series | pl.LazyFrame | None] = Callable[
     [pl.LazyFrame, D], pl.LazyFrame
 ]

@@ -12,9 +12,8 @@ import polars as pl
 from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
-from utils.exceptions import (
-    ForeignNodeCreationError,
-)
+from utils.exceptions import ForeignNodeCreationError
+from utils.classes import RealNumber
 from utils.logger import LOGGER
 
 
@@ -70,11 +69,11 @@ class DSStage(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
         "drug_concept_code": pl.Utf8,
         "ingredient_concept_code": pl.Utf8,
-        "amount_value": pl.Float64,
+        "amount_value": RealNumber,
         "amount_unit": pl.Utf8,
-        "numerator_value": pl.Float64,
+        "numerator_value": RealNumber,
         "numerator_unit": pl.Utf8,
-        "denominator_value": pl.Float64,
+        "denominator_value": RealNumber,
         "denominator_unit": pl.Utf8,
         "box_size": pl.UInt16,
     }
@@ -107,7 +106,7 @@ class RelationshipToConcept(CSVReader[pl.DataFrame]):
         "vocabulary_id_1": pl.Utf8,
         "concept_id_2": pl.UInt32,
         "precedence": pl.UInt8,
-        "conversion_factor": pl.Float64,
+        "conversion_factor": RealNumber,
     }
 
     TABLE_COLUMNS: list[str] = list(TABLE_SCHEMA.keys())

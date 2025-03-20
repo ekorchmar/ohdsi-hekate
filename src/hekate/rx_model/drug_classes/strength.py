@@ -8,6 +8,7 @@ RxNorm and RxNorm Extension content. Source data is represented by the
 """
 
 import math  # For NaN checks
+import decimal  # For division checks
 from abc import (  # For abstract interfaces
     ABC,
     abstractmethod,
@@ -107,8 +108,10 @@ class SolidStrength(_StrengthMeta):
         # NOTE: amount_value is the only strength metric where 0 is possible
         try:
             diff = self.amount_value / other.amount_value
-        except ZeroDivisionError:
+        except ZeroDivisionError:  # float
             return self.amount_value == 0
+        except decimal.InvalidOperation:  # decimal
+            return self.amount_value == decimal.Decimal(0)
         else:
             return LOW <= diff <= HIGH
 
