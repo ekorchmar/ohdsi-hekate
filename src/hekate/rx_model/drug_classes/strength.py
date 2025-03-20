@@ -108,10 +108,12 @@ class SolidStrength(_StrengthMeta):
         # NOTE: amount_value is the only strength metric where 0 is possible
         try:
             diff = self.amount_value / other.amount_value
+        except decimal.DivisionUndefined:  # decimal, both are 0
+            return True
+        except decimal.DivisionByZero:  # decimal, only denominator is 0
+            return False
         except ZeroDivisionError:  # float
             return self.amount_value == 0
-        except decimal.InvalidOperation:  # decimal
-            return self.amount_value == decimal.Decimal(0)
         else:
             return LOW <= diff <= HIGH
 
