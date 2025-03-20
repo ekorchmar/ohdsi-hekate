@@ -1,4 +1,4 @@
-from hekate.rx_model.drug_classes.generic import DrugNode, ConceptId
+from rx_model.drug_classes.generic import DrugNode, ConceptId
 import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
