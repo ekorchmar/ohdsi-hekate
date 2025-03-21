@@ -6,21 +6,23 @@ choose a single virtual node to represent the concept.
 
 import logging
 from collections.abc import Mapping
-from itertools import chain
+from itertools import chain, groupby
 from typing import NamedTuple
 
 import polars as pl
 from csv_read import athena
 from rx_model import drug_classes as dc
 from utils import exceptions
+from utils.classes import PyRealNumber, SortedTuple
 
 type _VirtualNode = dc.ForeignDrugNode[dc.Strength | None]
 type _Terminal = dc.DrugNode[dc.ConceptId, dc.Strength | None]
 type _TerminalClass = type[_Terminal]
 
 
+# TODO: Document the order elsewhere
+# TODO: Include Precise Ingreidient genericity degree
 class ResultCharacteristics(NamedTuple):
-    # TODO: Document the order elsewhere
     """
     Tuple of numeric grades that quantify the degree of similarity between
     the ForeignDrugNode and the target DrugNode.
@@ -47,14 +49,85 @@ class ResultCharacteristics(NamedTuple):
 
     # NOTE: The order of the fields is important.
     ingredient_diff: int
-    denominator_diff: float
+    denominator_diff: PyRealNumber
     dose_form_diff: int
     brand_name_diff: int
     supplier_diff: int
-    strength_diff: float
-    is_extension: bool  # 0 for RxNorm, 1 for RxNorm Extension
+    strength_diff: PyRealNumber
+    # is_extension: bool  # 0 for RxNorm, 1 for RxNorm Extension
+    is_extension: int  # May be above 1 for multicomponent mapping
     valid_start_date: int  # int in YYYYMMDD format
     concept_id: dc.ConceptId  # int
+
+    class StrengthDiff(NamedTuple):
+        """
+        Tuple of numeric grades that quantify the degree of similarity between
+        the Strength data of the ForeignDrugNode and the target DrugNode.
+        """
+
+        numerator_score: PyRealNumber
+        denominator_score: PyRealNumber
+
+        @classmethod
+        def from_strength_pair(
+            cls,
+            source_strength: SortedTuple[
+                dc.BoundStrength[dc.ConceptId, dc.Strength | None]
+            ],
+            target_strength: SortedTuple[
+                dc.BoundStrength[dc.ConceptId, dc.Strength | None]
+            ],
+        ) -> "ResultCharacteristics.StrengthDiff":
+            n_diff: PyRealNumber
+            d_diff: PyRealNumber
+            t_str = target_strength[0][1]
+            s_str = source_strength[0][1]
+            if isinstance(t_str, dc.LiquidQuantity):
+                # LiquidQuantity is the most specific strength type, so
+                # source can only be LiquidQuantity
+                assert isinstance(s_str, dc.LiquidQuantity)
+                d_diff = abs(t_str.denominator_value - s_str.denominator_value)
+            elif t_str is not None:
+                # Always 0 for unquantified strengths
+                d_diff = PyRealNumber(0)
+            else:
+                # No strength data, noop
+                return cls(
+                    numerator_score=PyRealNumber(0),
+                    denominator_score=PyRealNumber(0),
+                )
+
+            # Accumulate relative differences
+            n_diff = PyRealNumber(0)
+            for (_, s_str), (_, t_str) in zip(source_strength, target_strength):
+                if isinstance(t_str, dc.SolidStrength):
+                    # Only possible source counterpart
+                    assert isinstance(s_str, dc.SolidStrength)
+                    assert isinstance(t_str, dc.SolidStrength)
+                    if s_str.amount_value == PyRealNumber(0):
+                        # Avoid division by zero for inert ingredients
+                        continue
+                    t_val = t_str.amount_value
+                    s_val = s_str.amount_value
+                else:
+                    # Guaranteed to have a numerator
+                    # NOTE: we operate with unquantified strength to avoid
+                    # duplicate code
+                    assert s_str and t_str
+                    norm_s_str = s_str.get_unquantified()
+                    norm_t_str = t_str.get_unquantified()
+                    assert isinstance(
+                        norm_s_str, (dc.GasPercentage, dc.LiquidConcentration)
+                    )
+                    assert isinstance(
+                        norm_t_str, (dc.GasPercentage, dc.LiquidConcentration)
+                    )
+                    t_val = norm_t_str.numerator_value
+                    s_val = norm_s_str.numerator_value
+
+                n_diff += abs(t_val - s_val) / s_val
+
+            return cls(numerator_score=n_diff, denominator_score=d_diff)
 
     @classmethod
     def from_pair(
@@ -73,7 +146,7 @@ class ResultCharacteristics(NamedTuple):
             ).select(["vocabulary_id", "valid_start_date"])
         except pl.exceptions.ColumnNotFoundError as e:
             raise exceptions.ResolutionError(
-                f"Concept ID {target.identifier} not found in the metadata."
+                "Unexpected metadata structure"
             ) from e
 
         if len(metadata) != 1:
@@ -82,38 +155,78 @@ class ResultCharacteristics(NamedTuple):
                 f"metadata."
             )
 
-        n_diff: float
-        d_diff: float
-        _, t_str = next(iter(target.get_strength_data()))
-        _, s_str = next(iter(source.strength_data))
-        if isinstance(t_str, dc.LiquidQuantity):
-            # LiquidQuantity is the most specific strength type, so:
-            assert isinstance(s_str, dc.LiquidQuantity)
-            d_diff = float(t_str.denominator_value - s_str.denominator_value)
-            n_diff = float(t_str.numerator_value - s_str.numerator_value)
-        else:
-            d_diff = 0.0
-            if isinstance(t_str, dc.SolidStrength):
-                # Only possible source counterpart
-                assert isinstance(s_str, dc.SolidStrength)
-                n_diff = float(t_str.amount_value - s_str.amount_value)
-            elif t_str is not None:
-                # Gas or Liquid Concentration
-                assert isinstance(s_str, type(t_str))
-                n_diff = float(t_str.numerator_value - s_str.numerator_value)
-            else:
-                n_diff = 0.0
+        n_diff, d_diff = cls.StrengthDiff.from_strength_pair(
+            source_strength=source.get_strength_data(),
+            target_strength=target.get_strength_data(),
+        )
+
+        return cls(
+            ingredient_diff=source.precedence_data.ingredient_diff,
+            denominator_diff=d_diff,
+            dose_form_diff=source.precedence_data.dose_form_diff,
+            brand_name_diff=source.precedence_data.brand_name_diff,
+            supplier_diff=source.precedence_data.supplier_diff,
+            strength_diff=n_diff,
+            is_extension=metadata[0, "vocabulary_id"] == "RxNorm Extension",
+            valid_start_date=metadata[0, "valid_start_date"],
+            concept_id=target.identifier,
+        )
+
+    @classmethod
+    def from_component_combo(
+        cls,
+        source: _VirtualNode,
+        targets: list[
+            dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength],
+        ],
+        concept_metadata: pl.DataFrame,
+    ) -> "ResultCharacteristics":
+        """
+        Calculate the numeric grades for the similarity between the source
+        node and a list of components that correspond to one of its strength
+        entries.
+
+        This is intended for deduplication of Clinical Drug Component targets
+        grouped by the same ingredient.
+        """
+        try:
+            metadata = concept_metadata.filter(
+                pl.col("concept_id").is_in([t.identifier for t in targets])
+            ).select(["vocabulary_id", "valid_start_date"])
+        except pl.exceptions.ColumnNotFoundError as e:
+            raise exceptions.ResolutionError(
+                "Unexpected metadata structure"
+            ) from e
+
+        if len(metadata) != len(targets):
+            raise exceptions.ResolutionError(
+                f"Not all concept IDs of {[t.identifier for t in targets]} "
+                f"found in the metadata."
+            )
+
+        n_diff, d_diff = cls.StrengthDiff.from_strength_pair(
+            source_strength=source.get_strength_data(),
+            target_strength=SortedTuple(
+                target.get_strength_data()[0] for target in targets
+            ),
+        )
+
+        # Use highest valid_start_date and concept_id for grading the combo
+        max_start_date = metadata["valid_start_date"].max()
+        max_concept_id = metadata["concept_id"].max()
+        assert isinstance(max_start_date, int)
+        assert isinstance(max_concept_id, int)
 
         return cls(
             ingredient_diff=source.precedence_data.ingredient_diff,
             denominator_diff=abs(d_diff),
-            dose_form_diff=source.precedence_data.dose_form_diff,
-            brand_name_diff=source.precedence_data.brand_name_diff,
-            supplier_diff=source.precedence_data.supplier_diff,
-            strength_diff=abs(n_diff),
-            is_extension=metadata[0, "vocabulary_id"] == "RxNorm Extension",
-            valid_start_date=metadata[0, "valid_start_date"],
-            concept_id=target.identifier,
+            dose_form_diff=0,  # Not in CDC
+            brand_name_diff=0,  # Not in CDC
+            supplier_diff=0,  # Not in CDC
+            strength_diff=n_diff,
+            is_extension=sum(metadata["vocabulary_id"] == "RxNorm Extension"),
+            valid_start_date=max_start_date,
+            concept_id=dc.ConceptId(max_concept_id),
         )
 
 
@@ -186,13 +299,38 @@ class Resolver:
             ),
         ).__class__
 
-        nodes_having_best_class = {
-            n: list(filter(lambda node: isinstance(node, best_class), t))
-            for n, t in self.mapping_results.items()
-        }
+        if best_class == dc.Ingredient:
+            # Sort nodes by ingredient precedence and return the best one
+            best_node = min(
+                self.mapping_results,
+                key=lambda foreign: foreign.precedence_data.ingredient_diff,
+            )
+            return self.mapping_results[best_node]
+        elif best_class == dc.ClinicalDrugComponent:
+            # 1. Sort nodes by ingredient precedence
+            nodes_by_ingredient = sorted(
+                self.mapping_results,
+                key=lambda foreign: foreign.precedence_data.ingredient_diff,
+            )
 
-        for k in [k for k, v in nodes_having_best_class.items() if not v]:
-            del nodes_having_best_class[k]
+            # 2. Find nodes with no terminal ingredients (meaning all
+            # components exist)
+            cdc_nodes: list[_VirtualNode] = []
+            for node in nodes_by_ingredient:
+                if not any(
+                    isinstance(terminal, dc.Ingredient)
+                    for terminal in self.mapping_results[node]
+                ):
+                    cdc_nodes.append(node)
 
-        del nodes_having_best_class
+            # 2.a. No nodes with all components found, return ingredients of
+            # the best node
+            if not cdc_nodes:
+                return [
+                    # Only monoingredients here, ignore strength
+                    target.get_strength_data()[0][0]
+                    for target in self.mapping_results[nodes_by_ingredient[0]]
+                ]
+            # 2.b. Rate and deduplicate the components grouped by ingredient
+            _ = groupby
         raise NotImplementedError
