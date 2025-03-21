@@ -1,5 +1,6 @@
 """Helper classes"""
 
+import decimal
 import enum
 from typing import TYPE_CHECKING
 
@@ -39,10 +40,11 @@ class Cardinality(enum.Enum):
     NONZERO = "1..*"
 
 
-RealNumber = pl.Decimal(
+PlRealNumber = pl.Decimal(
     precision=None,  # infer
     scale=6,  # Down to 6 decimal places
 )
+PyRealNumber = decimal.Decimal
 
 CARDINALITY_REQUIRED = [Cardinality.ONE, Cardinality.NONZERO]
 CARDINALITY_SINGLE = [Cardinality.ONE, Cardinality.OPTIONAL]

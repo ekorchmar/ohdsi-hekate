@@ -8,7 +8,10 @@ from rx_model.drug_classes.generic import (
     ConceptIdentifier,
     DrugNode,
 )
-from utils.classes import SortedTuple  # To ensure consistent layout
+from utils.classes import (
+    SortedTuple,  # To ensure consistent layout
+    PyRealNumber,  # For strength comparison
+)
 from utils.utils import invert_merge_dict, keep_multiple_values
 from utils.exceptions import RxConceptCreationError
 
@@ -433,10 +436,10 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
 
     def __post_init__(self):
         # Check strength data consistency
-        unique_denoms: set[tuple[float, a.Unit]] = set()
+        unique_denoms: set[tuple[PyRealNumber, a.Unit]] = set()
         for _, quantity in self.contents:
             unit: a.Unit = quantity.denominator_unit
-            value: float = quantity.denominator_value
+            value: PyRealNumber = quantity.denominator_value
             unique_denoms.add((value, unit))
 
         if len(unique_denoms) > 1:

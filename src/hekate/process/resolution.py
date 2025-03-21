@@ -89,28 +89,28 @@ class ResultCharacteristics(NamedTuple):
         if isinstance(t_str, dc.LiquidQuantity):
             # LiquidQuantity is the most specific strength type, so:
             assert isinstance(s_str, dc.LiquidQuantity)
-            d_diff = abs(t_str.denominator_value - s_str.denominator_value)
-            n_diff = abs(t_str.numerator_value - s_str.numerator_value)
+            d_diff = float(t_str.denominator_value - s_str.denominator_value)
+            n_diff = float(t_str.numerator_value - s_str.numerator_value)
         else:
-            d_diff = 0
+            d_diff = 0.0
             if isinstance(t_str, dc.SolidStrength):
                 # Only possible source counterpart
                 assert isinstance(s_str, dc.SolidStrength)
-                n_diff = abs(t_str.amount_value - s_str.amount_value)
+                n_diff = float(t_str.amount_value - s_str.amount_value)
             elif t_str is not None:
                 # Gas or Liquid Concentration
                 assert isinstance(s_str, type(t_str))
-                n_diff = abs(t_str.numerator_value - s_str.numerator_value)
+                n_diff = float(t_str.numerator_value - s_str.numerator_value)
             else:
-                n_diff = 0
+                n_diff = 0.0
 
         return cls(
             ingredient_diff=source.precedence_data.ingredient_diff,
-            denominator_diff=d_diff,
+            denominator_diff=abs(d_diff),
             dose_form_diff=source.precedence_data.dose_form_diff,
             brand_name_diff=source.precedence_data.brand_name_diff,
             supplier_diff=source.precedence_data.supplier_diff,
-            strength_diff=n_diff,
+            strength_diff=abs(n_diff),
             is_extension=metadata[0, "vocabulary_id"] == "RxNorm Extension",
             valid_start_date=metadata[0, "valid_start_date"],
             concept_id=target.identifier,

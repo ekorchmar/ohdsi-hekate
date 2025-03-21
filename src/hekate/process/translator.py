@@ -14,7 +14,7 @@ from csv_read.source_input import BuildRxEInput
 from rx_model import drug_classes as dc
 from rx_model.hierarchy.generic import AtomicConcept
 from rx_model.hierarchy.hosts import Atoms
-from utils.classes import SortedTuple
+from utils.classes import SortedTuple, PyRealNumber
 from utils.constants import StrengthConfiguration
 from utils.exceptions import (
     ForeignNodeCreationError,
@@ -79,7 +79,9 @@ class NodeTranslator:
         ] = {}
         # Maps pseudo-units to their corresponding RxNorm units in order of
         # precedence and with preserved conversion factor
-        self._unit_map: dict[dc.PseudoUnit, OrderedDict[dc.Unit, float]] = {}
+        self._unit_map: dict[
+            dc.PseudoUnit, OrderedDict[dc.Unit, PyRealNumber]
+        ] = {}
 
         # External references to the storage dictionaries
         self._get_atom: _AtomLookupCallable = rx_atoms.lookup_unknown
@@ -96,7 +98,9 @@ class NodeTranslator:
         self._concept_map[concept_vocab] = concept_ids
 
     def add_unit_mappings(
-        self, pseudo_unit: dc.PseudoUnit, unit_map: OrderedDict[dc.Unit, float]
+        self,
+        pseudo_unit: dc.PseudoUnit,
+        unit_map: OrderedDict[dc.Unit, PyRealNumber],
     ):
         """
         Add mappings from a pseudo-dc.unit to a sequence of concept IDs with
@@ -168,8 +172,8 @@ class NodeTranslator:
         for row in unit_frame.iter_rows():
             pseudo_unit: dc.PseudoUnit = row[0]
             concept_ids: list[int] = row[1]
-            conversion_factors: list[float] = row[2]
-            unit_map: OrderedDict[dc.Unit, float] = OrderedDict()
+            conversion_factors: list[PyRealNumber] = row[2]
+            unit_map: OrderedDict[dc.Unit, PyRealNumber] = OrderedDict()
             for cid, factor in zip(concept_ids, conversion_factors):
                 unit: dc.Unit = self._unit_storage[dc.ConceptId(cid)]
                 unit_map[unit] = factor
@@ -177,8 +181,8 @@ class NodeTranslator:
             self.add_unit_mappings(pseudo_unit, unit_map)
 
     def _translate_strength_measure(
-        self, value: float, unit: dc.PseudoUnit
-    ) -> Generator[tuple[float, dc.Unit], None, None]:
+        self, value: PyRealNumber, unit: dc.PseudoUnit
+    ) -> Generator[tuple[PyRealNumber, dc.Unit], None, None]:
         """
         Translate a single strength measure (a pair of value and dc.unit) to a
         sequence of possible value-dc.unit pairs in RxNorm-native units.
@@ -382,7 +386,7 @@ class NodeTranslator:
                     strength_data.numerator_value, strength_data.numerator_unit
                 )
                 den_permut = self._translate_strength_measure(
-                    1, strength_data.denominator_unit
+                    PyRealNumber(1), strength_data.denominator_unit
                 )
                 for (scaled_n, n_unit), (scaled_d, d_unit) in product(
                     num_permut, den_permut

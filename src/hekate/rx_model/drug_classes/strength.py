@@ -24,6 +24,7 @@ from utils.constants import (
     STRENGTH_CLOSURE_BOUNDARY_LOW,
 )
 from utils.exceptions import RxConceptCreationError
+from utils.classes import PyRealNumber
 
 HIGH = STRENGTH_CLOSURE_BOUNDARY_HIGH
 LOW = STRENGTH_CLOSURE_BOUNDARY_LOW
@@ -74,7 +75,7 @@ class SolidStrength(_StrengthMeta):
     Single value/unit combination for dosage information.
     """
 
-    amount_value: float
+    amount_value: PyRealNumber
     amount_unit: a.Unit
 
     def __post_init__(self):
@@ -108,10 +109,8 @@ class SolidStrength(_StrengthMeta):
         # NOTE: amount_value is the only strength metric where 0 is possible
         try:
             diff = self.amount_value / other.amount_value
-        except decimal.DivisionUndefined:  # decimal, both are 0
-            return True
-        except decimal.DivisionByZero:  # decimal, only denominator is 0
-            return False
+        except decimal.InvalidOperation:  # decimal, 0
+            return self.amount_value == 0
         except ZeroDivisionError:  # float
             return self.amount_value == 0
         else:
@@ -124,7 +123,7 @@ class LiquidConcentration(_StrengthMeta):
     Dosage given as unquantified concentration.
     """
 
-    numerator_value: float
+    numerator_value: PyRealNumber
     numerator_unit: a.Unit
     # Null for denominator value
     denominator_unit: a.Unit
@@ -172,7 +171,7 @@ class GasPercentage(_StrengthMeta):
     and unit.
     """
 
-    numerator_value: float
+    numerator_value: PyRealNumber
     numerator_unit: a.Unit
     # Null for denominator value
     # Null for denominator unit
@@ -218,9 +217,9 @@ class LiquidQuantity(_StrengthMeta):
     # NOTE: we are an implicit subclass of LiquidConcentration and
     # GaseousPercentage, so we allow accessing their protected methods here.
 
-    numerator_value: float
+    numerator_value: PyRealNumber
     numerator_unit: a.Unit
-    denominator_value: float
+    denominator_value: PyRealNumber
     denominator_unit: a.Unit
 
     @override

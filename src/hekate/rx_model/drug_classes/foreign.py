@@ -17,7 +17,7 @@ import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
 
-from utils.classes import SortedTuple
+from utils.classes import SortedTuple, PyRealNumber
 from utils.constants import StrengthConfiguration
 from utils.exceptions import ForeignNodeCreationError
 from utils.utils import count_repeated_first_entries
@@ -49,11 +49,11 @@ class ForeignStrength(NamedTuple):
     for handling mapping information is processed separately.
     """
 
-    amount_value: float | None
+    amount_value: PyRealNumber | None
     amount_unit: PseudoUnit | None
-    numerator_value: float | None
+    numerator_value: PyRealNumber | None
     numerator_unit: PseudoUnit | None
-    denominator_value: float | None
+    denominator_value: PyRealNumber | None
     denominator_unit: PseudoUnit | None
     box_size: int | None
 
