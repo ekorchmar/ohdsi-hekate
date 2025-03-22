@@ -16,7 +16,7 @@ from utils.exceptions import RxConceptCreationError
 
 # TODO: reexport this properly
 from rx_model.hierarchy.hosts import NodeIndex
-from utils.classes import SortedTuple, PlRealNumber
+from utils.classes import SortedTuple, PlRealNumber, PyRealNumber
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     ATHENA_OVERFILTERING_TRESHOLD,
@@ -263,11 +263,11 @@ class OMOPVocabulariesV5:
 
         drug_concept_id: int
         ingredient_concept_id: int
-        amount_value: float
+        amount_value: PyRealNumber
         amount_unit_concept_id: int
-        numerator_value: float
+        numerator_value: PyRealNumber
         numerator_unit_concept_id: int
-        denominator_value: float
+        denominator_value: PyRealNumber
         denominator_unit_concept_id: int
         amount_only: bool
         liquid_concentration: bool
