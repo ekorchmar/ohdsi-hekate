@@ -145,6 +145,16 @@ class ConceptTable(OMOPTable[None]):
             )
         )
 
+    def get_metadata(self, ids: Sequence[dc.ConceptId]):
+        """
+        Get metadata for a sequence of concept_ids
+        """
+        return (
+            self.collect()
+            .filter(pl.col("concept_id").is_in(ids))
+            .select("concept_id", "vocabulary_id", "valid_start_date")
+        )
+
 
 class RelationshipTable(OMOPTable[pl.Series]):
     TABLE_SCHEMA: Schema = {

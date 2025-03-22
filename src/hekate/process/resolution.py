@@ -5,8 +5,8 @@ choose a single virtual node to represent the concept.
 """
 
 import logging
-from collections.abc import Mapping
-from itertools import chain, groupby
+from collections.abc import Mapping, Sequence
+from itertools import chain, groupby, product
 from typing import NamedTuple
 
 import polars as pl
@@ -18,6 +18,11 @@ from utils.classes import PyRealNumber, SortedTuple
 type _VirtualNode = dc.ForeignDrugNode[dc.Strength | None]
 type _Terminal = dc.DrugNode[dc.ConceptId, dc.Strength | None]
 type _TerminalClass = type[_Terminal]
+
+type _CDC = dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength]
+type _StrengthDefinition = SortedTuple[
+    dc.BoundStrength[dc.ConceptId, dc.Strength | None]
+]
 
 
 # TODO: Document the order elsewhere
@@ -71,12 +76,8 @@ class ResultCharacteristics(NamedTuple):
         @classmethod
         def from_strength_pair(
             cls,
-            source_strength: SortedTuple[
-                dc.BoundStrength[dc.ConceptId, dc.Strength | None]
-            ],
-            target_strength: SortedTuple[
-                dc.BoundStrength[dc.ConceptId, dc.Strength | None]
-            ],
+            source_strength: _StrengthDefinition,
+            target_strength: _StrengthDefinition,
         ) -> "ResultCharacteristics.StrengthDiff":
             n_diff: PyRealNumber
             d_diff: PyRealNumber
@@ -176,9 +177,7 @@ class ResultCharacteristics(NamedTuple):
     def from_component_combo(
         cls,
         source: _VirtualNode,
-        targets: list[
-            dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength],
-        ],
+        targets: Sequence[_CDC],
         concept_metadata: pl.DataFrame,
     ) -> "ResultCharacteristics":
         """
@@ -260,23 +259,6 @@ class Resolver:
         # Concept data lookup
         self.concept_handle: athena.ConceptTable = concept_handle
 
-    def disambiguate_targets(self) -> None:
-        """
-        Disambiguate the mapping results to a subset of non-overlapping
-        concepts.
-        """
-        raise NotImplementedError
-
-    def resolve(self) -> dc.DrugNode[dc.ConceptId, dc.Strength | None]:
-        """
-        Resolve the mapping results to a single virtual node.
-
-        Chooses a node with both deepest hierarchy penetration and highest
-        priority by attribute mapping precedence, numeric similarity and, if
-        still necessary, by metadata.
-        """
-        raise NotImplementedError
-
     def pick_omop_mapping(
         self,
     ) -> list[dc.DrugNode[dc.ConceptId, dc.Strength | None]]:
@@ -306,6 +288,7 @@ class Resolver:
                 key=lambda foreign: foreign.precedence_data.ingredient_diff,
             )
             return self.mapping_results[best_node]
+
         elif best_class == dc.ClinicalDrugComponent:
             # 1. Sort nodes by ingredient precedence
             nodes_by_ingredient = sorted(
@@ -332,5 +315,48 @@ class Resolver:
                     for target in self.mapping_results[nodes_by_ingredient[0]]
                 ]
             # 2.b. Rate and deduplicate the components grouped by ingredient
-            _ = groupby
-        raise NotImplementedError
+            else:
+                scored: Sequence[
+                    tuple[ResultCharacteristics, tuple[_CDC, ...]]
+                ] = []
+                for node in cdc_nodes:
+                    components: Sequence[_CDC]
+                    components = self.mapping_results[node]  # pyright: ignore[reportAssignmentType]  # noqa: E501
+                    by_ingredient = groupby(
+                        sorted(components, key=lambda cdc: cdc.ingredient),
+                        key=lambda cdc: cdc.ingredient,
+                    )
+                    component_groups = [list(g) for _, g in by_ingredient]
+                    metadata = self.concept_handle.get_metadata([
+                        cdc.identifier for cdc in components
+                    ])
+                    scored.extend(
+                        (
+                            ResultCharacteristics.from_component_combo(
+                                node, combo, metadata
+                            ),
+                            combo,
+                        )
+                        for combo in product(*component_groups)
+                    )
+
+                # Returns best scored combination of components
+                return list(min(scored)[1])
+        else:  # All multi-ingredient classes
+            all_pairs: list[tuple[_VirtualNode, _Terminal]] = list(
+                (source, target)
+                for source, targets in self.mapping_results.items()
+                for target in targets
+                if isinstance(target, best_class)
+            )
+            metadata = self.concept_handle.get_metadata([
+                target.identifier for _, target in all_pairs
+            ])
+            best_node: _Terminal = min(
+                all_pairs,
+                key=lambda pair: ResultCharacteristics.from_pair(
+                    *pair, metadata
+                ),
+            )[1]
+
+            return [best_node]
