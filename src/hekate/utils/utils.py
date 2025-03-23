@@ -31,3 +31,10 @@ def invert_merge_dict(data: dict[T, U]) -> dict[U, list[T]]:
 def get_first_dict_value(data: dict[T, U]) -> U:
     """Get the first value from the dictionary."""
     return next(iter(data.values()))
+
+
+def int_date_to_str(int_date: int) -> str:
+    year = int_date // 10_000
+    month = (int_date // 100) % 100
+    day = int_date % 100
+    return f"{year}-{month:02d}-{day:02d}"

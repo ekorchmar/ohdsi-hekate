@@ -17,7 +17,6 @@ from utils.classes import PyRealNumber, SortedTuple
 
 type _VirtualNode = dc.ForeignDrugNode[dc.Strength | None]
 type _Terminal = dc.DrugNode[dc.ConceptId, dc.Strength | None]
-type _TerminalClass = type[_Terminal]
 
 type _CDC = dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength]
 type _StrengthDefinition = SortedTuple[
@@ -243,17 +242,19 @@ class Resolver:
         self,
         source_definition: dc.ForeignNodePrototype,
         mapping_results: Mapping[
-            dc.ForeignDrugNode[dc.Strength | None], list[_Terminal]
+            dc.ForeignDrugNode[dc.Strength | None], Sequence[_Terminal]
         ],
         logger: logging.Logger,
         concept_handle: athena.ConceptTable,
     ):
-        self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
+        self.logger: logging.Logger = logger.getChild(
+            self.__class__.__name__
+        ).getChild(str(source_definition.identifier))
 
         # Operands
         self.source_definition: dc.ForeignNodePrototype = source_definition
         self.mapping_results: Mapping[
-            dc.ForeignDrugNode[dc.Strength | None], list[_Terminal]
+            dc.ForeignDrugNode[dc.Strength | None], Sequence[_Terminal]
         ] = mapping_results
 
         # Concept data lookup
@@ -287,7 +288,7 @@ class Resolver:
                 self.mapping_results,
                 key=lambda foreign: foreign.precedence_data.ingredient_diff,
             )
-            return self.mapping_results[best_node]
+            return list(self.mapping_results[best_node])
 
         elif best_class == dc.ClinicalDrugComponent:
             # 1. Sort nodes by ingredient precedence

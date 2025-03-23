@@ -2,6 +2,7 @@ import argparse
 import datetime
 import logging
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import polars as pl
@@ -11,8 +12,9 @@ from csv_read.source_input import BuildRxEInput
 from runner.cli_args import HekateArgsParser
 from rx_model import drug_classes as dc
 from utils.constants import VALID_CONCEPT_END_DATE, VALID_CONCEPT_START_DATE
-from utils.exceptions import UnmappedSourceConceptError
+from utils.exceptions import UnmappedSourceConceptError, ResolutionError
 from utils.logger import FORMATTER, LOGGER
+from utils.utils import int_date_to_str
 
 _VERSE = """
 With wing of bat and eye of toad,
@@ -21,12 +23,13 @@ With twig of fern and QA checks,
 Hekate starts another hex!
 """
 
-
-def _int_date_to_str(int_date: int) -> str:
-    year = int_date // 10_000
-    month = (int_date // 100) % 100
-    day = int_date % 100
-    return f"{year}-{month:02d}-{day:02d}"
+type _InterimResult = dict[
+    dc.ForeignNodePrototype,
+    dict[
+        dc.ForeignDrugNode[dc.Strength | None],
+        Sequence[dc.DrugNode[dc.ConceptId, dc.Strength | None]],
+    ],
+]
 
 
 class HekateRunner:
@@ -78,7 +81,8 @@ class HekateRunner:
         )
         self.translator.read_translations(source=self.build_rxe_source)
 
-        self.resulting_mappings = self.map_to_rxn()
+        terminals = self.find_terminals()
+        self.resulting_mappings = self._resolve(terminals)
 
         LOGGER.info("Done")
 
@@ -150,11 +154,11 @@ class HekateRunner:
         # Add static metadata and reorder columns
         mappings_df = mappings_df.with_columns(
             valid_start_date=pl.lit(
-                _int_date_to_str(VALID_CONCEPT_START_DATE)
+                int_date_to_str(VALID_CONCEPT_START_DATE)
             ).cast(self.RESULTS_SCHEMA["valid_start_date"]),
-            valid_end_date=pl.lit(
-                _int_date_to_str(VALID_CONCEPT_END_DATE)
-            ).cast(self.RESULTS_SCHEMA["valid_start_date"]),
+            valid_end_date=pl.lit(int_date_to_str(VALID_CONCEPT_END_DATE)).cast(
+                self.RESULTS_SCHEMA["valid_start_date"]
+            ),
             invalid_reason=pl.lit(None).cast(
                 self.RESULTS_SCHEMA["invalid_reason"]
             ),
@@ -163,14 +167,14 @@ class HekateRunner:
         print(data := mappings_df.collect())
         data.write_csv(self.run_dir / "hekate_results.csv")
 
-    def map_to_rxn(self) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
+    def find_terminals(self) -> _InterimResult:
         """
         Map the generated nodes to RxNorm concepts.
         """
 
-        result: dict[dc.ConceptCodeVocab, list[dc.ConceptId]] = {}
+        result: _InterimResult = {}
 
-        # 2 billion is conventionally used for loval concept IDs
+        # 2 billion is conventionally used for local concept IDs
         def new_concept_id():
             two_bill = 2_000_000_000
             while True:
@@ -181,6 +185,7 @@ class HekateRunner:
         for node in self.build_rxe_source.prepare_drug_nodes(
             crash_on_error=False
         ):
+            result[node] = {}
             translated_nodes = self.translator.translate_node(
                 node, lambda: next(cid_counter)
             )
@@ -203,8 +208,39 @@ class HekateRunner:
                 )
                 visitor.start_search()
                 node_result = visitor.get_search_results()
+                result[node][option] = list(node_result.values())
 
-                result.setdefault(node.identifier, []).extend(
-                    node.identifier for node in node_result.values()
-                )
         return result
+
+    def _resolve(
+        self, terminals: _InterimResult
+    ) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
+        """
+        Disambiguate the terminal nodes and return the final mappings.
+        """
+        out: dict[dc.ConceptCodeVocab, list[dc.ConceptId]] = {}
+        for prototype, node_mappings in terminals.items():
+            resolver = p.Resolver(
+                source_definition=prototype,
+                mapping_results=node_mappings,
+                logger=self.logger,
+                concept_handle=self.athena_rxne.concept,
+            )
+
+            try:
+                resulting_mappings = resolver.pick_omop_mapping()
+            except ResolutionError as e:
+                self.logger.error(
+                    f"Could not resolve mappings for {prototype.identifier}: "
+                    f"{e}"
+                )
+                continue
+            else:
+                self.logger.debug(
+                    f"Resolved {len(resulting_mappings)} mappings for "
+                    f"{prototype.identifier}"
+                )
+                out[prototype.identifier] = [
+                    node.identifier for node in resulting_mappings
+                ]
+        return out
