@@ -6,22 +6,24 @@ Note: PruneSearch is raised to prune the search tree while traversing a graph.
 It will not stop the search, only discard the successor nodes.
 """
 
-from typing import override
-import logging
+import importlib.util  # For conditional imports
+import logging  # Typing
+from pathlib import Path
+from typing import (
+    NoReturn,
+    override,  # To mark the overridden BFSVisitor methods
+)
 
-import rustworkx as rx
+import rustworkx as rx  # Core implementation dependency
+from rustworkx.visualization import graphviz_draw  # For illustration
 from rx_model.drug_classes import (
-    ConceptId,
-    DrugNode,
-    ForeignDrugNode,
-    Ingredient,
-    Strength,
+    ConceptId,  # Typing
+    DrugNode,  # Operand
+    ForeignDrugNode,  # Operand
+    Ingredient,  # Entry point, special case
+    Strength,  # Typing
 )
 from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
-
-# TODO: this should eventually become a continuous value to track preference
-# across precedence levels.
-type NodeAcceptance = bool
 
 
 class DrugNodeFinder(rx.visit.BFSVisitor):
@@ -37,10 +39,18 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         node: ForeignDrugNode[Strength | None],
         hierarchy: RxHierarchy[ConceptId],
         logger: logging.Logger,
+        save_subplot: bool = False,
     ):
         """
         Initializes the visitor with the hierarchy and the new node to be
         tested.
+
+        Args:
+            node: The nativized representation of the source node as predicate.
+            hierarchy: The target RxHierarchy to search in.
+            logger: The logger to get a child logger from for the visitor.
+            save_subplot: Whether to save the subgraph of the hierarchy that
+                was traversed. Useful for debugging.
         """
         # Operands
         self.hierarchy: RxHierarchy[ConceptId] = hierarchy
@@ -64,6 +74,14 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         self.terminal_node_indices: set[NodeIndex] = set()
         self.accepted_nodes: set[NodeIndex] = set()
 
+        # Whether to save the subgraph of the hierarchy that was traversed.
+        self.save_subgraph: bool = save_subplot
+        # Will only be populated if save_subplot is True
+        self.rejected_nodes: set[NodeIndex] = set()
+        self.subgraph: (
+            None | rx.PyDiGraph[DrugNode[ConceptId, Strength | None], None]
+        ) = None
+
     @override
     def discover_vertex(self, v: NodeIndex) -> None:
         """
@@ -82,13 +100,21 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
                 for p_idx in self.hierarchy.predecessor_indices(v)
             ):
                 # Not all predecessors are accepted
-                raise rx.visit.PruneSearch
+                self._reject_node(v)
 
         if not drug_node.is_superclass_of(self.node):
             # None of the descendants will match
-            raise rx.visit.PruneSearch
+            self._reject_node(v)
         else:
             self._accept_node(v)
+
+    def _reject_node(self, v: NodeIndex) -> NoReturn:
+        """
+        Rejects a node and remembers it, if needed; search is pruned.
+        """
+        if self.save_subgraph:
+            self.rejected_nodes.add(v)
+        raise rx.visit.PruneSearch
 
     def _accept_node(self, v: NodeIndex) -> None:
         """
@@ -133,9 +159,19 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         try:
             rx.bfs_search(self.hierarchy, [temporary_root_idx], self)
         finally:
-            # Remove the temporary root node with edges in case we are
-            # ever going multithreaded.
+            # Save the subgraph if needed
+            if self.save_subgraph:
+                self.subgraph = self.hierarchy.subgraph(
+                    list(self.accepted_nodes | self.rejected_nodes)
+                )
+
+            # Remove the temporary root node even if traversal fails
             self.hierarchy.remove_node(temporary_root_idx)
+
+    def _color_subplot_edges(self) -> None:
+        """
+        Colors the edges of the subgraph to indicate the traversal result.
+        """
 
     def get_search_results(
         self,
@@ -144,3 +180,44 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         Returns the search results as a dictionary.
         """
         return {idx: self.hierarchy[idx] for idx in self.terminal_node_indices}
+
+    def illustrate_subgraph(self, save_path: Path) -> None:
+        """
+        Illustrates the subgraph that was traversed.
+        """
+        if not all(
+            importlib.util.find_spec(mod) for mod in ["PIL", "graphviz"]
+        ):
+            self.logger.warning(
+                "Cannot illustrate the subgraph, missing dependencies"
+            )
+            return
+
+        if self.subgraph is None:
+            self.logger.error("No subgraph to illustrate")
+            return
+
+        _ = graphviz_draw(
+            self.subgraph,
+            node_attr_fn=self._get_graphviz_node_attr,
+            filename=str(save_path),
+            image_type="svg",
+        )
+
+    def _get_graphviz_node_attr(
+        self, node: DrugNode[ConceptId, Strength | None]
+    ) -> dict[str, str]:
+        """
+        Returns the Graphviz node attributes for the given node.
+        """
+        # PERF: We are passing the node data as a parameter, not index; but we
+        # need index to color the nodes.
+        rejected = any(
+            self.hierarchy[idx] is node for idx in self.rejected_nodes
+        )
+
+        return {
+            "color": "red" if rejected else "black",
+            "style": "filled" if rejected else "solid",
+            "label": f"{node.identifier} ({node.__class__.__name__})",
+        }

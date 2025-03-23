@@ -39,6 +39,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+graph = ["graphviz", "pillow"]
 database = ["sqlalchemy", "pandas"]
 
 [project.scripts]
