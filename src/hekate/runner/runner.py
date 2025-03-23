@@ -81,13 +81,13 @@ class HekateRunner:
         )
         self.translator.read_translations(source=self.build_rxe_source)
 
-        terminals = self.find_terminals()
+        terminals = self._find_terminals()
         self.resulting_mappings = self._resolve(terminals)
 
         LOGGER.info("Done")
 
     def _create_run_dir(self):
-        time_now = datetime.datetime.now().strftime("%Y-%m-%d_%t-%M-%S")
+        time_now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.run_dir = self._args.output_dir / time_now
         self.run_dir.mkdir(parents=True, exist_ok=False)
 
@@ -167,7 +167,7 @@ class HekateRunner:
         print(data := mappings_df.collect())
         data.write_csv(self.run_dir / "hekate_results.csv")
 
-    def find_terminals(self) -> _InterimResult:
+    def _find_terminals(self) -> _InterimResult:
         """
         Map the generated nodes to RxNorm concepts.
         """
@@ -220,6 +220,12 @@ class HekateRunner:
         """
         out: dict[dc.ConceptCodeVocab, list[dc.ConceptId]] = {}
         for prototype, node_mappings in terminals.items():
+            if not node_mappings:
+                self.logger.error(
+                    f"No mappings found for {prototype.identifier}"
+                )
+                continue
+
             resolver = p.Resolver(
                 source_definition=prototype,
                 mapping_results=node_mappings,
