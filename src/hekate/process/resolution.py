@@ -143,7 +143,7 @@ class ResultCharacteristics(NamedTuple):
         try:
             metadata = concept_metadata.filter(
                 pl.col("concept_id") == target.identifier
-            ).select(["vocabulary_id", "valid_start_date"])
+            )
         except pl.exceptions.ColumnNotFoundError as e:
             raise exceptions.ResolutionError(
                 "Unexpected metadata structure"
@@ -190,7 +190,7 @@ class ResultCharacteristics(NamedTuple):
         try:
             metadata = concept_metadata.filter(
                 pl.col("concept_id").is_in([t.identifier for t in targets])
-            ).select(["vocabulary_id", "valid_start_date"])
+            )
         except pl.exceptions.ColumnNotFoundError as e:
             raise exceptions.ResolutionError(
                 "Unexpected metadata structure"
