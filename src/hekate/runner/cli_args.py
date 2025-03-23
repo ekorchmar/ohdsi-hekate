@@ -25,12 +25,12 @@ class HekateArgsParser(argparse.ArgumentParser):
             formatter_class=argparse.RawTextHelpFormatter,
             usage=(
                 "hekate -a <athena-download-dir> -b <build-rxe-input-dir> "
-                " [options]"
+                "[options]"
             ),
         )
 
         # Required arguments -- input and output paths
-        self.add_argument(
+        _ = self.add_argument(
             "-a",
             "--athena-download-dir",
             type=pathlib.Path,
@@ -44,7 +44,7 @@ class HekateArgsParser(argparse.ArgumentParser):
             dest="athena_download_dir",
             required=True,
         )
-        self.add_argument(
+        _ = self.add_argument(
             "-b",
             "--build-rxe-input-dir",
             type=pathlib.Path,
@@ -58,7 +58,7 @@ class HekateArgsParser(argparse.ArgumentParser):
             dest="build_rxe_input_dir",
             required=True,
         )
-        self.add_argument(
+        _ = self.add_argument(
             "-o",
             "--output-dir",
             type=pathlib.Path,
@@ -75,7 +75,7 @@ class HekateArgsParser(argparse.ArgumentParser):
         )
 
         # Optional arguments
-        self.add_argument(
+        _ = self.add_argument(
             "-d",
             "--debug",
             action="store_true",
@@ -86,8 +86,9 @@ class HekateArgsParser(argparse.ArgumentParser):
             default=False,
             dest="debug",
         )
-        self.add_argument(
-            "-s--separator",
+        _ = self.add_argument(
+            "-s",
+            "--separator",
             type=str,
             help=(
                 "Separator character used in the BuildRxE input files. Default "
@@ -96,7 +97,7 @@ class HekateArgsParser(argparse.ArgumentParser):
             default="\t",
             dest="delimiter",
         )
-        self.add_argument(
+        _ = self.add_argument(
             "-q",
             "--quotechar",
             type=str,
@@ -106,4 +107,21 @@ class HekateArgsParser(argparse.ArgumentParser):
             ),
             default=None,
             dest="quote_char",
+        )
+
+        _ = self.add_argument(
+            "-g",
+            "--graph-source-concepts",
+            type=str,
+            help=(
+                "Array of characters representing codes & vocabulary_id of the "
+                "source concepts to draw SVG traversal history for. Default is "
+                "empty array, which disables graph generation. Codes and vocab "
+                "IDs are delimited by colon, and multiple codes are delimited "
+                "by semicolon. Example: GGR:2796035;GGR:1593110;GGR:2756013. "
+                "Note that this is a debugging feature and the codes will not "
+                "be error-checked."
+            ),
+            default=None,
+            dest="graph_source_concepts",
         )
