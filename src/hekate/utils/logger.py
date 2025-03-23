@@ -4,10 +4,11 @@ import sys
 FORMATTER = logging.Formatter(
     "[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
 )
-_stdout_handler = logging.StreamHandler(sys.stdout)
-_stdout_handler.setFormatter(FORMATTER)
+STDOUT_HANDLER = logging.StreamHandler(sys.stdout)
+STDOUT_HANDLER.setFormatter(FORMATTER)
+STDOUT_HANDLER.setLevel(logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
-    handlers=[_stdout_handler],
+    level=logging.DEBUG,
+    handlers=[STDOUT_HANDLER],
 )
 LOGGER = logging.getLogger("Hekate")
