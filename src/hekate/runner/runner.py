@@ -1,16 +1,16 @@
-import argparse
-import datetime
-import logging
-import sys
-from collections.abc import Sequence
-from pathlib import Path
+import argparse  # for Typing
+import datetime  # for naming directories
+import logging  # for logging
+import sys  # To read command line arguments
+from collections.abc import Sequence  # for Typing
+from pathlib import Path  # for file paths
 
-import polars as pl
-import process as p
-from csv_read.athena import OMOPVocabulariesV5
-from csv_read.source_input import BuildRxEInput
-from runner.cli_args import HekateArgsParser
-from rx_model import drug_classes as dc
+import polars as pl  # for resultss writing
+import process as p  # for translator and resolver
+from csv_read.athena import OMOPVocabulariesV5  # for Athena data
+from csv_read.source_input import BuildRxEInput  # for source data
+from runner.cli_args import HekateArgsParser  # for command line arguments
+from rx_model import drug_classes as dc  # for data classes
 from utils.constants import VALID_CONCEPT_END_DATE, VALID_CONCEPT_START_DATE
 from utils.exceptions import UnmappedSourceConceptError, ResolutionError
 from utils.logger import FORMATTER, LOGGER
@@ -59,9 +59,21 @@ class HekateRunner:
         self.athena_rxne: OMOPVocabulariesV5
         self.build_rxe_source: BuildRxEInput
 
+        self.concepts_to_graph: list[dc.ConceptCodeVocab] = []
+
     def run(self):
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
         self.logger.info("Run started")
+
+        # Output graphs if requested
+        if gsc := self._args.graph_source_concepts:
+            assert isinstance(gsc, str)
+            self.concepts_to_graph.extend(
+                map(
+                    lambda v_c: dc.ConceptCodeVocab(*v_c.split(":")[::-1]),
+                    gsc.split(";"),
+                )
+            )
 
         self.run_dir: Path
         self._create_run_dir()
@@ -90,6 +102,9 @@ class HekateRunner:
         time_now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.run_dir = self._args.output_dir / time_now
         self.run_dir.mkdir(parents=True, exist_ok=False)
+
+        if self.concepts_to_graph:
+            (self.run_dir / "graphs").mkdir()
 
     def _attach_file_logging(self):
         # If argument -d is passed, enable debug logging to stdout
@@ -204,10 +219,28 @@ class HekateRunner:
                     continue
 
                 visitor = p.DrugNodeFinder(
-                    option, self.athena_rxne.hierarchy, self.logger
+                    option,
+                    self.athena_rxne.hierarchy,
+                    self.logger,
+                    save_subplot=node.identifier in self.concepts_to_graph,
                 )
                 visitor.start_search()
+
                 node_result = visitor.get_search_results()
+
+                # If the node has no results yet and is supposed to be graphed,
+                # do it now -- we only graph the first option
+                if node.identifier in self.concepts_to_graph:
+                    if not result[node]:
+                        visitor.draw_subgraph(
+                            self.run_dir
+                            / "graphs"
+                            / (
+                                f"{node.identifier.vocabulary_id}_"
+                                + f"{node.identifier.concept_code}.svg"
+                            )
+                        )
+
                 result[node][option] = list(node_result.values())
 
         return result

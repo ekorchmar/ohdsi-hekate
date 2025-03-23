@@ -181,7 +181,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         """
         return {idx: self.hierarchy[idx] for idx in self.terminal_node_indices}
 
-    def illustrate_subgraph(self, save_path: Path) -> None:
+    def draw_subgraph(self, save_path: Path) -> None:
         """
         Illustrates the subgraph that was traversed.
         """
