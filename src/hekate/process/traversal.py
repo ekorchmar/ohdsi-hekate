@@ -18,6 +18,7 @@ import rustworkx as rx  # Core implementation dependency
 from rustworkx.visualization import graphviz_draw  # For illustration
 from rx_model.drug_classes import (
     ConceptId,  # Typing
+    ConceptCodeVocab,  # Typing
     DrugNode,  # Operand
     ForeignDrugNode,  # Operand
     Ingredient,  # Entry point, special case
@@ -176,9 +177,17 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         """
         return {idx: self.hierarchy[idx] for idx in self.terminal_node_indices}
 
-    def draw_subgraph(self, save_path: Path) -> None:
+    def draw_subgraph(
+        self,
+        save_path: Path,
+        use_identifier: ConceptCodeVocab,
+    ) -> None:
         """
         Illustrates the subgraph that was traversed.
+
+        Args:
+            save_path: The path to save the illustration to.
+            use_identifier: The identifier to use to label the graph.
         """
         if not all(
             importlib.util.find_spec(mod) for mod in ["PIL", "graphviz"]
@@ -200,9 +209,15 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
             if source in self.accepted_nodes and target in self.rejected_nodes:
                 self._rejected_by_accepted.setdefault(source, set()).add(target)
 
+        label = (
+            f"Visited nodes for {use_identifier}; "
+            f"accepted: {len(self.accepted_nodes)}, "
+            f"rejected: {len(self.rejected_nodes)}"
+        )
         _ = graphviz_draw(
             self.subgraph,
             node_attr_fn=self._get_graphviz_node_attr,
+            graph_attr={"label": '"' + label + '"'},
             filename=str(save_path),
             image_type="svg",
         )

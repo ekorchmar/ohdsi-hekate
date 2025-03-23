@@ -197,12 +197,12 @@ class HekateRunner:
                 two_bill += 1
 
         cid_counter = new_concept_id()
-        for node in self.build_rxe_source.prepare_drug_nodes(
+        for prototype in self.build_rxe_source.prepare_drug_nodes(
             crash_on_error=False
         ):
-            result[node] = {}
+            result[prototype] = {}
             translated_nodes = self.translator.translate_node(
-                node, lambda: next(cid_counter)
+                prototype, lambda: next(cid_counter)
             )
             while True:
                 try:
@@ -213,7 +213,7 @@ class HekateRunner:
                     # This is expected for now
                     # TODO: skip all permutations of the node
                     self.logger.error(
-                        f"Node {node.identifier} could not be mapped to "
+                        f"Node {prototype.identifier} could not be mapped to "
                         f"RxNorm: {e}"
                     )
                     continue
@@ -222,7 +222,7 @@ class HekateRunner:
                     option,
                     self.athena_rxne.hierarchy,
                     self.logger,
-                    save_subplot=node.identifier in self.concepts_to_graph,
+                    save_subplot=prototype.identifier in self.concepts_to_graph,
                 )
                 visitor.start_search()
 
@@ -230,18 +230,19 @@ class HekateRunner:
 
                 # If the node has no results yet and is supposed to be graphed,
                 # do it now -- we only graph the first option
-                if node.identifier in self.concepts_to_graph:
-                    if not result[node]:
+                if prototype.identifier in self.concepts_to_graph:
+                    if not result[prototype]:
                         visitor.draw_subgraph(
                             self.run_dir
                             / "graphs"
                             / (
-                                f"{node.identifier.vocabulary_id}_"
-                                + f"{node.identifier.concept_code}.svg"
-                            )
+                                f"{prototype.identifier.vocabulary_id}_"
+                                + f"{prototype.identifier.concept_code}.svg"
+                            ),
+                            use_identifier=prototype.identifier,
                         )
 
-                result[node][option] = list(node_result.values())
+                result[prototype][option] = list(node_result.values())
 
         return result
 
