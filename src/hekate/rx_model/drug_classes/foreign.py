@@ -83,7 +83,7 @@ class ForeignNodePrototype(NamedTuple):
     """
 
     identifier: ConceptCodeVocab
-    strength_data: Sequence[BoundForeignStrength]
+    strength_data: SortedTuple[BoundForeignStrength]
     brand_name: a.BrandName[ConceptCodeVocab] | None = None
     dose_form: a.DoseForm[ConceptCodeVocab] | None = None
     supplier: a.Supplier[ConceptCodeVocab] | None = None

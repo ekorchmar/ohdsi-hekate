@@ -13,7 +13,7 @@ from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
 from utils.exceptions import ForeignNodeCreationError
-from utils.classes import PlRealNumber, PyRealNumber
+from utils.classes import PlRealNumber, PyRealNumber, SortedTuple
 from utils.logger import LOGGER
 
 
@@ -374,7 +374,7 @@ class BuildRxEInput:
 
             yield dc.ForeignNodePrototype(
                 identifier=drug_product_id,
-                strength_data=node_strength,
+                strength_data=SortedTuple(node_strength),
                 dose_form=A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab)),
                 brand_name=A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
                 supplier=A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
