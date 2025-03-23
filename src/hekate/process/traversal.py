@@ -78,6 +78,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         self.save_subgraph: bool = save_subplot
         # Will only be populated if save_subplot is True
         self.rejected_nodes: set[NodeIndex] = set()
+        self._rejected_by_accepted: dict[NodeIndex, set[NodeIndex]] = {}
         self.subgraph: (
             None | rx.PyDiGraph[DrugNode[ConceptId, Strength | None], None]
         ) = None
@@ -159,12 +160,6 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         try:
             rx.bfs_search(self.hierarchy, [temporary_root_idx], self)
         finally:
-            # Save the subgraph if needed
-            if self.save_subgraph:
-                self.subgraph = self.hierarchy.subgraph(
-                    list(self.accepted_nodes | self.rejected_nodes)
-                )
-
             # Remove the temporary root node even if traversal fails
             self.hierarchy.remove_node(temporary_root_idx)
 
@@ -193,9 +188,17 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
             )
             return
 
-        if self.subgraph is None:
-            self.logger.error("No subgraph to illustrate")
+        if not self.accepted_nodes:
+            self.logger.warning("No nodes were accepted, nothing to illustrate")
             return
+
+        if self.subgraph is None:
+            self.subgraph = self.hierarchy.subgraph(list(self.accepted_nodes))
+
+        self._rejected_by_accepted = {}
+        for source, target in self.hierarchy.edge_list():
+            if source in self.accepted_nodes and target in self.rejected_nodes:
+                self._rejected_by_accepted.setdefault(source, set()).add(target)
 
         _ = graphviz_draw(
             self.subgraph,
@@ -211,13 +214,15 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         Returns the Graphviz node attributes for the given node.
         """
         # PERF: We are passing the node data as a parameter, not index; but we
-        # need index to color the nodes.
-        rejected = any(
-            self.hierarchy[idx] is node for idx in self.rejected_nodes
+        # need index
+        node_index = next(
+            idx for idx in self.accepted_nodes if self.hierarchy[idx] is node
         )
+        label = f"{node.identifier} ({node.__class__.__name__})"
+        rejected_subtypes = len(self._rejected_by_accepted.get(node_index, []))
 
         return {
-            "color": "red" if rejected else "black",
-            "style": "filled" if rejected else "solid",
-            "label": f"{node.identifier} ({node.__class__.__name__})",
+            "label": label + f"\\nRejected: {rejected_subtypes} successors"
+            if rejected_subtypes
+            else label,
         }
