@@ -3,15 +3,14 @@ Generic CSV reader, able to iterate over rows of Athena or
 BuildRxE input CSV files.
 """
 
-from abc import ABC
-from collections.abc import Mapping
 import logging
+from abc import ABC
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Callable
-from collections.abc import Sequence
+from os.path import expandvars
 
 import polars as pl
-
 from utils.logger import LOGGER
 
 type Schema = Mapping[str, type[pl.DataType] | pl.Decimal]
@@ -80,7 +79,7 @@ class CSVReader[D: pl.DataFrame | pl.Series | pl.LazyFrame | None](ABC):
 
         # Create a reader object
         self._lazy_frame: pl.LazyFrame = pl.scan_csv(
-            source=self.path,
+            source=expandvars(self.path),
             separator=delimiter,
             quote_char=quote_char,
             has_header=True,
