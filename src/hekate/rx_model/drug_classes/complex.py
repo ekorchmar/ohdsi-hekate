@@ -14,6 +14,7 @@ from utils.classes import (
 )
 from utils.utils import invert_merge_dict, keep_multiple_values
 from utils.exceptions import RxConceptCreationError
+from utils.constants import BOX_SIZE_LIMIT
 
 
 class __MulticomponentMixin[
@@ -577,3 +578,60 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
                 return False
 
         return self.brand_name == other.get_brand_name()
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
+    DrugNode[Id, S]
+):
+    identifier: Id
+    unboxed: ClinicalDrug[Id, S]
+    box_size: int
+
+    def __post_init__(self):
+        if BOX_SIZE_LIMIT < self.box_size <= 0:
+            raise RxConceptCreationError(
+                f"Box size of {self.__class__.__name__} {self.identifier} must "
+                f"be a positive integer less than or equal to "
+                f"{BOX_SIZE_LIMIT}, not {self.box_size}."
+            )
+
+    @override
+    def get_box_size(self) -> int:
+        return self.box_size
+
+    @override
+    def is_superclass_of(
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
+    ) -> bool:
+        if not passed_hierarchy_checks:
+            if not self.unboxed.is_superclass_of(
+                other, passed_hierarchy_checks=False
+            ):
+                return False
+
+        # Box size can only match exactly
+        return self.get_box_size() == other.get_box_size()
+
+    @override
+    def get_strength_data(
+        self,
+    ) -> SortedTuple[BoundStrength[Id, S]]:
+        return self.unboxed.get_strength_data()
+
+    @override
+    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
+        return self.unboxed.get_precise_ingredients()
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
+    DrugNode[Id, st.LiquidQuantity]
+):
+    identifier: Id
+    unboxed: QuantifiedClinicalDrug[Id, C]
+    unquantified: ClinicalDrugBox[Id, C]
+
+    raise NotImplementedError("QuantifiedClinicalBox is not yet implemented.")

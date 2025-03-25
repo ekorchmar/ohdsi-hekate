@@ -200,3 +200,5 @@ UNIT_NAMES: Final[dict[int, str]] = {
     9325: "X",
     9324: "C",
 }
+
+BOX_SIZE_LIMIT: Final[int] = 2**15 - 1  # Postgres smallint limit

@@ -2,15 +2,21 @@
 Contains generic data classes and types used throughout the project.
 """
 
-from abc import ABC, abstractmethod
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, override
+from abc import ABC, abstractmethod  # For DrugNode interface
+from collections.abc import Sequence  # for typing
+from typing import (
+    TYPE_CHECKING,  # For conditional imports for typechecking
+    override,  # for typing
+    NamedTuple,  # For ConceptCodeVocab
+)
 
-from utils.classes import SortedTuple
+from utils.classes import SortedTuple  # For typing
 
 if TYPE_CHECKING:
+    # Circular import: atom.Ingredient is also a DrugNode
     import rx_model.drug_classes.atom as a
+
+    # Circular import: Strength needs ConceptId
     import rx_model.drug_classes.strength as st
 
 
@@ -23,8 +29,7 @@ class ConceptId(int):
     """
 
 
-@dataclass(frozen=True, order=True, eq=True, slots=True)
-class ConceptCodeVocab:
+class ConceptCodeVocab(NamedTuple):
     """
     Vocabulary and code pair for a concept in the OMOP vocabulary.
     """
@@ -105,5 +110,11 @@ class DrugNode[Id: ConceptIdentifier, S: "st.Strength | None"](ABC):
     def get_supplier(self) -> "a.Supplier[Id] | None":
         """
         Retrieve the a.supplier for this node.
+        """
+        return None
+
+    def get_box_size(self) -> int | None:
+        """
+        Retrieve the box size for this node.
         """
         return None
