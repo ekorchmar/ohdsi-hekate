@@ -14,5 +14,6 @@ scalene args="":
 
 profile:
   python -m cProfile -o program.prof src/hekate/main.py \
-    {{default_opts}}\
+    {{default_opts}} \
     {{graph_args}}
+  snakeviz program.prof

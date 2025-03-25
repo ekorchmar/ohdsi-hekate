@@ -40,10 +40,9 @@ Or, on Windows:
 venv\Scripts\activate
 ```
 
-`requirements.txt` file contains all development dependencies, including `pre-commit` hooks and `scalene` profiler. To
-install all optional dependencies, run:
+All development dependencies can be installed with `uv` or `pip` by installing Hekate with `[dev]` extras:
 ```bash
-pip install -r requirements.txt
+pip install -e .[dev]
 ```
 
 > [!WARNING]

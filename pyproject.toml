@@ -10,43 +10,35 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 keywords = ["omop-cdm", "ohdsi", "medical-data"]
-authors = [
-  { name = "Eduard Korchmar", email = "korchmar@ohdsi.org" },
-]
-maintainers = [
-  { name = "Eduard Korchmar", email = "korchmar@ohdsi.org" },
-]
+authors = [{ name = "Eduard Korchmar", email = "korchmar@ohdsi.org" }]
+maintainers = [{ name = "Eduard Korchmar", email = "korchmar@ohdsi.org" }]
 
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
 
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
-  "Production/Stable",
 
   "Topic :: Scientific/Engineering",
 
   "Typing :: Typed",
 
-  "Programming Language :: Cython",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
 ]
 
-dependencies = [
-  "polars",
-  "rustworkx",
-]
+dependencies = ["polars", "rustworkx"]
 
 [project.optional-dependencies]
 graph = ["graphviz", "pillow"]
+dev = ["uv", "scalene", "snakeviz", "pyright", "pre-commit"]
 database = ["sqlalchemy", "pandas"]
 
 [project.scripts]
 hekate = "main:_main"
 
 [tool.setuptools.package-data]
-hekate = [ "__version__" ]
+hekate = ["__version__"]
 
 [project.urls]
 "Homepage" = "https://github.com/OHDSI/Vocabulary-v5.0/wiki/International-Drug-Vocabulary-Implementation-Process"
@@ -57,18 +49,19 @@ hekate = [ "__version__" ]
 where = ["src/hekate"]
 
 [tool.setuptools.dynamic]
-version = {file = "src/hekate/__version__"}
+version = { file = "src/hekate/__version__" }
 
 [tool.pyright]
-include = ["src/hekate"]
+strict = ["src/hekate"]
 ignore = ["**/tests/*", "**/docs/*"]
+pythonPlatform = "All"
 
-reportImplicitStringConcatenation = false  # Intentionally using it
-reportUninitializedInstanceVariable = false  # Pyright doesn't understand dataclasses
-reportImplicitRelativeImport = false  # Importing in python is a headache
-reportImportCycles = false  # Impossible to resolve for TYPE_CHECKING cond
-reportUnnecessaryComparison = false  # Never unnecessary in a dynamic language
-reportUnreachable = false  # Only pops up for exhaustive pattern matching
+reportImplicitStringConcatenation = false   # Intentionally using it
+reportUninitializedInstanceVariable = false # Pyright doesn't understand dataclasses
+reportImplicitRelativeImport = false        # Importing in python is a headache
+reportImportCycles = false                  # Impossible to resolve for TYPE_CHECKING cond
+reportUnnecessaryComparison = false         # Never unnecessary in a dynamic language
+reportUnreachable = false                   # Only pops up for exhaustive pattern matching
 
 [tool.ruff]
 line-length = 80
