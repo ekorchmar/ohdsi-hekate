@@ -6,7 +6,7 @@ import logging  # for typing
 from abc import ABC  # For shared table reading methods
 from collections.abc import Sequence  # for typing
 from pathlib import Path  # To locate the CSV files
-from typing import NamedTuple, override
+from typing import Literal, NamedTuple, override, overload  # For typing
 
 import polars as pl  # For type hinting and schema definition
 from csv_read.generic import CSVReader, Schema  # To read files
@@ -38,6 +38,8 @@ from utils.logger import LOGGER
 # graph. This serves as a temporary cache to speed up the hierarchy building
 type _TempNodeView = dict[int, NodeIndex]
 
+type _BoxSize = int | None
+
 
 class _RelationshipDescription(NamedTuple):
     """
@@ -47,6 +49,11 @@ class _RelationshipDescription(NamedTuple):
     relationship_id: str
     cardinality: Cardinality
     target_class: str
+
+
+class _StrengthTuple(NamedTuple):
+    ingredient_concept_id: int
+    strength: dc.Strength
 
 
 class OMOPTable[IdS: pl.Series | None](CSVReader[IdS], ABC):
@@ -201,7 +208,7 @@ class StrengthTable(OMOPTable[pl.Series]):
         "numerator_unit_concept_id": pl.UInt32,
         "denominator_value": PlRealNumber,
         "denominator_unit_concept_id": pl.UInt32,
-        "box_size": pl.UInt32,
+        "box_size": pl.UInt16,
         "valid_start_date": pl.UInt32,
         "valid_end_date": pl.UInt32,
         "invalid_reason": pl.Utf8,
@@ -215,7 +222,7 @@ class StrengthTable(OMOPTable[pl.Series]):
         "numerator_unit_concept_id",
         "denominator_value",
         "denominator_unit_concept_id",
-        # "box_size",  # NOTE: add later
+        "box_size",
     ]
 
     @override
@@ -228,9 +235,7 @@ class StrengthTable(OMOPTable[pl.Series]):
         return frame.filter(
             pl.col("invalid_reason").is_null(),
             pl.col("drug_concept_id").is_in(valid_concepts),
-            # WARN: temporarily discard all data mentioning box_size
-            pl.col("box_size").is_null(),
-        ).select(pl.all().exclude("box_size"))
+        ).select(pl.all())
 
 
 class AncestorTable(OMOPTable[pl.Series]):
@@ -279,11 +284,13 @@ class OMOPVocabulariesV5:
         numerator_unit_concept_id: int
         denominator_value: PyRealNumber
         denominator_unit_concept_id: int
+        box_size: int
+
+        # Boolean flags for strength data shape
         amount_only: bool
         liquid_concentration: bool
         liquid_quantity: bool
         gas_concentration: bool
-        # TODO: box_size and other strength data
 
     def get_class_relationships(
         self, class_id_1: str, class_id_2: str, relationship_id: str
@@ -498,16 +505,31 @@ class OMOPVocabulariesV5:
 
         return ing_data
 
-    class _StrengthTuple(NamedTuple):
-        ingredient_concept_id: int
-        strength: dc.Strength
+    @overload
+    def get_strength_data(
+        self,
+        drug_ids: pl.Series,
+        expect_cardinality: Cardinality,
+        accepted_configurations: tuple[type[dc.Strength], ...],
+        expect_box_size: Literal[False],
+    ) -> tuple[dict[int, list[_StrengthTuple]], None]: ...
+
+    @overload
+    def get_strength_data(
+        self,
+        drug_ids: pl.Series,
+        expect_cardinality: Cardinality,
+        accepted_configurations: tuple[type[dc.Strength], ...],
+        expect_box_size: Literal[True],
+    ) -> tuple[dict[int, list[_StrengthTuple]], int]: ...
 
     def get_strength_data(
         self,
         drug_ids: pl.Series,
         expect_cardinality: Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
-    ) -> dict[int, list["OMOPVocabulariesV5._StrengthTuple"]]:
+        expect_box_size: bool,
+    ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSize]:
         """
         Get the strength data slice for each drug concept.
 
@@ -528,10 +550,12 @@ class OMOPVocabulariesV5:
                 accepted for the provided drug_ids.
 
         Returns:
-            A dictionary with drug concept_ids as keys and strength entries as
-            values. A strength entry is a tuple with an integer concept_id and a
-            variant of strength data, in shape of `SolidStrength`,
-            `LiquidQuantity`, or `LiquidConcentration`.
+            A tuple with two elements:
+             * A dictionary with drug concept_ids as keys and strength entries
+             as values. A strength entry is a tuple with an integer concept_id
+             and a variant of strength data, in shape of `SolidStrength`,
+             `LiquidQuantity`, `GasPercentage` or `LiquidConcentration`.
+             * Either None or an integer box size, if the box size is expected.
         """
         if expect_cardinality not in CARDINALITY_REQUIRED:
             raise ValueError(
@@ -540,12 +564,47 @@ class OMOPVocabulariesV5:
 
         concepts = drug_ids.unique().to_frame(name="drug_concept_id")
 
-        strength_data: dict[int, list[OMOPVocabulariesV5._StrengthTuple]] = {}
+        strength_data: dict[int, list[_StrengthTuple]] = {}
         strength_df = concepts.join(
             other=self.strength.collect(),
             on="drug_concept_id",
             how="left",
         )
+
+        # Check and process box size
+        mult_box_size = (
+            strength_df.select("drug_concept_id", "box_size")
+            .group_by("drug_concept_id")
+            .n_unique()
+            .filter(pl.col("box_size") > 1)
+        )
+        self.filter_out_bad_concepts(
+            len(drug_ids),
+            mult_box_size["drug_concept_id"],
+            "All drugs have a single box size",
+            "DS_Mult_Box",
+            f"{len(mult_box_size):,} drugs had multiple box sizes",
+        )
+        if len(mult_box_size):
+            strength_df = strength_df.join(
+                mult_box_size, on="drug_concept_id", how="anti"
+            )
+
+        if expect_box_size:
+            raise NotImplementedError("Box size processing is not implemented")
+        else:
+            # Make sure all box sizes are None
+            has_box_size = strength_df.filter(pl.col("box_size").is_not_null())
+            self.filter_out_bad_concepts(
+                len(drug_ids),
+                has_box_size["drug_concept_id"],
+                "No drugs specify box sizes",
+                "DS_Redun_Box",
+                f"{len(has_box_size):,} drugs had redundant box sizes",
+            )
+            if len(has_box_size):
+                strength_df = strength_df.filter(pl.col("box_size").is_null())
+            box_size = None
 
         # Filter out drugs with no strength data
         # NOTE: Due to design of OMOP, this is highly unlikely
@@ -669,7 +728,7 @@ class OMOPVocabulariesV5:
 
             if (existing := strength_data.get(row.drug_concept_id)) is None:
                 strength_data[row.drug_concept_id] = [
-                    self._StrengthTuple(row.ingredient_concept_id, strength)
+                    _StrengthTuple(row.ingredient_concept_id, strength)
                 ]
             else:
                 # Assert that the configuration matches the other rows
@@ -698,7 +757,7 @@ class OMOPVocabulariesV5:
 
                 # Put the new strength data in the list
                 strength_data[row.drug_concept_id].append(
-                    self._StrengthTuple(row.ingredient_concept_id, strength)
+                    _StrengthTuple(row.ingredient_concept_id, strength)
                 )
 
             # TODO: save strength data to self.strengths
@@ -713,7 +772,7 @@ class OMOPVocabulariesV5:
             "strength data creation",
         )
 
-        return strength_data
+        return strength_data, box_size
 
     def filter_strength_chunk(self, strength_chunk: pl.DataFrame) -> pl.Series:
         """
@@ -874,12 +933,15 @@ class OMOPVocabulariesV5:
             cd_nodes=cd_nodes,
         )
         qcd_nodes: _TempNodeView = self.process_quant_clinical_drugs(cd_nodes)
-        _qbd_nodes = self.process_quant_branded_drugs(
+        qbd_nodes = self.process_quant_branded_drugs(
             bd_nodes=bd_nodes,
             qcd_nodes=qcd_nodes,
         )
+        cdb_nodes: _TempNodeView = self.process_clinical_drug_boxes(
+            cd_nodes=cd_nodes,
+        )
         # TODO: process the remaining classes
-        del _qbd_nodes
+        del qbd_nodes, cdb_nodes
 
     def process_atoms(self) -> None:
         """
@@ -1456,7 +1518,7 @@ class OMOPVocabulariesV5:
             ],
         )
 
-        cdc_strength = self.get_strength_data(
+        cdc_strength, _ = self.get_strength_data(
             cdc_concepts["concept_id"],
             expect_cardinality=Cardinality.ONE,
             accepted_configurations=(
@@ -1464,6 +1526,7 @@ class OMOPVocabulariesV5:
                 dc.LiquidConcentration,
                 dc.GasPercentage,
             ),
+            expect_box_size=False,
         )
         cdc_concepts = cdc_concepts.filter(
             pl.col("concept_id").is_in(
@@ -1960,7 +2023,7 @@ class OMOPVocabulariesV5:
             ],
         )
 
-        bdc_strength = self.get_strength_data(
+        bdc_strength, _ = self.get_strength_data(
             bdc_concepts["concept_id"],
             expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(
@@ -1968,6 +2031,7 @@ class OMOPVocabulariesV5:
                 dc.LiquidConcentration,
                 dc.GasPercentage,
             ),
+            expect_box_size=False,
         )
         # Filter out BDCs with no strength data
         bdc_concepts = bdc_concepts.filter(
@@ -2191,7 +2255,7 @@ class OMOPVocabulariesV5:
         )
 
         # Attach DS data to CD concepts
-        cd_strength = self.get_strength_data(
+        cd_strength, _ = self.get_strength_data(
             cd_concepts["concept_id"],
             expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(
@@ -2199,6 +2263,7 @@ class OMOPVocabulariesV5:
                 dc.LiquidConcentration,
                 dc.GasPercentage,
             ),
+            expect_box_size=False,
         )
         cd_concepts = cd_concepts.filter(
             pl.col("concept_id").is_in(
@@ -2480,7 +2545,7 @@ class OMOPVocabulariesV5:
             ],
         )
 
-        bdc_strength = self.get_strength_data(
+        bdc_strength, _ = self.get_strength_data(
             bd_concepts["concept_id"],
             expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(
@@ -2488,6 +2553,7 @@ class OMOPVocabulariesV5:
                 dc.LiquidConcentration,
                 dc.GasPercentage,
             ),
+            expect_box_size=False,
         )
 
         bd_concepts = bd_concepts.filter(
@@ -2835,10 +2901,11 @@ class OMOPVocabulariesV5:
         )
 
         # Attach DS data to QCD concepts
-        qcd_strength = self.get_strength_data(
+        qcd_strength, _ = self.get_strength_data(
             qcd_concepts["concept_id"],
             expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(dc.LiquidQuantity,),
+            expect_box_size=False,
         )
         qcd_concepts = qcd_concepts.filter(
             pl.col("concept_id").is_in(
@@ -3114,10 +3181,11 @@ class OMOPVocabulariesV5:
         )
 
         # Attach DS data to QBD concepts
-        qbd_strength = self.get_strength_data(
+        qbd_strength, _ = self.get_strength_data(
             qbd_concepts["concept_id"],
             expect_cardinality=Cardinality.NONZERO,
             accepted_configurations=(dc.LiquidQuantity,),
+            expect_box_size=False,
         )
         qbd_concepts = qbd_concepts.filter(
             pl.col("concept_id").is_in(
@@ -3432,3 +3500,38 @@ class OMOPVocabulariesV5:
         )
 
         return qbd_nodes
+
+    def process_clinical_drug_boxes(
+        self, cd_nodes: _TempNodeView
+    ) -> _TempNodeView:
+        """
+        Process Clinical Drug Boxes and link them to parent Clinical Drugs.
+        Args:
+            cd_nodes: Dict of node indices for Clinical Drugs in the hierarchy
+            indexed by concept_id. Required for linking CDBs to their parent
+            CDs.
+
+        Returns:
+            Dictionary of Clinical Drug Box node indices indexed by concept_id
+        """
+        self.logger.info("Processing Clinical Drug Boxes")
+
+        cdb_concepts = self.get_validated_relationships_view(
+            source_class="Clinical Drug Box",
+            relationships=[
+                _RelationshipDescription(
+                    relationship_id="Box of",
+                    cardinality=Cardinality.ONE,
+                    target_class="Clinical Drug",
+                ),
+                _RelationshipDescription(
+                    relationship_id="RxNorm has dose form",
+                    cardinality=Cardinality.ONE,
+                    target_class="Dose Form",
+                ),
+            ],
+        )
+
+        # TODO: implement
+        del cdb_concepts, cd_nodes
+        return {}
