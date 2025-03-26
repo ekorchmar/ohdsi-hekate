@@ -3,7 +3,6 @@ Contains generic data classes and types used throughout the project.
 """
 
 from abc import ABC, abstractmethod  # For DrugNode interface
-from collections.abc import Sequence  # for typing
 from typing import (
     TYPE_CHECKING,  # For conditional imports for typechecking
     override,  # for typing
@@ -86,7 +85,7 @@ class DrugNode[Id: ConceptIdentifier, S: "st.Strength | None"](ABC):
         """
 
     @abstractmethod
-    def get_precise_ingredients(self) -> Sequence["a.PreciseIngredient | None"]:
+    def get_precise_ingredients(self) -> list["a.PreciseIngredient | None"]:
         """
         Retrieve all Precise a.Ingredients participating in this node. Data
         will be returned as a sequence of Precise Ingredient instances or None,

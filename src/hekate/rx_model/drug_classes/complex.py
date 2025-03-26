@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod  # For mixins
 from dataclasses import dataclass
 from typing import override  # For type annotations
 
@@ -276,7 +277,7 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         return SortedTuple([(ing, None) for ing in self.ingredients])
 
     @override
-    def get_precise_ingredients(self) -> list[None]:
+    def get_precise_ingredients(self) -> list[None]:  # pyright: ignore[reportIncompatibleMethodOverride]  # noqa: E501
         return [None] * len(self.ingredients)
 
 
@@ -314,7 +315,7 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         return self.clinical_drug_form.get_strength_data()
 
     @override
-    def get_precise_ingredients(self) -> list[None]:
+    def get_precise_ingredients(self) -> list[None]:  # pyright: ignore[reportIncompatibleMethodOverride]  # noqa: E501
         return self.clinical_drug_form.get_precise_ingredients()
 
 
@@ -580,21 +581,45 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
         return self.brand_name == other.get_brand_name()
 
 
+class __ClinicalBoxMixIn[
+    Id: ConceptIdentifier,
+    S: st.Strength,
+](DrugNode[Id, S], ABC):
+    """
+    Metaclass for shared behavior of clinical box-size defining classes.
+    """
+
+    identifier: Id
+    unboxed: DrugNode[Id, S]
+
+    @override
+    @abstractmethod
+    def get_box_size(self) -> int: ...
+
+    @override
+    def get_strength_data(
+        self,
+    ) -> SortedTuple[BoundStrength[Id, S]]:
+        return self.unboxed.get_strength_data()
+
+    @override
+    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
+        return self.unboxed.get_precise_ingredients()
+
+    @override
+    def get_dose_form(self) -> a.DoseForm[Id]:
+        df = self.unboxed.get_dose_form()
+        assert df is not None
+        return df
+
+
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
-    DrugNode[Id, S]
+    __ClinicalBoxMixIn[Id, S]
 ):
     identifier: Id
-    unboxed: ClinicalDrug[Id, S]
+    unboxed: ClinicalDrug[Id, S]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
     box_size: int
-
-    def __post_init__(self):
-        if BOX_SIZE_LIMIT < self.box_size <= 0:
-            raise RxConceptCreationError(
-                f"Box size of {self.__class__.__name__} {self.identifier} must "
-                f"be a positive integer less than or equal to "
-                f"{BOX_SIZE_LIMIT}, not {self.box_size}."
-            )
 
     @override
     def get_box_size(self) -> int:
@@ -615,23 +640,41 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         # Box size can only match exactly
         return self.get_box_size() == other.get_box_size()
 
-    @override
-    def get_strength_data(
-        self,
-    ) -> SortedTuple[BoundStrength[Id, S]]:
-        return self.unboxed.get_strength_data()
-
-    @override
-    def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
-        return self.unboxed.get_precise_ingredients()
+    def __post_init__(self):
+        if BOX_SIZE_LIMIT < self.get_box_size() <= 0:
+            raise RxConceptCreationError(
+                f"Box size of {self.__class__.__name__} {self.identifier} must "
+                f"be a positive integer less than or equal to "
+                f"{BOX_SIZE_LIMIT}, not {self.get_box_size()}."
+            )
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
-    DrugNode[Id, st.LiquidQuantity]
+    __ClinicalBoxMixIn[Id, C]
 ):
     identifier: Id
-    unboxed: QuantifiedClinicalDrug[Id, C]
+    unboxed: QuantifiedClinicalDrug[Id, C]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
     unquantified: ClinicalDrugBox[Id, C]
+    # NOTE: integrity checks between unboxed and unquantified contributing nodes
+    # have to be handled by hierarchy builder
 
-    raise NotImplementedError("QuantifiedClinicalBox is not yet implemented.")
+    @override
+    def get_box_size(self) -> int:
+        return self.unquantified.box_size
+
+    @override
+    def is_superclass_of(
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
+    ) -> bool:
+        if not passed_hierarchy_checks:
+            for node in (self.unboxed, self.unquantified):
+                if not node.is_superclass_of(
+                    other, passed_hierarchy_checks=False
+                ):
+                    return False
+
+        # Box size can only match exactly
+        return self.get_box_size() == other.get_box_size()

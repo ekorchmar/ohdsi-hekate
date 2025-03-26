@@ -3,7 +3,6 @@ Contains the ForeignDrugNode class, which represents an unknown node in the
 drug concept hierarchy.
 """
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import NoReturn, override, NamedTuple
 from rx_model.drug_classes.generic import (
@@ -125,7 +124,7 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     supplier: a.Supplier[ConceptId] | None = None
 
     # Is curently None for practical purposes
-    precise_ingredients: Sequence[a.PreciseIngredient | None] | None = None
+    precise_ingredients: list[a.PreciseIngredient | None] | None = None
 
     @override
     def is_superclass_of(
@@ -147,7 +146,7 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     @override
     def get_precise_ingredients(
         self,
-    ) -> Sequence[a.PreciseIngredient | None]:
+    ) -> list[a.PreciseIngredient | None]:
         # If no precise ingredients are provided, return a list of Nones
         if self.precise_ingredients is None:
             return [None] * len(self.strength_data)
