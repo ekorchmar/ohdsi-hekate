@@ -88,6 +88,7 @@ class DSStage(CSVReader[pl.DataFrame]):
         "ingredient_concept_code",
         # Use matching order for strength tuple
         *dc.ForeignStrength._fields,
+        "box_size",
     ]
 
     @override
