@@ -278,6 +278,7 @@ class NodeTranslator:
                     dose_form=d,
                     brand_name=b,
                     supplier=s,
+                    box_size=node_prototype.box_size,  # Use as is
                 )
 
             except ForeignNodeCreationError as e:
@@ -288,7 +289,8 @@ class NodeTranslator:
                 # summing the strengths, but that needs a consensus from the
                 # Vocabulary team first.
                 self.logger.debug(
-                    f"Failed to create node: {e}. Skipping this permutation."
+                    f"Failed to create node: {e}. Skipping this permutation. "
+                    f"Precedence data: {precedence_data}"
                 )
                 # In any case, this should not re-raise, unless no successful
                 # nodes are created
@@ -299,8 +301,9 @@ class NodeTranslator:
 
         if not any_creations_succeeded:
             raise ForeignNodeCreationError(
-                "No successful node creations from permutations. Check the "
-                "ingredient precedence mappings."
+                f"No successful node created from permutations. for "
+                f"{node_prototype.identifier}. Check the ingredient precedence "
+                f"mappings."
             )
 
     def _try_get_atom[
@@ -336,7 +339,8 @@ class NodeTranslator:
     ) -> list[A]:
         """
         Try to map an atomic attribute by its source identifier and check if
-        it's of the expected class. If the attribute is not of the expected class, raise
+        it's of the expected class. If the attribute is not of the expected
+        class, raises an UnmappedSourceConceptError.
         """
         try:
             ids = self._concept_map[identifier]

@@ -17,7 +17,7 @@ import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
 
 from utils.classes import SortedTuple, PyRealNumber
-from utils.constants import StrengthConfiguration
+from utils.constants import StrengthConfiguration, BOX_SIZE_LIMIT
 from utils.exceptions import ForeignNodeCreationError
 from utils.utils import count_repeated_first_entries
 
@@ -54,7 +54,6 @@ class ForeignStrength(NamedTuple):
     numerator_unit: PseudoUnit | None
     denominator_value: PyRealNumber | None
     denominator_unit: PseudoUnit | None
-    box_size: int | None
 
     def derive_configuration(self) -> StrengthConfiguration:
         """
@@ -86,6 +85,7 @@ class ForeignNodePrototype(NamedTuple):
     brand_name: a.BrandName[ConceptCodeVocab] | None = None
     dose_form: a.DoseForm[ConceptCodeVocab] | None = None
     supplier: a.Supplier[ConceptCodeVocab] | None = None
+    box_size: int | None = None
 
     # WARN: precise_ingredients are not specifiable in the source for now
 
@@ -122,6 +122,7 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     dose_form: a.DoseForm[ConceptId] | None = None
     brand_name: a.BrandName[ConceptId] | None = None
     supplier: a.Supplier[ConceptId] | None = None
+    box_size: int | None = None
 
     # Is curently None for practical purposes
     precise_ingredients: list[a.PreciseIngredient | None] | None = None
@@ -169,6 +170,7 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
         self.validate_precise_ingredients()
         self.validate_precedence_data()
         self.forbid_formless_quantities()
+        self.validate_box_size()
         # TODO: Marketed Product checks
 
     def validate_strength_data(self):
@@ -322,3 +324,31 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
                     f"Precedence value for unset attribute {name} must be 0, "
                     f"but Node {self.identifier} has: {prc}."
                 )
+
+    def validate_box_size(self):
+        """
+        Ensures that the box size is valid.
+        """
+        if self.box_size is None:
+            return
+
+        if BOX_SIZE_LIMIT < self.box_size <= 0:
+            raise ForeignNodeCreationError(
+                f"Box size of Foreign Node {self.identifier} must "
+                f"be a positive integer less than or equal to "
+                f"{BOX_SIZE_LIMIT}, not {self.box_size}."
+            )
+
+        if self.strength_data[0][1] is None:
+            raise ForeignNodeCreationError(
+                f"Box size can only be set for known strength data, but "
+                f"Node {self.identifier} has no dosage and {self.box_size} "
+                f"as the box size."
+            )
+
+        if self.dose_form is None:
+            raise ForeignNodeCreationError(
+                f"Box size can only be set for nodes with a dose form, but "
+                f"Node {self.identifier} has no form and {self.box_size} "
+                f"as the box size."
+            )

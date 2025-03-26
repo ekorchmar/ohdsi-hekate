@@ -12,9 +12,14 @@ import polars as pl
 from csv_read.generic import CSVReader, Schema
 from rx_model import drug_classes as dc
 from rx_model import hierarchy as h
-from utils.exceptions import ForeignNodeCreationError
+from utils.exceptions import (
+    ForeignDosageStrengthError,
+    ForeignNodeCreationError,
+)
 from utils.classes import PlRealNumber, PyRealNumber, SortedTuple
 from utils.logger import LOGGER
+
+type _SourceBoxSize = int | None
 
 
 class DrugConceptStage(CSVReader[None]):
@@ -230,21 +235,6 @@ class BuildRxEInput:
             reference_data=self.dcs.collect().select("concept_code"),
         )
 
-        # WARN: temporarily cleaning up all concepts with box_size
-        boxed_drugs = self.dss.collect().filter(
-            pl.col("box_size").is_not_null()
-        )
-        if len(boxed_drugs) > 0:
-            self.logger.warning(
-                f"Found {len(boxed_drugs)} drugs with box_size. "
-                "These will be ignored for now."
-            )
-        self.dcs.anti_join(
-            boxed_drugs,
-            left_on="concept_code",
-            right_on="drug_concept_code",
-        )
-
         # WARN: temporarily cleaning up all pack_concepts
         self.pcs: PCSStage = PCSStage(
             data_path / "pc_stage.tsv",
@@ -361,7 +351,7 @@ class BuildRxEInput:
             A = self.source_atoms
 
             try:
-                node_strength = self.get_concept_strength(drug_product_id)
+                strength, box_size = self.get_concept_strength(drug_product_id)
             except ForeignNodeCreationError:
                 self.logger.error(
                     f"Failed creating strength data for node {drug_product_id}"
@@ -374,15 +364,16 @@ class BuildRxEInput:
 
             yield dc.ForeignNodePrototype(
                 identifier=drug_product_id,
-                strength_data=SortedTuple(node_strength),
+                strength_data=SortedTuple(strength),
                 dose_form=A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab)),
                 brand_name=A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
                 supplier=A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
+                box_size=box_size,
             )
 
     def get_concept_strength(
         self, drug_id: dc.ConceptCodeVocab
-    ) -> Sequence[dc.BoundForeignStrength]:
+    ) -> tuple[Sequence[dc.BoundForeignStrength], _SourceBoxSize]:
         """
         Extract strength combinations for a given drug concept.
         """
@@ -432,11 +423,17 @@ class BuildRxEInput:
                     bfs = (ingredient, None)
                     ingredient_data.append(bfs)
 
-            return ingredient_data
+            return ingredient_data, None
 
         ingredient_concept_code: str
         strength_combinations: list[dc.BoundForeignStrength] = []
-        for ingredient_concept_code, *strength in strength_data.iter_rows():
+        box_size: _SourceBoxSize
+        box_sizes: set[_SourceBoxSize] = set()
+        for (
+            ingredient_concept_code,
+            *strength,
+            box_size,
+        ) in strength_data.iter_rows():
             id = dc.ConceptCodeVocab(
                 ingredient_concept_code, drug_id.vocabulary_id
             )
@@ -451,5 +448,11 @@ class BuildRxEInput:
                 ingredient,
                 dc.ForeignStrength._make(strength),
             ))
+            box_sizes.add(box_size)
 
-        return strength_combinations
+        if len(box_sizes) > 1:
+            raise ForeignDosageStrengthError(
+                f"Multiple box sizes found for drug {drug_id}: {box_sizes}."
+            )
+
+        return strength_combinations, box_sizes.pop()
