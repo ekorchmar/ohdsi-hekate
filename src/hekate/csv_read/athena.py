@@ -38,7 +38,7 @@ from utils.logger import LOGGER
 # graph. This serves as a temporary cache to speed up the hierarchy building
 type _TempNodeView = dict[int, NodeIndex]
 
-type _BoxSize = int | None
+type _BoxSizeDict = dict[int, int]
 
 
 class _RelationshipDescription(NamedTuple):
@@ -101,55 +101,46 @@ class ConceptTable(OMOPTable[None]):
         self, frame: pl.LazyFrame, valid_concepts: None = None
     ) -> pl.LazyFrame:
         del valid_concepts
-        return (
-            # TODO: test if this is faster than using the .is_in() method
-            # Use .explain():
-            # https://www.statology.org/how-to-use-explain-understand-lazyframe-query-optimization-polars/
-            frame.filter(
-                # Invalid reason is needed for filtering, so we keep it
-                # pl.col("invalid_reason").is_null(),
-                (
-                    (pl.col("domain_id") == "Drug")
-                    | (pl.col("domain_id") == "Unit")
-                ),
-                (
-                    (pl.col("vocabulary_id") == "RxNorm")
-                    | (pl.col("vocabulary_id") == "RxNorm Extension")
-                    | (pl.col("vocabulary_id") == "UCUM")
-                ),
-                (
-                    # RxNorm atoms
-                    (pl.col("concept_class_id") == "Ingredient")
-                    | (pl.col("concept_class_id") == "Precise Ingredient")
-                    | (pl.col("concept_class_id") == "Brand Name")
-                    | (pl.col("concept_class_id") == "Dose Form")
-                    |
-                    # RxNorm Extension atoms
-                    (pl.col("concept_class_id") == "Supplier")
-                    |
-                    # UCUM atoms
-                    (pl.col("concept_class_id") == "Unit")
-                    |
-                    # RxNorm drug concepts
-                    (pl.col("concept_class_id") == "Clinical Drug Comp")
-                    | (pl.col("concept_class_id") == "Branded Drug Comp")
-                    | (pl.col("concept_class_id") == "Clinical Drug Form")
-                    | (pl.col("concept_class_id") == "Branded Drug Form")
-                    | (pl.col("concept_class_id") == "Clinical Drug")
-                    | (pl.col("concept_class_id") == "Branded Drug")
-                    | (pl.col("concept_class_id") == "Quant Clinical Drug")
-                    | (pl.col("concept_class_id") == "Quant Branded Drug")
-                    # RxNorm Extension drug concepts (unused for now)
-                    # | (pl.col("concept_class_id") == "Clinical Drug Box")
-                    # | (pl.col("concept_class_id") == "Branded Drug Box")
-                    # | (pl.col("concept_class_id") == "Quant Clinical Box")
-                    # | (pl.col("concept_class_id") == "Quant Branded Box")
-                    # | (pl.col("concept_class_id") == "Clinical Pack")
-                    # | (pl.col("concept_class_id") == "Branded Pack")
-                    # | (pl.col("concept_class_id") == "Clinical Pack Box")
-                    # | (pl.col("concept_class_id") == "Branded Pack Box")
-                ),
-            )
+        return frame.filter(
+            # Invalid reason is needed for filtering, so we keep it
+            # pl.col("invalid_reason").is_null(),
+            ((pl.col("domain_id") == "Drug") | (pl.col("domain_id") == "Unit")),
+            (
+                (pl.col("vocabulary_id") == "RxNorm")
+                | (pl.col("vocabulary_id") == "RxNorm Extension")
+                | (pl.col("vocabulary_id") == "UCUM")
+            ),
+            (
+                # RxNorm atoms
+                (pl.col("concept_class_id") == "Ingredient")
+                | (pl.col("concept_class_id") == "Precise Ingredient")
+                | (pl.col("concept_class_id") == "Brand Name")
+                | (pl.col("concept_class_id") == "Dose Form")
+                |
+                # RxNorm Extension atoms
+                (pl.col("concept_class_id") == "Supplier")
+                |
+                # UCUM atoms
+                (pl.col("concept_class_id") == "Unit")
+                |
+                # RxNorm drug concepts
+                (pl.col("concept_class_id") == "Clinical Drug Comp")
+                | (pl.col("concept_class_id") == "Branded Drug Comp")
+                | (pl.col("concept_class_id") == "Clinical Drug Form")
+                | (pl.col("concept_class_id") == "Branded Drug Form")
+                | (pl.col("concept_class_id") == "Clinical Drug")
+                | (pl.col("concept_class_id") == "Branded Drug")
+                | (pl.col("concept_class_id") == "Quant Clinical Drug")
+                | (pl.col("concept_class_id") == "Quant Branded Drug")
+                | (pl.col("concept_class_id") == "Clinical Drug Box")
+                | (pl.col("concept_class_id") == "Branded Drug Box")
+                | (pl.col("concept_class_id") == "Quant Clinical Box")
+                | (pl.col("concept_class_id") == "Quant Branded Box")
+                # | (pl.col("concept_class_id") == "Clinical Pack")
+                # | (pl.col("concept_class_id") == "Branded Pack")
+                # | (pl.col("concept_class_id") == "Clinical Pack Box")
+                # | (pl.col("concept_class_id") == "Branded Pack Box")
+            ),
         )
 
     def get_metadata(self, ids: Sequence[dc.ConceptId]):
@@ -521,7 +512,7 @@ class OMOPVocabulariesV5:
         expect_cardinality: Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
         expect_box_size: Literal[True],
-    ) -> tuple[dict[int, list[_StrengthTuple]], int]: ...
+    ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSizeDict]: ...
 
     def get_strength_data(
         self,
@@ -529,7 +520,7 @@ class OMOPVocabulariesV5:
         expect_cardinality: Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
         expect_box_size: bool,
-    ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSize]:
+    ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSizeDict | None]:
         """
         Get the strength data slice for each drug concept.
 
@@ -548,6 +539,9 @@ class OMOPVocabulariesV5:
                 regardless of the cardinality.
             accepted_configurations: Iterable of strength data classes that are
                 accepted for the provided drug_ids.
+            expect_box_size: Boolean flag indicating whether to expect the box
+                size for the concepts. Missing this expectation will lead to
+                exclusion of those concepts.
 
         Returns:
             A tuple with two elements:
@@ -590,8 +584,28 @@ class OMOPVocabulariesV5:
                 mult_box_size, on="drug_concept_id", how="anti"
             )
 
+        box_size: dict[int, int] | None
         if expect_box_size:
-            raise NotImplementedError("Box size processing is not implemented")
+            # Filter out drugs with no box size
+            no_box_size = strength_df.filter(pl.col("box_size").is_null())
+            self.filter_out_bad_concepts(
+                len(drug_ids),
+                no_box_size["drug_concept_id"],
+                "All drugs have a box size",
+                "DS_No_Box",
+                f"{len(no_box_size):,} drugs had no box sizes",
+            )
+            if len(no_box_size):
+                strength_df = strength_df.filter(
+                    pl.col("box_size").is_not_null()
+                )
+
+            box_size = dict(
+                strength_df.select("drug_concept_id", "box_size")
+                .unique()
+                .iter_rows()
+            )
+
         else:
             # Make sure all box sizes are None
             has_box_size = strength_df.filter(pl.col("box_size").is_not_null())
@@ -1264,7 +1278,7 @@ class OMOPVocabulariesV5:
             message_ok: Message to log if no bad concepts are found.
             reason_short: Short reason for filtering out the concepts. Will be
                 used for structuring the log messages and reports.
-            reason_long: Reason for filtering out the concepts. Will be used for
+            reason_full: Reason for filtering out the concepts. Will be used for
                 logging and/or reporting.
         """
         logger = self.logger.getChild(reason_short)
@@ -1288,7 +1302,7 @@ class OMOPVocabulariesV5:
                 answer = input("Continue? [y/N] ")
                 if answer.lower() != "y":
                     logger.warning("Operation aborted")
-                    exit(1)
+                    raise ValueError(reason_full)
 
         logger.info("Including all descendants of bad concepts")
         bad_descendants_df = (
@@ -1784,13 +1798,15 @@ class OMOPVocabulariesV5:
                 # "Precise Ingredient",  # Always wrong
             ])
             |
-            # Comps and Drugs can have either amount concentration
+            # Comps and Drugs can have either amount or concentration
             (
                 pl.col("concept_class_id").is_in([
                     "Clinical Drug Comp",
                     "Branded Drug Comp",
                     "Clinical Drug",
                     "Branded Drug",
+                    "Clinical Drug Box",
+                    "Branded Drug Box",
                 ])
                 & (
                     STRENGTH_CONFIGURATIONS_ID[SC.AMOUNT_ONLY]
@@ -1804,6 +1820,8 @@ class OMOPVocabulariesV5:
                 pl.col("concept_class_id").is_in([
                     "Quant Clinical Drug",
                     "Quant Branded Drug",
+                    "Quant Clinical Box",
+                    "Quant Branded Box",
                 ])
                 & STRENGTH_CONFIGURATIONS_ID[SC.LIQUID_QUANTITY]
             )
@@ -1816,8 +1834,8 @@ class OMOPVocabulariesV5:
                 self.concept.collect().filter(pl.col("standard_concept") == "S")
             ),
             invalid_drugs,
-            "Malformed_Strength",
             "All strength configurations are validated",
+            "Malformed_Strength",
             f"Found {len(invalid_strength):,} invalid strength "
             f"configurations for {len(invalid_drugs):,} drug concepts",
         )
@@ -3532,6 +3550,14 @@ class OMOPVocabulariesV5:
             ],
         )
 
+        cdb_strength, cdb_box_size = self.get_strength_data(
+            cdb_concepts["concept_id"],
+            expect_cardinality=Cardinality.NONZERO,
+            accepted_configurations=(dc.SolidStrength,),
+            expect_box_size=True,
+        )
+
+        print(cdb_concepts)
         # TODO: implement
-        del cdb_concepts, cd_nodes
+        del cdb_strength, cdb_box_size, cd_nodes
         return {}
