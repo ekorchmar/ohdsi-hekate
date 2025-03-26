@@ -2,17 +2,17 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
-import logging
-from abc import ABC
-from collections.abc import Sequence
-from pathlib import Path
+import logging  # for typing
+from abc import ABC  # For shared table reading methods
+from collections.abc import Sequence  # for typing
+from pathlib import Path  # To locate the CSV files
 from typing import NamedTuple, override
 
 import polars as pl  # For type hinting and schema definition
-from csv_read.generic import CSVReader, Schema
-from rx_model import drug_classes as dc
-from rx_model import hierarchy as h
-from utils.exceptions import RxConceptCreationError
+from csv_read.generic import CSVReader, Schema  # To read files
+from rx_model import drug_classes as dc  # For concept classes
+from rx_model import hierarchy as h  # For hierarchy building
+from utils.exceptions import RxConceptCreationError  # For error handling
 
 # TODO: reexport this properly
 from rx_model.hierarchy.hosts import NodeIndex
@@ -2029,7 +2029,7 @@ class OMOPVocabulariesV5:
                     break
 
                 try:
-                    cdc = self.hierarchy[cdc_node_idx]
+                    cdc_node = self.hierarchy[cdc_node_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Branded Drug Comp {concept_id} had Clinical Drug "
@@ -2039,7 +2039,10 @@ class OMOPVocabulariesV5:
                     nested_break = True
                     break
 
-                if not isinstance(cdc, dc.ClinicalDrugComponent):
+                cdc: dc.ClinicalDrugComponent[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ]
+                if not isinstance(cdc_node, dc.ClinicalDrugComponent):
                     # This should never happen, but we will catch it anyway
                     self.logger.debug(
                         f"Branded Drug Comp {concept_id} specified a non-CDC "
@@ -2048,6 +2051,8 @@ class OMOPVocabulariesV5:
                     bdc_bad_cdc.append(concept_id)
                     nested_break = True
                     break
+                else:
+                    cdc = cdc_node
 
                 # Find the strength data for the current CDC
                 if (
@@ -2302,7 +2307,7 @@ class OMOPVocabulariesV5:
                     break
 
                 try:
-                    cdc = self.hierarchy[cdc_node_idx]
+                    cdc_node = self.hierarchy[cdc_node_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Clinical Drug {concept_id} had Clinical Drug "
@@ -2312,7 +2317,10 @@ class OMOPVocabulariesV5:
                     nested_break = True
                     break
 
-                if not isinstance(cdc, dc.ClinicalDrugComponent):
+                cdc: dc.ClinicalDrugComponent[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ]
+                if not isinstance(cdc_node, dc.ClinicalDrugComponent):
                     # This should never happen, but we will catch it anyway
                     self.logger.debug(
                         f"Clinical Drug {concept_id} specified a non-CDC "
@@ -2321,6 +2329,8 @@ class OMOPVocabulariesV5:
                     cd_bad_cdc.append(concept_id)
                     nested_break = True
                     break
+                else:
+                    cdc = cdc_node
 
                 # Find the strength data for the current CDC
                 if (
@@ -2678,13 +2688,48 @@ class OMOPVocabulariesV5:
             if nested_break:
                 continue
 
-            clinical_drug = parent_concepts["Clinical Drug"]
-            branded_form = parent_concepts["Branded Drug Form"]
-            branded_component = parent_concepts["Branded Drug Comp"]
+            clinical_drug_node = parent_concepts["Clinical Drug"]
+            branded_form_node = parent_concepts["Branded Drug Form"]
+            branded_component_node = parent_concepts["Branded Drug Comp"]
 
-            assert isinstance(clinical_drug, dc.ClinicalDrug)
-            assert isinstance(branded_form, dc.BrandedDrugForm)
-            assert isinstance(branded_component, dc.BrandedDrugComponent)
+            if not isinstance(clinical_drug_node, dc.ClinicalDrug):
+                self.logger.debug(
+                    f"Branded Drug {concept_id} had parent "
+                    f"{clinical_drug_node.identifier} of class "
+                    f"{type(clinical_drug_node)}, expected Clinical Drug"
+                )
+                bd_failed.append(concept_id)
+                continue
+            else:
+                clinical_drug: dc.ClinicalDrug[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ] = clinical_drug_node
+
+            if not isinstance(branded_form_node, dc.BrandedDrugForm):
+                self.logger.debug(
+                    f"Branded Drug {concept_id} had parent "
+                    f"{branded_form_node.identifier} of class "
+                    f"{type(branded_form_node)}, expected Branded Drug Form"
+                )
+                bd_failed.append(concept_id)
+                continue
+            else:
+                branded_form: dc.BrandedDrugForm[dc.ConceptId] = (
+                    branded_form_node
+                )
+
+            if not isinstance(branded_component_node, dc.BrandedDrugComponent):
+                self.logger.debug(
+                    f"Branded Drug {concept_id} had parent "
+                    f"{branded_component_node.identifier} of class "
+                    f"{type(branded_component_node)}, expected Branded Drug Comp"
+                )
+                bd_failed.append(concept_id)
+                continue
+            else:
+                branded_component: dc.BrandedDrugComponent[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ] = branded_component_node
 
             try:
                 bd: dc.BrandedDrug[dc.ConceptId, dc.UnquantifiedStrength] = (
@@ -2859,7 +2904,7 @@ class OMOPVocabulariesV5:
                 continue
 
             try:
-                cd = self.hierarchy[cd_idx]
+                cd_node = self.hierarchy[cd_idx]
             except IndexError:
                 self.logger.debug(
                     f"Quant Clinical Drug {concept_id} had Clinical Drug "
@@ -2868,7 +2913,7 @@ class OMOPVocabulariesV5:
                 qcd_bad_cd.append(concept_id)
                 continue
 
-            if not isinstance(cd, dc.ClinicalDrug):
+            if not isinstance(cd_node, dc.ClinicalDrug):
                 # This should never happen, but we will catch it anyway
                 self.logger.debug(
                     f"Quant Clinical Drug {concept_id} specified a non-CD "
@@ -2876,8 +2921,24 @@ class OMOPVocabulariesV5:
                 )
                 qcd_bad_cd.append(concept_id)
                 continue
+            elif not isinstance(
+                cd_node.get_strength_data()[0][1],  # First strength entry
+                (dc.LiquidConcentration, dc.GasPercentage),
+            ):
+                self.logger.debug(
+                    f"Quant Clinical Drug {concept_id} specified a Clinical "
+                    f"Drug {cd_concept_id} with incompatible strength data "
+                    f"shape."
+                )
+                qcd_bad_cd.append(concept_id)
+                continue
+            else:
+                cd: dc.ClinicalDrug[
+                    dc.ConceptId, dc.LiquidConcentration | dc.GasPercentage
+                ] = cd_node
 
             # Compare dose form against the parent CD
+            cd_form: dc.DoseForm[dc.ConceptId]
             if (cd_form := cd.get_dose_form()) != dose_form:
                 self.logger.debug(
                     f"Dose Form mismatch for Quantified Clinical Drug "
@@ -3280,11 +3341,30 @@ class OMOPVocabulariesV5:
             if nested_break:
                 continue
 
-            qcd = parent_concepts["Quant Clinical Drug"]
-            bd = parent_concepts["Branded Drug"]
+            qcd_node = parent_concepts["Quant Clinical Drug"]
+            bd_node = parent_concepts["Branded Drug"]
 
-            assert isinstance(qcd, dc.QuantifiedClinicalDrug)
-            assert isinstance(bd, dc.BrandedDrug)
+            if not isinstance(qcd_node, dc.QuantifiedClinicalDrug):
+                self.logger.debug(
+                    f"Quantified Branded Drug {concept_id} had parent "
+                    f"{qcd_node.identifier} of class {type(qcd_node)}, "
+                    f"expected Quantified Clinical Drug"
+                )
+                qbd_failed.append(concept_id)
+                continue
+            else:
+                qcd: dc.QuantifiedClinicalDrug[
+                    dc.ConceptId, dc.LiquidConcentration | dc.GasPercentage
+                ] = qcd_node
+
+            if not isinstance(bd_node, dc.BrandedDrug):
+                self.logger.debug(
+                    f"Quantified Branded Drug {concept_id} had parent "
+                    f"{bd_node.identifier} of class {type(bd_node)}, "
+                    f"expected Branded Drug"
+                )
+                qbd_failed.append(concept_id)
+                continue
 
             try:
                 qbd: dc.QuantifiedBrandedDrug[dc.ConceptId] = (
