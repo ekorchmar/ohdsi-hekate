@@ -6,6 +6,8 @@ import rx_model.drug_classes.complex as c
 DRUG_CLASS_PREFERENCE_ORDER: list[
     type[DrugNode[ConceptId, st.Strength | None]]
 ] = [
+    c.QuantifiedClinicalBox,
+    c.ClinicalDrugBox,
     c.QuantifiedBrandedDrug,
     c.QuantifiedClinicalDrug,
     c.BrandedDrug,

@@ -342,7 +342,7 @@ class RxHierarchy[Id: dc.ConceptIdentifier](
     def add_clinical_drug_box(
         self,
         clinical_drug_box: dc.ClinicalDrugBox[Id, dc.UnquantifiedStrength],
-        clinical_drug_id: NodeIndex,
+        clinical_drug_idx: NodeIndex,
     ) -> NodeIndex:
         """
         Add a clinical drug box to the hierarchy. Returns the index of the added
@@ -350,6 +350,6 @@ class RxHierarchy[Id: dc.ConceptIdentifier](
         """
         node_idx = self.add_node(clinical_drug_box)
         _ = self.add_edge(  # Discard edge index
-            clinical_drug_id, node_idx, None
+            clinical_drug_idx, node_idx, None
         )
         return node_idx

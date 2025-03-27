@@ -15,7 +15,9 @@ from typing import (
 )
 
 import rustworkx as rx  # Core implementation dependency
-from rustworkx.visualization import graphviz_draw  # For illustration
+from rustworkx.visualization import (  # For illustration
+    graphviz_draw,  # pyright: ignore[reportUnknownVariableType]
+)
 from rx_model.drug_classes import (
     ConceptId,  # Typing
     ConceptCodeVocab,  # Typing
@@ -214,7 +216,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
             f"accepted: {len(self.accepted_nodes)}, "
             f"rejected: {len(self.rejected_nodes)}"
         )
-        _ = graphviz_draw(
+        _ = graphviz_draw(  # pyright: ignore[reportUnknownVariableType]
             self.subgraph,
             node_attr_fn=self._get_graphviz_node_attr,
             graph_attr={"label": '"' + label + '"'},

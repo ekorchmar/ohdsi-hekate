@@ -31,6 +31,7 @@ type _AnyComplex[Id: ConceptIdentifier] = (
     | c.BrandedDrug[Id, st.UnquantifiedStrength]
     | c.QuantifiedClinicalDrug[Id, c.Concentration]
     | c.QuantifiedBrandedDrug[Id]
+    | c.ClinicalDrugBox[Id, st.UnquantifiedStrength]
 )
 
 # PseudoUnit is verbatim string representation of a unit in source data
@@ -165,6 +166,10 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     def get_supplier(self) -> a.Supplier[ConceptId] | None:
         return self.supplier
 
+    @override
+    def get_box_size(self) -> int | None:
+        return self.box_size
+
     def __post_init__(self):
         self.validate_strength_data()
         self.validate_precise_ingredients()
@@ -280,6 +285,9 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
             if with_form:
                 return c.BrandedDrugForm if branded else c.ClinicalDrugForm
             return a.Ingredient
+        elif self.box_size is not None:
+            # TODO: all box size classes
+            return c.ClinicalDrugBox
         elif isinstance(strength, st.LiquidQuantity):
             # QCD or QBD
             return (
