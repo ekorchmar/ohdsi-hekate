@@ -1117,7 +1117,9 @@ class OMOPVocabulariesV5:
                 cdf_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_clinical_drug_form(cdf)
+            node_idx = self.hierarchy.add_drug_node(
+                cdf, [self.hierarchy.ingredients[ing] for ing in ingreds]
+            )
             cdf_nodes[concept_id] = node_idx
 
         self.filter_out_bad_concepts(
@@ -1618,7 +1620,9 @@ class OMOPVocabulariesV5:
                 cdc_failed.append(concept_id)
                 continue
 
-            node_idx: int = self.hierarchy.add_clinical_drug_component(cdc)
+            node_idx: int = self.hierarchy.add_drug_node(
+                cdc, [self.hierarchy.ingredients[ingredient]]
+            )
             cdc_nodes[concept_id] = node_idx
 
         # Cleanup
@@ -1964,7 +1968,7 @@ class OMOPVocabulariesV5:
                 bdf_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_branded_drug_form(bdf, cdf_node_idx)
+            node_idx = self.hierarchy.add_drug_node(bdf, [cdf_node_idx])
             bdf_nodes[concept_id] = node_idx
 
         # Cleanup
@@ -2184,7 +2188,7 @@ class OMOPVocabulariesV5:
                 bdc_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_branded_drug_component(
+            node_idx = self.hierarchy.add_drug_node(
                 bdc, [cdc_nodes[cdc.identifier] for cdc in cdcs]
             )
             bdc_nodes[concept_id] = node_idx
@@ -2463,8 +2467,8 @@ class OMOPVocabulariesV5:
                 cdc_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_clinical_drug(
-                cd, cdf_node_idx, [cdc_nodes[cdc.identifier] for cdc in cdcs]
+            node_idx = self.hierarchy.add_drug_node(
+                cd, [cdf_node_idx] + [cdc_nodes[cdc.identifier] for cdc in cdcs]
             )
 
             cd_nodes[concept_id] = node_idx
@@ -2832,11 +2836,13 @@ class OMOPVocabulariesV5:
                 bd_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_branded_drug(
+            node_idx = self.hierarchy.add_drug_node(
                 bd,
-                cd_nodes[cd_concept_id],
-                bdf_nodes[bdf_concept_id],
-                bdc_nodes[bdc_concept_id],
+                [
+                    cd_nodes[cd_concept_id],
+                    bdf_nodes[bdf_concept_id],
+                    bdc_nodes[bdc_concept_id],
+                ],
             )
             bd_nodes[concept_id] = node_idx
 
@@ -3104,7 +3110,7 @@ class OMOPVocabulariesV5:
                 qcd_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_quantified_clinical_drug(qdc, cd_idx)
+            node_idx = self.hierarchy.add_drug_node(qdc, [cd_idx])
 
             qcd_nodes[concept_id] = node_idx
 
@@ -3469,8 +3475,8 @@ class OMOPVocabulariesV5:
                 qbd_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_quantified_branded_drug(
-                qbd, bd_nodes[bd_concept_id], qcd_nodes[qcd_concept_id]
+            node_idx = self.hierarchy.add_drug_node(
+                qbd, [bd_nodes[bd_concept_id], qcd_nodes[qcd_concept_id]]
             )
             qbd_nodes[concept_id] = node_idx
 
@@ -3713,7 +3719,7 @@ class OMOPVocabulariesV5:
                 cdb_failed.append(concept_id)
                 continue
 
-            node_idx = self.hierarchy.add_clinical_drug_box(cdb, cd_idx)
+            node_idx = self.hierarchy.add_drug_node(cdb, [cd_idx])
             cdb_nodes[concept_id] = node_idx
 
         # Cleanup

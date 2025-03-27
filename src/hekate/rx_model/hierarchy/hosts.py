@@ -195,161 +195,18 @@ class RxHierarchy[Id: dc.ConceptIdentifier](
         """
         self.ingredients[root] = self.add_node(root)
 
-    def add_clinical_drug_form(
+    def add_drug_node(
         self,
-        clinical_drug_form: dc.ClinicalDrugForm[Id],
+        drug_node: dc.DrugNode[Id, dc.Strength | None],
+        parent_indices: Iterable[NodeIndex],
     ) -> NodeIndex:
         """
-        Add a clinical drug form to the hierarchy. Returns the index of the
-        added node in the graph.
-        """
-        node_idx = self.add_node(clinical_drug_form)
-        for ingredient in clinical_drug_form.ingredients:
-            _ = self.add_edge(  # Discard edge index
-                self.ingredients[ingredient], node_idx, None
-            )
-        return node_idx
-
-    def add_clinical_drug_component[S: dc.UnquantifiedStrength](
-        self,
-        clinical_drug_component: dc.ClinicalDrugComponent[Id, S],
-    ) -> NodeIndex:
-        """
-        Add a clinical drug component to the hierarchy. Returns the index of
-        the added node in the graph.
-        """
-        # TODO: add strength data
-
-        node_idx = self.add_node(clinical_drug_component)
-        _ = self.add_edge(  # Discard edge index
-            self.ingredients[clinical_drug_component.ingredient],
-            node_idx,
-            None,
-        )
-        return node_idx
-
-    def add_branded_drug_form(
-        self,
-        branded_drug_form: dc.BrandedDrugForm[Id],
-        clinical_drug_form_idx: NodeIndex,
-    ) -> NodeIndex:
-        """
-        Add a branded drug form to the hierarchy. Returns the index of the
-        added node in the graph.
-        """
-        node_idx = self.add_node(branded_drug_form)
-        _ = self.add_edge(  # Discard edge index
-            clinical_drug_form_idx, node_idx, None
-        )
-        return node_idx
-
-    def add_branded_drug_component[S: dc.UnquantifiedStrength](
-        self,
-        branded_drug_component: dc.BrandedDrugComponent[Id, S],
-        clinical_drug_component_idxs: Iterable[NodeIndex],
-    ) -> NodeIndex:
-        """
-        Add a branded drug component to the hierarchy. Returns the index of
-        the added node in the graph.
-        """
-        node_idx = self.add_node(branded_drug_component)
-        for cdc_idx in clinical_drug_component_idxs:
-            _ = self.add_edge(  # Discard edge index
-                cdc_idx, node_idx, None
-            )
-        return node_idx
-
-    def add_clinical_drug[S: dc.UnquantifiedStrength](
-        self,
-        clinical_drug: dc.ClinicalDrug[Id, S],
-        clinical_drug_form_idx: NodeIndex,
-        clinical_drug_component_idxs: Iterable[NodeIndex],
-    ) -> NodeIndex:
-        """
-        Add a clinical drug to the hierarchy. Returns the index of the added
+        Add a drug node to the hierarchy. Returns the index of the added
         node in the graph.
         """
-        node_idx = self.add_node(clinical_drug)
-        _ = self.add_edge(  # Discard edge index
-            clinical_drug_form_idx, node_idx, None
-        )
-        for cdc_idx in clinical_drug_component_idxs:
-            _ = self.add_edge(  # Discard edge index
-                cdc_idx, node_idx, None
-            )
-        return node_idx
-
-    def add_branded_drug[S: dc.UnquantifiedStrength](
-        self,
-        branded_drug: dc.BrandedDrug[Id, S],
-        clinical_drug_idx: NodeIndex,
-        branded_drug_form_idx: NodeIndex,
-        branded_drug_component_idx: NodeIndex,
-    ) -> NodeIndex:
-        """
-        Add a branded drug to the hierarchy. Returns the index of the added
-        node in the graph.
-        """
-        node_idx = self.add_node(branded_drug)
-        for idx in [
-            clinical_drug_idx,
-            branded_drug_form_idx,
-            branded_drug_component_idx,
-        ]:
+        node_idx = self.add_node(drug_node)
+        for idx in parent_indices:
             _ = self.add_edge(  # Discard edge index
                 idx, node_idx, None
             )
-        return node_idx
-
-    def add_quantified_clinical_drug(
-        self,
-        quantified_clinical_drug: dc.QuantifiedClinicalDrug[
-            Id, dc.LiquidConcentration | dc.GasPercentage
-        ],
-        clinical_drug_idx: NodeIndex,
-    ) -> NodeIndex:
-        """
-        Add a quantified clinical drug to the hierarchy. Returns the index of
-        the added node in the graph.
-        """
-        node_idx = self.add_node(quantified_clinical_drug)
-        _ = self.add_edge(  # Discard edge index
-            clinical_drug_idx, node_idx, None
-        )
-        return node_idx
-
-    def add_quantified_branded_drug(
-        self,
-        quantified_branded_drug: dc.QuantifiedBrandedDrug[Id],
-        branded_drug_idx: NodeIndex,
-        quantified_clinical_drug_idx: NodeIndex,
-    ) -> NodeIndex:
-        """
-        Add a quantified branded drug to the hierarchy. Returns the index of
-        the added node in the graph.
-        """
-
-        node_idx = self.add_node(quantified_branded_drug)
-        for idx in [
-            branded_drug_idx,
-            quantified_clinical_drug_idx,
-        ]:
-            _ = self.add_edge(  # Discard edge index
-                idx, node_idx, None
-            )
-        return node_idx
-
-    def add_clinical_drug_box(
-        self,
-        clinical_drug_box: dc.ClinicalDrugBox[Id, dc.UnquantifiedStrength],
-        clinical_drug_idx: NodeIndex,
-    ) -> NodeIndex:
-        """
-        Add a clinical drug box to the hierarchy. Returns the index of the added
-        node in the graph.
-        """
-        node_idx = self.add_node(clinical_drug_box)
-        _ = self.add_edge(  # Discard edge index
-            clinical_drug_idx, node_idx, None
-        )
         return node_idx
