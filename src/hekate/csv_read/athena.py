@@ -1299,6 +1299,7 @@ class OMOPVocabulariesV5:
                     f"out of {total_count:,} will be removed. Reason: "
                     f"{reason_full}"
                 )
+                print(bad_concepts_df)
                 answer = input("Continue? [y/N] ")
                 if answer.lower() != "y":
                     logger.warning("Operation aborted")
@@ -3553,7 +3554,11 @@ class OMOPVocabulariesV5:
         cdb_strength, cdb_box_size = self.get_strength_data(
             cdb_concepts["concept_id"],
             expect_cardinality=Cardinality.NONZERO,
-            accepted_configurations=(dc.SolidStrength,),
+            accepted_configurations=(
+                dc.SolidStrength,
+                dc.LiquidConcentration,
+                dc.GasPercentage,
+            ),
             expect_box_size=True,
         )
 
