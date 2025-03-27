@@ -2665,7 +2665,7 @@ class OMOPVocabulariesV5:
             nested_break: bool = False
             for cls, parent_id, parent_nodes, bad_lst, cnstr in lookup:
                 try:
-                    parent_node_idx = parent_nodes[parent_id]
+                    cd_idx = parent_nodes[parent_id]
                 except KeyError:
                     self.logger.debug(
                         f"Branded Drug {concept_id} had no registered {cls} "
@@ -2676,7 +2676,7 @@ class OMOPVocabulariesV5:
                     break
 
                 try:
-                    parent_concepts[cls] = self.hierarchy[parent_node_idx]
+                    parent_concepts[cls] = self.hierarchy[cd_idx]
                 except IndexError:
                     self.logger.debug(
                         f"Branded Drug {concept_id} had {cls} {parent_id} not "
@@ -3294,34 +3294,34 @@ class OMOPVocabulariesV5:
                 ),
             ]
             nested_break: bool = False
-            for cls, parent_id, parent_nodes, bad_lst, cnstr in lookup:
+            for cls_, parent_id, parent_nodes, bad_lst, cnstr in lookup:
                 try:
-                    parent_node_idx = parent_nodes[parent_id]
+                    cd_idx = parent_nodes[parent_id]
                 except KeyError:
                     self.logger.debug(
-                        f"Quabt Branded Drug {concept_id} had no registered "
-                        f"{cls} {parent_id}"
+                        f"Quant Branded Drug {concept_id} had no registered "
+                        f"{cls_} {parent_id}"
                     )
                     bad_lst.append(concept_id)
                     nested_break = True
                     continue
 
                 try:
-                    parent_concepts[cls] = self.hierarchy[parent_node_idx]
+                    parent_concepts[cls_] = self.hierarchy[cd_idx]
                 except IndexError:
                     self.logger.debug(
-                        f"Quant Branded Drug {concept_id} had {cls} "
+                        f"Quant Branded Drug {concept_id} had {cls_} "
                         f"{parent_id} not found in the hierarchy"
                     )
                     bad_lst.append(concept_id)
                     nested_break = True
                     continue
 
-                if not isinstance(parent_concepts[cls], cnstr):
+                if not isinstance(parent_concepts[cls_], cnstr):
                     # This should never happen, but we will catch it anyway
                     self.logger.debug(
                         f"Quant Branded Drug {concept_id} specified a "
-                        f"non-{cls} {parent_id} as parent"
+                        f"non-{cls_} {parent_id} as parent"
                     )
                     bad_lst.append(concept_id)
                     nested_break = True
@@ -3355,8 +3355,8 @@ class OMOPVocabulariesV5:
                 ),
             ]
             mismatched = False
-            for cls, bad_lst, attr_c, what, getter in attribute_match:
-                parent = parent_concepts[cls]
+            for cls_, bad_lst, attr_c, what, getter in attribute_match:
+                parent = parent_concepts[cls_]
                 parent_attr: (
                     dc.DoseForm[dc.ConceptId] | dc.BrandName[dc.ConceptId]
                 )
@@ -3367,7 +3367,7 @@ class OMOPVocabulariesV5:
                 if parent_attr != what:
                     self.logger.debug(
                         f"{attr_c} mismatch for Quantified Branded Drug "
-                        f"{concept_id}: {what} != {parent_attr} in {cls} "
+                        f"{concept_id}: {what} != {parent_attr} in {cls_} "
                         f"{parent.identifier}"
                     )
                     bad_lst.append(concept_id)
@@ -3387,15 +3387,15 @@ class OMOPVocabulariesV5:
             )
 
             nested_break = False
-            for cls, bad_lst, what in strength_match:
-                parent = parent_concepts[cls]
+            for cls_, bad_lst, what in strength_match:
+                parent = parent_concepts[cls_]
                 parent_strength = parent.get_strength_data()
 
                 if len(parent_strength) != len(own_strength):
                     self.logger.debug(
                         f"{what} mismatch for Quant Branded Drug {concept_id}: "
                         f"{len(parent_strength)} != {len(own_strength)} in "
-                        f"{cls} {parent.identifier}"
+                        f"{cls_} {parent.identifier}"
                     )
                     bad_lst.append(concept_id)
                     nested_break = True
@@ -3406,7 +3406,7 @@ class OMOPVocabulariesV5:
                     if p_ing != o_ing:
                         self.logger.debug(
                             f"{what} mismatch for Quant Branded Drug "
-                            f"{concept_id}: {p_ing} != {o_ing} in {cls} "
+                            f"{concept_id}: {p_ing} != {o_ing} in {cls_} "
                             f"{parent.identifier}"
                         )
                         bad_lst.append(concept_id)
@@ -3418,7 +3418,7 @@ class OMOPVocabulariesV5:
                         if not p_stg.matches(o_stg):
                             self.logger.debug(
                                 f"{what} mismatch for Quant Branded Drug "
-                                f"{concept_id}: {p_stg} != {o_stg} in {cls} "
+                                f"{concept_id}: {p_stg} != {o_stg} in {cls_} "
                                 f" {parent.identifier}"
                             )
                             bad_lst.append(concept_id)
@@ -3481,13 +3481,13 @@ class OMOPVocabulariesV5:
             (qbd_bad_bd, "Branded Drug"),
             (qbd_bad_qcd, "Quant Clinical Drug"),
         ]
-        for lst_bad, cls in reason_bad_concept:
+        for lst_bad, cls_ in reason_bad_concept:
             self.filter_out_bad_concepts(
                 len(qbd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
-                f"All Quantified Branded Drugs have valid {cls}",
-                "QBD_Bad_" + "".join(cls.split()),
-                f"{len(lst_bad):,} Quantified Clinical Drugs had bad {cls}",
+                f"All Quantified Branded Drugs have valid {cls_}",
+                "QBD_Bad_" + "".join(cls_.split()),
+                f"{len(lst_bad):,} Quantified Clinical Drugs had bad {cls_}",
             )
 
         reason_mismatch = [
@@ -3497,17 +3497,17 @@ class OMOPVocabulariesV5:
             ("Quant Clinical Drug", qbd_qcd_strength_mismatch, "Strength"),
             ("Branded Drug", qbd_bd_strength_mismatch, "Strength"),
         ]
-        for cls, lst_bad, what in reason_mismatch:
+        for cls_, lst_bad, what in reason_mismatch:
             w_abbv = "".join([w[0] for w in what.split()])
-            c_abbv = "".join([c[0] for c in cls.split()])
+            c_abbv = "".join([c[0] for c in cls_.split()])
             self.filter_out_bad_concepts(
                 len(qbd_concepts),
                 pl.Series(lst_bad, dtype=pl.UInt32),
                 f"All Quantified Branded Drugs have matching {what}s with "
-                f"their {cls}s",
+                f"their {cls_}s",
                 "_".join(["QCD", w_abbv, c_abbv, "Mismatch"]),
                 f"{len(lst_bad):,} Quantified Clinical Drugs had mismatched "
-                f"{what}s with their {cls}s",
+                f"{what}s with their {cls_}s",
             )
 
         self.filter_out_bad_concepts(
@@ -3534,6 +3534,7 @@ class OMOPVocabulariesV5:
             Dictionary of Clinical Drug Box node indices indexed by concept_id
         """
         self.logger.info("Processing Clinical Drug Boxes")
+        cdb_nodes: _TempNodeView = {}
 
         cdb_concepts = self.get_validated_relationships_view(
             source_class="Clinical Drug Box",
@@ -3561,8 +3562,199 @@ class OMOPVocabulariesV5:
             ),
             expect_box_size=True,
         )
+        cdb_concepts = cdb_concepts.filter(
+            pl.col("concept_id").is_in(
+                pl.Series(cdb_strength.keys(), dtype=pl.UInt32)
+            )
+        )
 
-        print(cdb_concepts)
-        # TODO: implement
-        del cdb_strength, cdb_box_size, cd_nodes
-        return {}
+        cdb_bad_df: list[int] = []
+        cdb_bad_ingred: list[int] = []
+        cdb_bad_cd: list[int] = []
+
+        cdb_cd_df_mismatch: list[int] = []
+        cdb_cd_ing_mismatch: list[int] = []
+        cdb_cd_strength_mismatch: list[int] = []
+
+        cdb_failed: list[int] = []
+
+        for row in cdb_concepts.iter_rows():
+            concept_id: int = row[0]
+            cd_concept_id: int = row[1]
+            df_concept_id: int = row[2]
+            strength_data = {ing: stg for ing, stg in cdb_strength[concept_id]}
+            box_size = cdb_box_size[concept_id]
+
+            # Find dose form
+            try:
+                dose_form = self.atoms.dose_form[dc.ConceptId(df_concept_id)]
+            except KeyError:
+                self.logger.debug(
+                    f"Dose Form {df_concept_id} not found for Quantified "
+                    f"Branded Drug {concept_id}"
+                )
+                cdb_bad_df.append(concept_id)
+                continue
+
+            # Find ingredients
+            missing_ingredients = False
+            own_ingredients: dict[int, dc.Ingredient[dc.ConceptId]] = {}
+            for ing_id in strength_data.keys():
+                try:
+                    ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
+                except KeyError:
+                    self.logger.debug(
+                        f"Ingredient {ing_id} not found for Quantified Clinical "
+                        f"Drug {concept_id}"
+                    )
+                    cdb_bad_ingred.append(concept_id)
+                    missing_ingredients = True
+                    break
+                own_ingredients[ing_id] = ing
+            if missing_ingredients:
+                continue
+
+            # Find parent CD
+            try:
+                cd_idx = cd_nodes[cd_concept_id]
+            except KeyError:
+                self.logger.debug(
+                    f"Clinical Drug Box {concept_id} had no registered "
+                    f"Clinical Drug {cd_concept_id}"
+                )
+                cdb_bad_cd.append(concept_id)
+                continue
+            try:
+                cd_node = self.hierarchy[cd_idx]
+            except IndexError:
+                self.logger.debug(
+                    f"Clinical Drug Box {concept_id} had Clinical Drug "
+                    f"{cd_concept_id} not found in the hierarchy"
+                )
+                cdb_bad_cd.append(concept_id)
+                continue
+
+            cd: dc.ClinicalDrug[dc.ConceptId, dc.UnquantifiedStrength]
+            if not isinstance(cd_node, dc.ClinicalDrug):
+                # This should never happen, but we will catch it anyway
+                self.logger.debug(
+                    f"Clinical Drug Box {concept_id} specified a "
+                    f"non-Clinical Drug {cd_concept_id} as parent"
+                )
+                cdb_bad_cd.append(concept_id)
+                continue
+            else:
+                cd = cd_node
+
+            # Test matching dose form with parent CD
+            cd_form: dc.DoseForm[dc.ConceptId] = cd.get_dose_form()
+            if cd_form != dose_form:
+                self.logger.debug(
+                    f"Dose Form mismatch for Clinical Drug Box {concept_id}: "
+                    f"{dose_form} != {cd_form} in Clinical Drug {cd_concept_id}"
+                )
+                cdb_cd_df_mismatch.append(concept_id)
+                continue
+
+            # Test matching strength/ingredient data with parent CD
+            own_strength = SortedTuple(
+                (ing_obj, strength_data[ing])
+                for ing, ing_obj in own_ingredients.items()
+            )
+            parent_strength = cd.get_strength_data()
+
+            if len(parent_strength) != len(own_strength):
+                self.logger.debug(
+                    f"Strength mismatch for Clinical Drug Box {concept_id}: "
+                    f"{len(parent_strength)} != {len(own_strength)} "
+                    f"in Clinical Drug {cd_concept_id}"
+                )
+                cdb_cd_strength_mismatch.append(concept_id)
+                continue
+
+            nested_break = False
+            for (p_ing, p_stg), (o_ing, o_stg) in zip(
+                parent_strength, own_strength
+            ):
+                if p_ing != o_ing:
+                    self.logger.debug(
+                        f"Ingredient mismatch for Quant Branded Drug "
+                        f"{concept_id}: {p_ing} != {o_ing} in Clinical Drug "
+                        f"{cd.identifier}"
+                    )
+                    cdb_cd_ing_mismatch.append(concept_id)
+                    nested_break = True
+                    break
+
+                if not p_stg.matches(o_stg):
+                    self.logger.debug(
+                        f"Strength mismatch for Clinical Drug Box {concept_id}: "
+                        f"{p_stg} != {o_stg} in Clinical Drug {cd_concept_id}"
+                    )
+                    cdb_cd_strength_mismatch.append(concept_id)
+                    nested_break = True
+                    break
+            if nested_break:
+                continue
+
+            # Instantiate the Clinical Drug Box
+            try:
+                cdb: dc.ClinicalDrugBox[
+                    dc.ConceptId, dc.UnquantifiedStrength
+                ] = dc.ClinicalDrugBox(
+                    identifier=dc.ConceptId(concept_id),
+                    unboxed=cd,
+                    box_size=box_size,
+                )
+            except RxConceptCreationError as e:
+                self.logger.debug(
+                    f"Failed to create Clinical Drug Box {concept_id}: {e}"
+                )
+                cdb_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_clinical_drug_box(cdb, cd_idx)
+            cdb_nodes[concept_id] = node_idx
+
+        # Cleanup
+        reason_bad_concept = [
+            (cdb_bad_df, "Dose Form"),
+            (cdb_bad_ingred, "Ingredient"),
+            (cdb_bad_cd, "Clinical Drug"),
+        ]
+        for lst_bad, cls_ in reason_bad_concept:
+            self.filter_out_bad_concepts(
+                len(cdb_concepts),
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Clinical Drug Boxes have valid {cls_}",
+                "CDB_Bad_" + "".join(cls_.split()),
+                f"{len(lst_bad):,} Clinical Drug Boxes had bad {cls_}",
+            )
+
+        reason_mismatch = [
+            (cdb_cd_df_mismatch, "Dose Form", "Clinical Drug"),
+            (cdb_cd_ing_mismatch, "Ingredient", "Clinical Drug"),
+            (cdb_cd_strength_mismatch, "Strength", "Clinical Drug"),
+        ]
+        for lst_bad, what, cls_ in reason_mismatch:
+            w_abbv = "".join([w[0] for w in what.split()])
+            c_abbv = "".join([c[0] for c in cls_.split()])
+            self.filter_out_bad_concepts(
+                len(cdb_concepts),
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All Clinical Drug Boxes have matching {what}s with "
+                f"their {cls_}s",
+                "_".join(["QCD", w_abbv, c_abbv, "Mismatch"]),
+                f"{len(lst_bad):,} Clinical Drug Boxes had mismatched "
+                f"{what}s with their {cls_}s",
+            )
+
+        self.filter_out_bad_concepts(
+            len(cdb_concepts),
+            pl.Series(cdb_failed, dtype=pl.UInt32),
+            "All Clinical Drug Boxes were successfully created",
+            "CDB_Failed",
+            f"{len(cdb_failed):,} Clinical Drug Boxes had failed creation",
+        )
+
+        return cdb_nodes

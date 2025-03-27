@@ -115,7 +115,6 @@ STRENGTH_CONFIGURATIONS_ID: Final[dict[StrengthConfiguration, pl.Expr]] = {
         & pl.col("denominator_value").is_null()
         & pl.col("denominator_unit_concept_id").is_null()
     ),
-    # TODO: Box size variations, once we start using them
 }
 
 STRENGTH_CONFIGURATIONS_CODE: Final[dict[StrengthConfiguration, pl.Expr]] = {
