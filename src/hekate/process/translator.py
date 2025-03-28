@@ -14,8 +14,8 @@ from csv_read.source_input import BuildRxEInput
 from rx_model import drug_classes as dc
 from rx_model.hierarchy.generic import AtomicConcept
 from rx_model.hierarchy.hosts import Atoms
+import rx_model.descriptive as d
 from utils.classes import SortedTuple, PyRealNumber
-from utils.constants import StrengthConfiguration
 from utils.exceptions import (
     ForeignNodeCreationError,
     InvalidConceptIdError,
@@ -57,11 +57,11 @@ class NodeTranslator:
     drug nodes.
     """
 
-    STRENGTH_CLASS: dict[StrengthConfiguration, type[dc.Strength]] = {
-        StrengthConfiguration.AMOUNT_ONLY: dc.SolidStrength,
-        StrengthConfiguration.LIQUID_CONCENTRATION: dc.LiquidConcentration,
-        StrengthConfiguration.LIQUID_QUANTITY: dc.LiquidQuantity,
-        StrengthConfiguration.GAS_PERCENTAGE: dc.GasPercentage,
+    STRENGTH_CLASS: dict[d.StrengthConfiguration, type[dc.Strength]] = {
+        d.StrengthConfiguration.AMOUNT_ONLY: dc.SolidStrength,
+        d.StrengthConfiguration.LIQUID_CONCENTRATION: dc.LiquidConcentration,
+        d.StrengthConfiguration.LIQUID_QUANTITY: dc.LiquidQuantity,
+        d.StrengthConfiguration.GAS_PERCENTAGE: dc.GasPercentage,
     }
 
     def __init__(
@@ -262,7 +262,7 @@ class NodeTranslator:
             bns,
             supps,
         )
-        for (p_s, st), (p_d, d), (p_b, b), (p_s, s) in combinations:
+        for (p_s, st), (p_d, df), (p_b, bn), (p_s, sp) in combinations:
             precedence_data = dc.PrecedenceData(
                 ingredient_diff=p_s,
                 dose_form_diff=p_d,
@@ -275,9 +275,9 @@ class NodeTranslator:
                     precedence_data=precedence_data,
                     strength_data=st,
                     identifier=shared_concept_id,
-                    dose_form=d,
-                    brand_name=b,
-                    supplier=s,
+                    dose_form=df,
+                    brand_name=bn,
+                    supplier=sp,
                     box_size=node_prototype.box_size,  # Use as is
                 )
 

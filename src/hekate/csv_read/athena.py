@@ -14,22 +14,14 @@ from rx_model import drug_classes as dc  # For concept classes
 from rx_model import hierarchy as h  # For hierarchy building
 from utils.exceptions import RxConceptCreationError  # For error handling
 
-# TODO: reexport this properly
 from rx_model.hierarchy.hosts import NodeIndex
+from rx_model import descriptive as d
 from utils.classes import SortedTuple, PlRealNumber, PyRealNumber
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     ATHENA_OVERFILTERING_TRESHOLD,
     ATHENA_OVERFILTERING_WARNING,
-    DEFINING_ATTRIBUTE_RELATIONSHIP,
     PERCENT_CONCEPT_ID,
-    STRENGTH_CONFIGURATIONS_ID,
-    StrengthConfiguration as SC,
-)
-from utils.classes import (
-    Cardinality,
-    CARDINALITY_REQUIRED,
-    CARDINALITY_SINGLE,
 )
 from utils.logger import LOGGER
 
@@ -39,16 +31,6 @@ from utils.logger import LOGGER
 type _TempNodeView = dict[int, NodeIndex]
 
 type _BoxSizeDict = dict[int, int]
-
-
-class _RelationshipDescription(NamedTuple):
-    """
-    Named tuple to describe the nature of the relationship between two concepts
-    """
-
-    relationship_id: str
-    cardinality: Cardinality
-    target_class: str
 
 
 class _StrengthTuple(NamedTuple):
@@ -320,7 +302,7 @@ class OMOPVocabulariesV5:
     def get_validated_relationships_view(
         self,
         source_class: str,
-        relationships: Sequence[_RelationshipDescription],
+        relationships: Sequence[d.RelationshipDescription],
         include_name: bool = False,
     ) -> pl.DataFrame:
         """
@@ -359,7 +341,7 @@ class OMOPVocabulariesV5:
             )
 
             # Catch empty attributes
-            if expected_cardinality in CARDINALITY_REQUIRED:
+            if expected_cardinality in d.CARDINALITY_REQUIRED:
                 source_no_target = source_concepts.join(
                     source_to_target, on="concept_id", how="anti"
                 )
@@ -376,7 +358,7 @@ class OMOPVocabulariesV5:
                         source_no_target, on="concept_id", how="anti"
                     )
 
-            if expected_cardinality in CARDINALITY_SINGLE:
+            if expected_cardinality in d.CARDINALITY_SINGLE:
                 # Catch multiple attributes
                 source_mult_target = (
                     source_to_target["concept_id"]
@@ -419,7 +401,7 @@ class OMOPVocabulariesV5:
         return source_concepts
 
     def get_ds_ingredient_data(
-        self, drug_ids: pl.Series, expect_cardinality: Cardinality
+        self, drug_ids: pl.Series, expect_cardinality: d.Cardinality
     ) -> dict[int, list[int]]:
         """
         Get the ingredient data slice for each drug concept per the
@@ -428,7 +410,7 @@ class OMOPVocabulariesV5:
         Args:
             drug_ids: Series of drug concept_ids to filter the data.
             expect_cardinality: Expected cardinality of the relationship, as
-                defined in the _Cardinality enum. Note that only ONE and NONZERO
+                defined in the _d.Cardinality enum. Note that only ONE and NONZERO
                 are valid here. Return type is always a dictionary of lists,
                 regardless of the cardinality.
 
@@ -437,7 +419,7 @@ class OMOPVocabulariesV5:
             correpsonding ingredient concept_ids as values.
         """
 
-        if expect_cardinality not in CARDINALITY_REQUIRED:
+        if expect_cardinality not in d.CARDINALITY_REQUIRED:
             raise ValueError(
                 "Expected cardinality must be ONE or NONZERO for this method"
             )
@@ -467,7 +449,7 @@ class OMOPVocabulariesV5:
                 pl.col("ingredient_concept_id").is_not_null()
             )
 
-        if expect_cardinality is Cardinality.ONE:
+        if expect_cardinality is d.Cardinality.ONE:
             # Filter out drugs with multiple ingredients
             multiple_ingredients = (
                 ing_df["drug_concept_id"]
@@ -500,7 +482,7 @@ class OMOPVocabulariesV5:
     def get_strength_data(
         self,
         drug_ids: pl.Series,
-        expect_cardinality: Cardinality,
+        expect_cardinality: d.Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
         expect_box_size: Literal[False],
     ) -> tuple[dict[int, list[_StrengthTuple]], None]: ...
@@ -509,7 +491,7 @@ class OMOPVocabulariesV5:
     def get_strength_data(
         self,
         drug_ids: pl.Series,
-        expect_cardinality: Cardinality,
+        expect_cardinality: d.Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
         expect_box_size: Literal[True],
     ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSizeDict]: ...
@@ -517,7 +499,7 @@ class OMOPVocabulariesV5:
     def get_strength_data(
         self,
         drug_ids: pl.Series,
-        expect_cardinality: Cardinality,
+        expect_cardinality: d.Cardinality,
         accepted_configurations: tuple[type[dc.Strength], ...],
         expect_box_size: bool,
     ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSizeDict | None]:
@@ -534,7 +516,7 @@ class OMOPVocabulariesV5:
         Args:
             drug_ids: Series of drug concept_ids to filter the data.
             expect_cardinality: Expected cardinality of the relationship, as
-                defined in the _Cardinality enum. Note that only ONE and NONZERO
+                defined in the _d.Cardinality enum. Note that only ONE and NONZERO
                 are valid here. REturn type is always a dictionary of lists,
                 regardless of the cardinality.
             accepted_configurations: Iterable of strength data classes that are
@@ -551,7 +533,7 @@ class OMOPVocabulariesV5:
              `LiquidQuantity`, `GasPercentage` or `LiquidConcentration`.
              * Either None or an integer box size, if the box size is expected.
         """
-        if expect_cardinality not in CARDINALITY_REQUIRED:
+        if expect_cardinality not in d.CARDINALITY_REQUIRED:
             raise ValueError(
                 "Expected cardinality must be ONE or NONZERO for this method"
             )
@@ -637,7 +619,7 @@ class OMOPVocabulariesV5:
                 pl.col("ingredient_concept_id").is_not_null()
             )
 
-        if expect_cardinality is Cardinality.ONE:
+        if expect_cardinality is d.Cardinality.ONE:
             # Filter out drugs with multiple strength data
             multiple_strength = (
                 strength_df["drug_concept_id"]
@@ -659,7 +641,7 @@ class OMOPVocabulariesV5:
 
         # We want to be very strict about the strength data, so we will
         # look for explicit data shapes
-        for label, expression in STRENGTH_CONFIGURATIONS_ID.items():
+        for label, expression in d.STRENGTH_CONFIGURATIONS_ID.items():
             strength_df = strength_df.with_columns(**{label.value: expression})
         confirmed_drugs: pl.Series = self.filter_strength_chunk(strength_df)
         strength_df = strength_df.filter(
@@ -798,7 +780,9 @@ class OMOPVocabulariesV5:
         # Find drugs that match no known configuration
         # NOTE: This is probably redundant after initial validation
         invalid_mask = (
-            strength_chunk.select([s.value for s in SC]).sum_horizontal()
+            strength_chunk.select([
+                s.value for s in d.StrengthConfiguration
+            ]).sum_horizontal()
         ) == 0
 
         if n_invalid := invalid_mask.sum():
@@ -812,12 +796,17 @@ class OMOPVocabulariesV5:
 
         # Find drugs that match more than one configuration over rows
         collapsed_df = (
-            strength_chunk.select("drug_concept_id", *[s.value for s in SC])
+            strength_chunk.select(
+                "drug_concept_id", *[s.value for s in d.StrengthConfiguration]
+            )
             .group_by("drug_concept_id")
             .max()  # T > F
         )
         muliple_match_mask = (
-            collapsed_df.select([s.value for s in SC]).sum_horizontal() > 1
+            collapsed_df.select([
+                s.value for s in d.StrengthConfiguration
+            ]).sum_horizontal()
+            > 1
         )
 
         if n_unmatched := muliple_match_mask.sum():
@@ -997,9 +986,9 @@ class OMOPVocabulariesV5:
         ing_to_precise = self.get_validated_relationships_view(
             source_class="Precise Ingredient",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Form of",  # Maps to?
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Ingredient",
                 ),
             ],
@@ -1038,14 +1027,14 @@ class OMOPVocabulariesV5:
         cdf_concepts = self.get_validated_relationships_view(
             source_class="Clinical Drug Form",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Dose Form",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has ing",
-                    cardinality=Cardinality.NONZERO,
+                    cardinality=d.Cardinality.NONZERO,
                     target_class="Ingredient",
                 ),
             ],
@@ -1053,7 +1042,7 @@ class OMOPVocabulariesV5:
 
         # Get ingredients from DRUG_STRENGTH table for cross-validation
         cdf_ing_ds: dict[int, list[int]] = self.get_ds_ingredient_data(
-            cdf_concepts["concept_id"], Cardinality.NONZERO
+            cdf_concepts["concept_id"], d.Cardinality.NONZERO
         )
 
         cdf_ingredient_mismatch: list[int] = []
@@ -1405,17 +1394,18 @@ class OMOPVocabulariesV5:
             ~(pl.col("concept_class_id") == "Ingredient"),
         )
 
-        for concept_class, rel in DEFINING_ATTRIBUTE_RELATIONSHIP.items():
+        for attribute in d.MONO_ATTRIBUTE_DEFINITIONS:
             self.logger.info(
                 f"Salvaging concepts that specify more than one "
-                f"{concept_class} attribute"
+                f"{attribute.omop_concept_class_id} attribute"
             )
 
             # Find concepts with multiple defining attributes
             rel_to_attribute = (
                 complex_drug_concepts.join(
                     other=self.relationship.collect().filter(
-                        pl.col("relationship_id") == rel,
+                        pl.col("relationship_id")
+                        == attribute.defining_relationship_id
                     ),
                     left_on="concept_id",
                     right_on="concept_id_1",
@@ -1423,7 +1413,8 @@ class OMOPVocabulariesV5:
                 )
                 .join(
                     other=self.concept.collect().filter(
-                        pl.col("concept_class_id") == concept_class,
+                        pl.col("concept_class_id")
+                        == attribute.omop_concept_class_id
                     ),
                     left_on="concept_id_2",
                     right_on="concept_id",
@@ -1452,10 +1443,11 @@ class OMOPVocabulariesV5:
                 len(complex_drug_concepts),
                 concept_to_multiple_valid,
                 message_ok="No drug concepts with multiple valid "
-                f"{concept_class} attributes found",
-                reason_short="Multiple_" + concept_class.replace(" ", "_"),
+                f"{attribute.omop_concept_class_id} attributes found",
+                reason_short="Multiple_" + attribute.get_abbreviation(),
                 reason_full=f"Found {len(concept_to_multiple_valid):,} drug "
-                f"concepts with multiple valid {concept_class} attributes",
+                f"concepts with multiple valid "
+                f"{attribute.omop_concept_class_id} attributes",
             )
 
             # Second, find ones having only any amount of invalid attributes
@@ -1474,11 +1466,12 @@ class OMOPVocabulariesV5:
             self.filter_out_bad_concepts(
                 len(complex_drug_concepts),
                 concept_has_only_invalid,
-                f"No drug concepts with only invalid {concept_class} "
-                "attributes found",
-                "No_" + concept_class.replace(" ", "_"),
+                f"No drug concepts with only invalid "
+                f"{attribute.omop_concept_class_id} attributes found",
+                "No_" + attribute.get_abbreviation(),
                 f"Found {len(concept_has_only_invalid):,} drug concepts "
-                f"with only invalid {concept_class} attributes",
+                f"with only invalid {attribute.omop_concept_class_id} "
+                f"attributes",
             )
 
             # Log the number of concepts salvaged
@@ -1498,12 +1491,13 @@ class OMOPVocabulariesV5:
             if diff:
                 self.logger.info(
                     f"Salvaged {diff:,} drug concepts with multiple "
-                    f"{concept_class} attributes"
+                    f"{attribute.omop_concept_class_id} attributes"
                 )
             else:
                 self.logger.info(
-                    f"No drug concepts with multiple {concept_class} "
-                    "attributes were salvaged"
+                    f"No drug concepts with multiple "
+                    f"{attribute.omop_concept_class_id} attributes were "
+                    f"salvaged"
                 )
 
     def process_clinical_drug_comps(self) -> _TempNodeView:
@@ -1522,14 +1516,14 @@ class OMOPVocabulariesV5:
         cdc_concepts = self.get_validated_relationships_view(
             source_class="Clinical Drug Comp",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has ing",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Ingredient",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Has precise ing",
-                    cardinality=Cardinality.OPTIONAL,
+                    cardinality=d.Cardinality.OPTIONAL,
                     target_class="Precise Ingredient",
                 ),
             ],
@@ -1537,7 +1531,7 @@ class OMOPVocabulariesV5:
 
         cdc_strength, _ = self.get_strength_data(
             cdc_concepts["concept_id"],
-            expect_cardinality=Cardinality.ONE,
+            expect_cardinality=d.Cardinality.ONE,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -1814,9 +1808,15 @@ class OMOPVocabulariesV5:
                     "Branded Drug Box",
                 ])
                 & (
-                    STRENGTH_CONFIGURATIONS_ID[SC.AMOUNT_ONLY]
-                    | STRENGTH_CONFIGURATIONS_ID[SC.LIQUID_CONCENTRATION]
-                    | STRENGTH_CONFIGURATIONS_ID[SC.GAS_PERCENTAGE]
+                    d.STRENGTH_CONFIGURATIONS_ID[
+                        d.StrengthConfiguration.AMOUNT_ONLY
+                    ]
+                    | d.STRENGTH_CONFIGURATIONS_ID[
+                        d.StrengthConfiguration.LIQUID_CONCENTRATION
+                    ]
+                    | d.STRENGTH_CONFIGURATIONS_ID[
+                        d.StrengthConfiguration.GAS_PERCENTAGE
+                    ]
                 )
             )
             |
@@ -1828,7 +1828,9 @@ class OMOPVocabulariesV5:
                     "Quant Clinical Box",
                     "Quant Branded Box",
                 ])
-                & STRENGTH_CONFIGURATIONS_ID[SC.LIQUID_QUANTITY]
+                & d.STRENGTH_CONFIGURATIONS_ID[
+                    d.StrengthConfiguration.LIQUID_QUANTITY
+                ]
             )
         )
 
@@ -1868,21 +1870,21 @@ class OMOPVocabulariesV5:
         bdf_concepts = self.get_validated_relationships_view(
             source_class="Branded Drug Form",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Brand Name",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Clinical Drug Form",
                 ),
             ],
         )
 
         ing_data = self.get_ds_ingredient_data(
-            bdf_concepts["concept_id"], Cardinality.NONZERO
+            bdf_concepts["concept_id"], d.Cardinality.NONZERO
         )
 
         bdf_concepts = bdf_concepts.filter(
@@ -2033,14 +2035,14 @@ class OMOPVocabulariesV5:
         bdc_concepts = self.get_validated_relationships_view(
             source_class="Branded Drug Comp",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Brand Name",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=Cardinality.NONZERO,
+                    cardinality=d.Cardinality.NONZERO,
                     target_class="Clinical Drug Comp",
                 ),
             ],
@@ -2048,7 +2050,7 @@ class OMOPVocabulariesV5:
 
         bdc_strength, _ = self.get_strength_data(
             bdc_concepts["concept_id"],
-            expect_cardinality=Cardinality.NONZERO,
+            expect_cardinality=d.Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -2259,19 +2261,19 @@ class OMOPVocabulariesV5:
         cd_concepts = self.get_validated_relationships_view(
             source_class="Clinical Drug",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Dose Form",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm is a",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Clinical Drug Form",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Consists of",
-                    cardinality=Cardinality.NONZERO,
+                    cardinality=d.Cardinality.NONZERO,
                     target_class="Clinical Drug Comp",
                 ),
             ],
@@ -2280,7 +2282,7 @@ class OMOPVocabulariesV5:
         # Attach DS data to CD concepts
         cd_strength, _ = self.get_strength_data(
             cd_concepts["concept_id"],
-            expect_cardinality=Cardinality.NONZERO,
+            expect_cardinality=d.Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -2545,24 +2547,24 @@ class OMOPVocabulariesV5:
         bd_concepts = self.get_validated_relationships_view(
             source_class="Branded Drug",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Brand Name",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Clinical Drug",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm is a",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Branded Drug Form",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Consists of",
-                    cardinality=Cardinality.ONE,  # BDC is multicomponent
+                    cardinality=d.Cardinality.ONE,  # BDC is multicomponent
                     target_class="Branded Drug Comp",
                 ),
             ],
@@ -2570,7 +2572,7 @@ class OMOPVocabulariesV5:
 
         bdc_strength, _ = self.get_strength_data(
             bd_concepts["concept_id"],
-            expect_cardinality=Cardinality.NONZERO,
+            expect_cardinality=d.Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,
@@ -2912,14 +2914,14 @@ class OMOPVocabulariesV5:
         qcd_concepts = self.get_validated_relationships_view(
             source_class="Quant Clinical Drug",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Dose Form",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Quantified form of",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Clinical Drug",
                 ),
             ],
@@ -2928,7 +2930,7 @@ class OMOPVocabulariesV5:
         # Attach DS data to QCD concepts
         qcd_strength, _ = self.get_strength_data(
             qcd_concepts["concept_id"],
-            expect_cardinality=Cardinality.NONZERO,
+            expect_cardinality=d.Cardinality.NONZERO,
             accepted_configurations=(dc.LiquidQuantity,),
             expect_box_size=False,
         )
@@ -3182,24 +3184,24 @@ class OMOPVocabulariesV5:
         qbd_concepts = self.get_validated_relationships_view(
             source_class="Quant Branded Drug",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Tradename of",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Quant Clinical Drug",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Quantified form of",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Branded Drug",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Dose Form",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Has brand name",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Brand Name",
                 ),
             ],
@@ -3208,7 +3210,7 @@ class OMOPVocabulariesV5:
         # Attach DS data to QBD concepts
         qbd_strength, _ = self.get_strength_data(
             qbd_concepts["concept_id"],
-            expect_cardinality=Cardinality.NONZERO,
+            expect_cardinality=d.Cardinality.NONZERO,
             accepted_configurations=(dc.LiquidQuantity,),
             expect_box_size=False,
         )
@@ -3545,14 +3547,14 @@ class OMOPVocabulariesV5:
         cdb_concepts = self.get_validated_relationships_view(
             source_class="Clinical Drug Box",
             relationships=[
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="Box of",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Clinical Drug",
                 ),
-                _RelationshipDescription(
+                d.RelationshipDescription(
                     relationship_id="RxNorm has dose form",
-                    cardinality=Cardinality.ONE,
+                    cardinality=d.Cardinality.ONE,
                     target_class="Dose Form",
                 ),
             ],
@@ -3560,7 +3562,7 @@ class OMOPVocabulariesV5:
 
         cdb_strength, cdb_box_size = self.get_strength_data(
             cdb_concepts["concept_id"],
-            expect_cardinality=Cardinality.NONZERO,
+            expect_cardinality=d.Cardinality.NONZERO,
             accepted_configurations=(
                 dc.SolidStrength,
                 dc.LiquidConcentration,

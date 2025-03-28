@@ -15,9 +15,10 @@ from rx_model.drug_classes.generic import (
 import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
+from rx_model.descriptive import StrengthConfiguration
 
 from utils.classes import SortedTuple, PyRealNumber
-from utils.constants import StrengthConfiguration, BOX_SIZE_LIMIT
+from utils.constants import BOX_SIZE_LIMIT
 from utils.exceptions import ForeignNodeCreationError
 from utils.utils import count_repeated_first_entries
 
