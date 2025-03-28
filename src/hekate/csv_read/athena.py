@@ -12,7 +12,10 @@ import polars as pl  # For type hinting and schema definition
 from csv_read.generic import CSVReader, Schema  # To read files
 from rx_model import drug_classes as dc  # For concept classes
 from rx_model import hierarchy as h  # For hierarchy building
-from utils.exceptions import RxConceptCreationError  # For error handling
+from utils.exceptions import (
+    InvalidConceptIdError,
+    RxConceptCreationError,
+)  # For error handling
 
 from rx_model.hierarchy.hosts import NodeIndex
 from rx_model import descriptive as d
@@ -31,6 +34,14 @@ from utils.logger import LOGGER
 type _TempNodeView = dict[int, NodeIndex]
 
 type _BoxSizeDict = dict[int, int]
+
+type _MonoAttribute = (
+    dc.DoseForm[dc.ConceptId]
+    | dc.Supplier[dc.ConceptId]
+    | dc.BrandName[dc.ConceptId]
+)
+
+type _ParentNode = dc.DrugNode[dc.ConceptId, dc.Strength | None]
 
 
 class _StrengthTuple(NamedTuple):
@@ -1412,7 +1423,7 @@ class OMOPVocabulariesV5:
         for attribute_rel in d.MONO_ATTRIBUTE_DEFINITIONS.values():
             definition = attribute_rel.target_definition
             assert definition is not None
-            definition_class_id = definition.omop_concept_class_id
+            definition_class_id = definition.omop_concept_class_id.value
             definition_abbv = definition.get_abbreviation()
             self.logger.info(
                 f"Salvaging concepts that specify more than one "
@@ -1594,19 +1605,27 @@ class OMOPVocabulariesV5:
                 continue
 
             if (picid := precise_ingredient_concept_id) is not None:
-                possible_pi = self.atoms.precise_ingredient.get(ingredient, [])
-                possible_identifiers = [pi.identifier for pi in possible_pi]
-                if dc.ConceptId(picid) not in possible_identifiers:
+                try:
+                    possible_pi = self.atoms.precise_ingredient[ingredient]
+                except KeyError:
+                    self.logger.debug(
+                        f"Ingredient {ingredient_concept_id} does not have "
+                        f"any Precise Ingredients for Clinical Drug Component "
+                        f"{concept_id}"
+                    )
+                    cdc_bad_precise_ingredient.append(concept_id)
+                    continue
+
+                try:
+                    precise_ingredient = possible_pi[dc.ConceptId(picid)]
+                except KeyError:
                     self.logger.debug(
                         f"Precise Ingredient {picid} is not a valid Precise "
                         f"Ingredient for Ingredient {ingredient_concept_id}"
                     )
                     cdc_bad_precise_ingredient.append(concept_id)
                     continue
-                else:
-                    precise_ingredient = possible_pi[
-                        possible_identifiers.index(dc.ConceptId(picid))
-                    ]
+
             else:
                 precise_ingredient = None
 
@@ -3767,7 +3786,7 @@ class OMOPVocabulariesV5:
     def add_class_nodes(
         self,
         definition: d.ComplexDrugNodeDefinition,
-        parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
+        all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
     ) -> _TempNodeView:
         """
         Process a set of class nodes and add them to the hierarchy.
@@ -3788,7 +3807,7 @@ class OMOPVocabulariesV5:
 
         # Test that all parent definitions come with nodes -- programming error
         for parent_rel in definition.parent_relations:
-            if (p_def := parent_rel.target_definition) not in parent_nodes:
+            if (p_def := parent_rel.target_definition) not in all_parent_nodes:
                 raise ValueError(
                     f"Parent definition {p_def} not found in parent_nodes"
                 )
@@ -3839,5 +3858,235 @@ class OMOPVocabulariesV5:
                 expect_box_size=definition.defines_box_size,
             )
 
-        del node_strength, node_ingreds, node_box_size, out_nodes
+        # Bad relations
+        node_bad_attr: dict[d.ConceptDefinition, list[int]] = {}
+        node_bad_parent: dict[d.ConceptDefinition, list[int]] = {}
+
+        # Bad ingredients/strengths
+        node_bad_ingred: list[int] = []
+        node_bad_pi: list[int] = []
+        node_ingred_ds_mismatch: list[int] = []
+
+        # Mismatch with parents on attributes
+        node_attr_mismatch: dict[
+            d.ConceptDefinition,  # Parent definition
+            dict[
+                d.ConceptDefinition,  # Attribute definition
+                list[int],  # Concept IDs
+            ],
+        ] = {}
+
+        # Fail on creation
+        node_failed: list[int] = []
+
+        for row in node_concepts.iter_rows():
+            # Consume the row
+            listed = iter(row)
+
+            # Own concept_id
+            concept_id: int = next(listed)
+
+            # Attribute data
+            attr_data: dict[d.ConceptDefinition, _MonoAttribute] = {}
+            for attr_rel in definition.attribute_definitions:
+                assert attr_rel.target_definition is not None  # TODO: remove
+                attr_id: int = next(listed)
+
+                # Lookup the atom
+                try:
+                    atom = self.atoms.lookup_unknown(dc.ConceptId(attr_id))
+                except InvalidConceptIdError:
+                    self.logger.debug(
+                        f"Attribute {attr_id} not found for {class_id} "
+                        f"{concept_id}"
+                    )
+                    node_bad_attr.setdefault(
+                        attr_rel.target_definition, []
+                    ).append(concept_id)
+                    continue
+
+                # Test atom class. Catching this means a programming error
+                if not isinstance(atom, attr_rel.target_definition.constructor):
+                    raise ValueError(
+                        f"Expected {attr_id} to be of class "
+                        f"{attr_rel.target_definition.class_id} "
+                        f"for {concept_id}, got {type(atom)}"
+                    )
+                attr_data[attr_rel.target_definition] = atom  # pyright: ignore[reportArgumentType]
+
+            # Parent concepts
+            parent_data: dict[
+                d.ComplexDrugNodeDefinition, list[_ParentNode]
+            ] = {}
+            for parent_rel in definition.parent_relations:
+                parent_def = parent_rel.target_definition
+                assert isinstance(
+                    parent_def,
+                    d.ComplexDrugNodeDefinition,
+                )
+                parent_id_or_ids: int | list[int] = next(listed)
+
+                # For simplicity, convert to iterable
+                parent_ids: list[int]
+                if isinstance(parent_id_or_ids, int):
+                    if not parent_rel.cardinality == d.Cardinality.ONE:
+                        # Programming error
+                        raise ValueError(
+                            f"Expected single parent ID for "
+                            f"{parent_def.class_id}, "
+                            f"got {parent_id_or_ids}"
+                        )
+                    parent_ids = [parent_id_or_ids]
+                else:
+                    parent_ids = parent_id_or_ids
+
+                # Lookup the nodes
+                parent_node_view = all_parent_nodes[parent_def]
+                for parent_id in parent_ids:
+                    try:
+                        parent_node_idx = parent_node_view[parent_id]
+                    except KeyError:
+                        self.logger.debug(
+                            f"Parent {parent_id} not found for {class_id} "
+                            f"{concept_id}"
+                        )
+                        node_bad_parent.setdefault(parent_def, []).append(
+                            concept_id
+                        )
+                        continue
+
+                    # Try getting the node
+                    try:
+                        parent_node = self.hierarchy[parent_node_idx]
+                    except IndexError:
+                        self.logger.debug(
+                            f"Parent {parent_id} not found in hierarchy for "
+                            f"{class_id} {concept_id}"
+                        )
+                        node_bad_parent.setdefault(parent_def, []).append(
+                            concept_id
+                        )
+                        continue
+
+                    # Check class (programming error)
+                    if not isinstance(parent_node, parent_def.constructor):
+                        raise ValueError(
+                            f"Expected {parent_id} to be of class "
+                            f"{parent_def.class_id} for {concept_id}, "
+                            f"got {type(parent_node)}"
+                        )
+
+                    parent_data.setdefault(parent_def, []).append(parent_node)
+
+            explicit_ingredients: list[dc.Ingredient[dc.ConceptId]] = []
+            if definition.defines_explicit_ingredients:
+                ingred_id_or_ids: int | list[int] = next(listed)
+
+                # For simplicity, convert to iterable
+                ingred_ids: list[int]
+                if isinstance(ingred_id_or_ids, int):
+                    if (
+                        not definition.ingredient_cardinality
+                        == d.Cardinality.ONE
+                    ):
+                        # Programming error
+                        raise ValueError(
+                            f"Expected single ingredient ID for "
+                            f"{class_id}, got {ingred_id_or_ids}"
+                        )
+                    ingred_ids = [ingred_id_or_ids]
+                else:
+                    ingred_ids = ingred_id_or_ids
+
+                # Lookup the atoms
+                for ingred_id in ingred_ids:
+                    try:
+                        ingred = self.atoms.ingredient[dc.ConceptId(ingred_id)]
+                    except KeyError:
+                        self.logger.debug(
+                            f"Ingredient {ingred_id} not found for {class_id} "
+                            f"{concept_id}"
+                        )
+                        node_bad_ingred.append(concept_id)
+                        continue
+                    explicit_ingredients.append(ingred)
+
+            explicit_pis: list[dc.PreciseIngredient] = []
+            if definition.defines_explicit_precise_ingredients:
+                pi_id_or_ids: int | list[int] = next(listed)
+
+                # For simplicity, convert to iterable
+                pi_ids: list[int]
+                if isinstance(pi_id_or_ids, int):
+                    if (
+                        not definition.ingredient_cardinality
+                        == d.Cardinality.ONE
+                    ):
+                        # Programming error
+                        raise ValueError(
+                            f"Expected single pi ID for "
+                            f"{class_id}, got {pi_id_or_ids}"
+                        )
+                    pi_ids = [pi_id_or_ids]
+                else:
+                    pi_ids = pi_id_or_ids
+
+                # Lookup the atoms
+                # NOTE: order for PI and I is expected to be the same; this is
+                # future-proofing in any case, as only single-ingredient CDCs
+                # can now have PIs
+                nested_break: bool = False
+                for pi_id in pi_ids:
+                    # Find matching ingredient
+                    for ing in explicit_ingredients:
+                        try:
+                            possible_pis = self.atoms.precise_ingredient[ing]
+                            break
+                        except KeyError:
+                            # Not an error, try others
+                            continue
+                    else:  # No break
+                        self.logger.debug(
+                            f"Precise ingredient {pi_id} does not match any "
+                            f"ingredient for {class_id} {concept_id}"
+                        )
+                        nested_break = True
+                        break
+
+                    # Find the precise ingredient
+                    try:
+                        pi = possible_pis[dc.ConceptId(pi_id)]
+                    except KeyError:
+                        self.logger.debug(
+                            f"Precise ingredient {pi_id} not found for "
+                            f"{class_id} {concept_id}"
+                        )
+                        node_bad_pi.append(concept_id)
+                        nested_break = True
+                        break
+
+                    explicit_pis.append(pi)
+                if nested_break:
+                    continue
+
+            strength_data = (
+                {ing: stg for ing, stg in node_strength[concept_id]}
+                if node_strength is not None
+                else None
+            )
+
+            ingreds_ds_data = (
+                node_ingreds[concept_id] if node_ingreds is not None else None
+            )
+
+            del (
+                node_box_size,
+                strength_data,
+                ingreds_ds_data,
+                node_failed,
+                node_ingred_ds_mismatch,
+                node_attr_mismatch,
+                out_nodes,
+            )
+            raise NotImplementedError("This function is not yet implemented")
         raise NotImplementedError("This function is not yet implemented")

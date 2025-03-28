@@ -38,10 +38,10 @@ class Atoms[Id: dc.ConceptIdentifier]:
                 self.brand_name,  # pyright: ignore[reportArgumentType]
                 self.supplier,  # pyright: ignore[reportArgumentType]
             )[identifier]
-        except KeyError:
+        except KeyError as e:
             raise InvalidConceptIdError(
                 f"Concept ID {identifier} not found in Atoms container."
-            )
+            ) from e
 
     def __init__(self, logger: logging.Logger):
         self.ingredient: dict[Id, dc.Ingredient[Id]] = {}
@@ -57,7 +57,8 @@ class Atoms[Id: dc.ConceptIdentifier]:
         # NOTE: This is not generic, as we do not expect RxE to have precise
         # ingredients. For now.
         self.precise_ingredient: dict[
-            dc.Ingredient[dc.ConceptId], list[dc.PreciseIngredient]
+            dc.Ingredient[dc.ConceptId],
+            dict[dc.ConceptId, dc.PreciseIngredient],
         ] = {}
 
     def add_from_frame(self, frame: pl.DataFrame) -> None:
@@ -126,10 +127,9 @@ class Atoms[Id: dc.ConceptIdentifier]:
     def add_precise_ingredient(
         self, precise_ingredient: dc.PreciseIngredient
     ) -> None:
-        invariant = precise_ingredient.invariant
-        self.precise_ingredient.setdefault(invariant, []).append(
-            precise_ingredient
-        )
+        pi = precise_ingredient
+        invariant = pi.invariant
+        self.precise_ingredient.setdefault(invariant, {})[pi.identifier] = pi
 
 
 class KnownStrengths[Id: dc.ConceptIdentifier]:

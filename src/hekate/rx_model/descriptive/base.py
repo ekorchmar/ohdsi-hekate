@@ -92,3 +92,7 @@ class ConceptDefinition:
             "_".join(self.omop_concept_class_id.value.lower().split())
             + "_concept_id"
         )
+
+    @property
+    def class_id(self) -> str:
+        return self.omop_concept_class_id.value
