@@ -20,8 +20,10 @@ from rx_model.descriptive.relationship import (
 )
 from rx_model.descriptive.strength import (
     STRENGTH_CONFIGURATIONS_ID,
+    UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
     StrengthConfiguration,
 )
+from rx_model.descriptive.complex import ComplexDrugNodeDefinition
 
 
 __all__ = [
@@ -40,5 +42,7 @@ __all__ = [
     "CARDINALITY_SINGLE",
     "CARDINALITY_REQUIRED",
     "STRENGTH_CONFIGURATIONS_ID",
+    "UNQUANTIFIED_STRENGTH_CONFIGURATIONS",
     "StrengthConfiguration",
+    "ComplexDrugNodeDefinition",
 ]

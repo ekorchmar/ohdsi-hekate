@@ -5,6 +5,7 @@ relationships.
 
 from enum import Enum  # For string enums
 from typing import NamedTuple
+from rx_model.descriptive.base import ConceptDefinition
 
 
 class Cardinality(Enum):
@@ -35,4 +36,5 @@ class RelationshipDescription(NamedTuple):
 
     relationship_id: str
     cardinality: Cardinality
-    target_class: str
+    target_class: str  # TODO: deprecate, replace usages with target_definition
+    target_definition: ConceptDefinition | None = None  # todo: remove default

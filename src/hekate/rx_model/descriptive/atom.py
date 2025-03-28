@@ -4,6 +4,10 @@ Contains the definitions of the atomic attributes.
 
 from dataclasses import dataclass  # For shared characteristics
 import rx_model.drug_classes as dc  # For constructor classes
+from rx_model.descriptive.relationship import (
+    RelationshipDescription,  # For mono-attribute relations
+    Cardinality,  # For Cardinality.ONE
+)
 from rx_model.descriptive.base import (
     RX_VOCAB,
     ConceptClassId,
@@ -32,31 +36,23 @@ PRECISE_INGREDIENT_DEFINITION = ConceptDefinition(
 
 
 # Rxn/E mono attributes
-@dataclass
+@dataclass(frozen=True, eq=True)
 class MonoAtributeDefiniton(ConceptDefinition):
     """Shared behavior for mono-attribute definitions."""
 
     omop_domain_id: DomainId = DomainId.DRUG
     omop_vocabulary_ids: tuple[VocabularyId, ...] = RX_VOCAB
-    defining_relationship_id: str | None = None
     standard_concept: bool = False
-
-    def __post_init__(self):
-        # Self check
-        if self.defining_relationship_id is None:
-            raise ValueError("Missing defining relationship ID")
 
 
 DOSE_FORM_DEFINITION = MonoAtributeDefiniton(
     omop_concept_class_id=ConceptClassId.DOSE_FORM,
     constructor=dc.DoseForm,
-    defining_relationship_id="RxNorm has dose form",
 )
 
 BRAND_NAME_DEFINITION = MonoAtributeDefiniton(
     omop_concept_class_id=ConceptClassId.BRAND_NAME,
     constructor=dc.BrandName,
-    defining_relationship_id="Has brand name",
 )
 
 
@@ -64,14 +60,28 @@ SUPPLIER_DEFINITION = MonoAtributeDefiniton(
     omop_concept_class_id=ConceptClassId.SUPPLIER,
     omop_vocabulary_ids=(VocabularyId.RXE,),  # Only in RxNorm Extension
     constructor=dc.Supplier,
-    defining_relationship_id="Has supplier",
 )
 
-MONO_ATTRIBUTE_DEFINITIONS = [
-    DOSE_FORM_DEFINITION,
-    BRAND_NAME_DEFINITION,
-    SUPPLIER_DEFINITION,
-]
+MONO_ATTRIBUTE_DEFINITIONS = {
+    ConceptClassId.DOSE_FORM: RelationshipDescription(
+        relationship_id="RxNorm has dose form",
+        cardinality=Cardinality.ONE,
+        target_class="DoseForm",
+        target_definition=DOSE_FORM_DEFINITION,
+    ),
+    ConceptClassId.BRAND_NAME: RelationshipDescription(
+        relationship_id="Has brand name",
+        cardinality=Cardinality.ONE,
+        target_class="BrandName",
+        target_definition=PRECISE_INGREDIENT_DEFINITION,
+    ),
+    ConceptClassId.SUPPLIER: RelationshipDescription(
+        relationship_id="Has supplier",
+        cardinality=Cardinality.ONE,
+        target_class="Supplier",
+        target_definition=SUPPLIER_DEFINITION,
+    ),
+}
 
 # Units
 UNIT_DEFINITION = ConceptDefinition(
