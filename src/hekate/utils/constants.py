@@ -1,6 +1,5 @@
 """Constants for the project."""
 
-from enum import Enum
 import polars as pl
 
 from typing import Final, Literal
@@ -52,14 +51,6 @@ ALL_CONCEPT_RELATIONSHIP_IDS: Final[pl.Series] = pl.Series(
     dtype=pl.Utf8,
 )
 
-type DefiningMonoAttribute = Literal["Dose Form", "Brand Name", "Supplier"]
-
-DEFINING_ATTRIBUTE_RELATIONSHIP: Final[dict[DefiningMonoAttribute, str]] = {
-    "Dose Form": "RxNorm has dose form",
-    "Brand Name": "Has brand name",
-    "Supplier": "Has supplier",
-}
-
 REPLACEMENT_RELATIONSHIP: Final[list[str]] = [
     "Maps to",
     "Mapped from",
@@ -68,95 +59,6 @@ REPLACEMENT_RELATIONSHIP: Final[list[str]] = [
 ]
 
 PERCENT_CONCEPT_ID: Literal[8554] = 8554
-
-
-class StrengthConfiguration(Enum):
-    AMOUNT_ONLY = "AMOUNT_ONLY"
-    LIQUID_CONCENTRATION = "LIQUID_CONCENTRATION"
-    LIQUID_QUANTITY = "LIQUID_QUANTITY"
-    GAS_PERCENTAGE = "GAS_PERCENTAGE"
-
-
-STRENGTH_CONFIGURATIONS_ID: Final[dict[StrengthConfiguration, pl.Expr]] = {
-    # - Amount value and unit are present, rest of the fields are null
-    StrengthConfiguration.AMOUNT_ONLY: (
-        pl.col("amount_value").is_not_null()
-        & pl.col("amount_unit_concept_id").is_not_null()
-        & pl.col("numerator_value").is_null()
-        & pl.col("numerator_unit_concept_id").is_null()
-        & pl.col("denominator_value").is_null()
-        & pl.col("denominator_unit_concept_id").is_null()
-    ),
-    # - Numerator value and unit are present, but denominator is unit only
-    StrengthConfiguration.LIQUID_CONCENTRATION: (
-        pl.col("amount_value").is_null()
-        & pl.col("amount_unit_concept_id").is_null()
-        & pl.col("numerator_value").is_not_null()
-        & pl.col("numerator_unit_concept_id").is_not_null()
-        & pl.col("denominator_value").is_null()
-        & pl.col("denominator_unit_concept_id").is_not_null()
-    ),
-    # - Numerator and denominator values and units are present
-    StrengthConfiguration.LIQUID_QUANTITY: (
-        pl.col("amount_value").is_null()
-        & pl.col("amount_unit_concept_id").is_null()
-        & pl.col("numerator_value").is_not_null()
-        & pl.col("numerator_unit_concept_id").is_not_null()
-        & pl.col("denominator_value").is_not_null()
-        & pl.col("denominator_unit_concept_id").is_not_null()
-    ),
-    # - Gases are weird. They can have numerator with percents exactly in
-    #   numerator and no denominator data.
-    StrengthConfiguration.GAS_PERCENTAGE: (
-        pl.col("amount_value").is_null()
-        & pl.col("amount_unit_concept_id").is_null()
-        & pl.col("numerator_value").is_not_null()
-        & (pl.col("numerator_unit_concept_id") == PERCENT_CONCEPT_ID)  # (%)
-        & pl.col("denominator_value").is_null()
-        & pl.col("denominator_unit_concept_id").is_null()
-    ),
-}
-
-STRENGTH_CONFIGURATIONS_CODE: Final[dict[StrengthConfiguration, pl.Expr]] = {
-    # - Amount value and unit are present, rest of the fields are null
-    StrengthConfiguration.AMOUNT_ONLY: (
-        pl.col("amount_value").is_not_null()
-        & pl.col("amount_unit").is_not_null()
-        & pl.col("numerator_value").is_null()
-        & pl.col("numerator_unit").is_null()
-        & pl.col("denominator_value").is_null()
-        & pl.col("denominator_unit").is_null()
-    ),
-    # - Numerator value and unit are present, but denominator is unit only
-    StrengthConfiguration.LIQUID_CONCENTRATION: (
-        pl.col("amount_value").is_null()
-        & pl.col("amount_unit").is_null()
-        & pl.col("numerator_value").is_not_null()
-        & pl.col("numerator_unit").is_not_null()
-        & pl.col("denominator_value").is_null()
-        & pl.col("denominator_unit").is_not_null()
-    ),
-    # - Numerator and denominator values and units are present
-    StrengthConfiguration.LIQUID_QUANTITY: (
-        pl.col("amount_value").is_null()
-        & pl.col("amount_unit").is_null()
-        & pl.col("numerator_value").is_not_null()
-        & pl.col("numerator_unit").is_not_null()
-        & pl.col("denominator_value").is_not_null()
-        & pl.col("denominator_unit").is_not_null()
-    ),
-    # - Gases are weird. They can have numerator with percents exactly in
-    #   numerator and no denominator data.
-    StrengthConfiguration.GAS_PERCENTAGE: (
-        pl.col("amount_value").is_null()
-        & pl.col("amount_unit").is_null()
-        & pl.col("numerator_value").is_not_null()
-        & (pl.col("numerator_unit") == "%")
-        & pl.col("denominator_value").is_null()
-        & pl.col("denominator_unit").is_null()
-    ),
-    # TODO: Box size variations, once we start using them
-}
 
 _STRENGTH_CORRIDOR: Final[float] = 0.05
 STRENGTH_CLOSURE_BOUNDARY_LOW: Final[float] = 1 - _STRENGTH_CORRIDOR
