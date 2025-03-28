@@ -322,12 +322,18 @@ class OMOPVocabulariesV5:
         )
 
         for rel in relationships:
-            rel_id, expected_cardinality, target_class = rel
+            rel_id, expected_cardinality, target_class, definition = rel
+
             if source_class == target_class:
                 raise ValueError("Source and target classes must be different")
-            target_abbr = "".join(char[0] for char in target_class.split())
-            target_colname = "_".join(target_class.lower().split())
-            target_colname += "_concept_id"
+
+            if definition is not None:
+                target_abbr = definition.get_abbreviation()
+                target_colname = definition.get_colname()
+            else:
+                target_abbr = "".join(char[0] for char in target_class.split())
+                target_colname = "_".join(target_class.lower().split())
+                target_colname += "_concept_id"
 
             self.logger.info(f"Finding {target_class} for {source_class}")
             source_to_target = (
@@ -483,7 +489,7 @@ class OMOPVocabulariesV5:
         self,
         drug_ids: pl.Series,
         expect_cardinality: d.Cardinality,
-        accepted_configurations: tuple[type[dc.Strength], ...],
+        accepted_configurations: tuple[d.StrengthConfiguration, ...],
         expect_box_size: Literal[False],
     ) -> tuple[dict[int, list[_StrengthTuple]], None]: ...
 
@@ -492,7 +498,7 @@ class OMOPVocabulariesV5:
         self,
         drug_ids: pl.Series,
         expect_cardinality: d.Cardinality,
-        accepted_configurations: tuple[type[dc.Strength], ...],
+        accepted_configurations: tuple[d.StrengthConfiguration, ...],
         expect_box_size: Literal[True],
     ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSizeDict]: ...
 
@@ -500,7 +506,7 @@ class OMOPVocabulariesV5:
         self,
         drug_ids: pl.Series,
         expect_cardinality: d.Cardinality,
-        accepted_configurations: tuple[type[dc.Strength], ...],
+        accepted_configurations: tuple[d.StrengthConfiguration, ...],
         expect_box_size: bool,
     ) -> tuple[dict[int, list[_StrengthTuple]], _BoxSizeDict | None]:
         """
@@ -537,6 +543,14 @@ class OMOPVocabulariesV5:
             raise ValueError(
                 "Expected cardinality must be ONE or NONZERO for this method"
             )
+
+        if len(accepted_configurations) == 0:
+            raise ValueError(
+                "At least one strength configuration must be specified"
+            )
+        accepted_configurations_cls = tuple(
+            cfg.value for cfg in accepted_configurations
+        )
 
         concepts = drug_ids.unique().to_frame(name="drug_concept_id")
 
@@ -641,8 +655,8 @@ class OMOPVocabulariesV5:
 
         # We want to be very strict about the strength data, so we will
         # look for explicit data shapes
-        for label, expression in d.STRENGTH_CONFIGURATIONS_ID.items():
-            strength_df = strength_df.with_columns(**{label.value: expression})
+        for cfg, expression in d.STRENGTH_CONFIGURATIONS_ID.items():
+            strength_df = strength_df.with_columns(**{cfg.name: expression})
         confirmed_drugs: pl.Series = self.filter_strength_chunk(strength_df)
         strength_df = strength_df.filter(
             pl.col("drug_concept_id").is_in(confirmed_drugs)
@@ -715,7 +729,7 @@ class OMOPVocabulariesV5:
                 failed_concept_ids.append(row.drug_concept_id)
                 continue
 
-            if not isinstance(strength, accepted_configurations):
+            if not isinstance(strength, accepted_configurations_cls):  # pyright: ignore[reportUnnecessaryIsInstance]  # noqa: E501
                 self.logger.debug(
                     f"Strength data {strength} for {row.drug_concept_id} did "
                     f"not match any of the accepted configurations of its class"
@@ -781,7 +795,7 @@ class OMOPVocabulariesV5:
         # NOTE: This is probably redundant after initial validation
         invalid_mask = (
             strength_chunk.select([
-                s.value for s in d.StrengthConfiguration
+                s.name for s in d.StrengthConfiguration
             ]).sum_horizontal()
         ) == 0
 
@@ -797,14 +811,15 @@ class OMOPVocabulariesV5:
         # Find drugs that match more than one configuration over rows
         collapsed_df = (
             strength_chunk.select(
-                "drug_concept_id", *[s.value for s in d.StrengthConfiguration]
+                "drug_concept_id",
+                *[s.name for s in d.StrengthConfiguration],
             )
             .group_by("drug_concept_id")
             .max()  # T > F
         )
         muliple_match_mask = (
             collapsed_df.select([
-                s.value for s in d.StrengthConfiguration
+                s.name for s in d.StrengthConfiguration
             ]).sum_horizontal()
             > 1
         )
@@ -1394,10 +1409,14 @@ class OMOPVocabulariesV5:
             ~(pl.col("concept_class_id") == "Ingredient"),
         )
 
-        for attribute in d.MONO_ATTRIBUTE_DEFINITIONS:
+        for attribute_rel in d.MONO_ATTRIBUTE_DEFINITIONS.values():
+            definition = attribute_rel.target_definition
+            assert definition is not None
+            definition_class_id = definition.omop_concept_class_id
+            definition_abbv = definition.get_abbreviation()
             self.logger.info(
                 f"Salvaging concepts that specify more than one "
-                f"{attribute.omop_concept_class_id} attribute"
+                f"{definition_class_id} attribute"
             )
 
             # Find concepts with multiple defining attributes
@@ -1405,7 +1424,7 @@ class OMOPVocabulariesV5:
                 complex_drug_concepts.join(
                     other=self.relationship.collect().filter(
                         pl.col("relationship_id")
-                        == attribute.defining_relationship_id
+                        == attribute_rel.relationship_id
                     ),
                     left_on="concept_id",
                     right_on="concept_id_1",
@@ -1413,8 +1432,7 @@ class OMOPVocabulariesV5:
                 )
                 .join(
                     other=self.concept.collect().filter(
-                        pl.col("concept_class_id")
-                        == attribute.omop_concept_class_id
+                        pl.col("concept_class_id") == definition_class_id
                     ),
                     left_on="concept_id_2",
                     right_on="concept_id",
@@ -1443,11 +1461,11 @@ class OMOPVocabulariesV5:
                 len(complex_drug_concepts),
                 concept_to_multiple_valid,
                 message_ok="No drug concepts with multiple valid "
-                f"{attribute.omop_concept_class_id} attributes found",
-                reason_short="Multiple_" + attribute.get_abbreviation(),
+                f"{definition_class_id} attributes found",
+                reason_short="Multiple_" + definition_abbv,
                 reason_full=f"Found {len(concept_to_multiple_valid):,} drug "
                 f"concepts with multiple valid "
-                f"{attribute.omop_concept_class_id} attributes",
+                f"{definition_class_id} attributes",
             )
 
             # Second, find ones having only any amount of invalid attributes
@@ -1467,11 +1485,10 @@ class OMOPVocabulariesV5:
                 len(complex_drug_concepts),
                 concept_has_only_invalid,
                 f"No drug concepts with only invalid "
-                f"{attribute.omop_concept_class_id} attributes found",
-                "No_" + attribute.get_abbreviation(),
+                f"{definition_class_id} attributes found",
+                "No_" + definition_abbv,
                 f"Found {len(concept_has_only_invalid):,} drug concepts "
-                f"with only invalid {attribute.omop_concept_class_id} "
-                f"attributes",
+                f"with only invalid {definition_class_id} attributes",
             )
 
             # Log the number of concepts salvaged
@@ -1491,12 +1508,12 @@ class OMOPVocabulariesV5:
             if diff:
                 self.logger.info(
                     f"Salvaged {diff:,} drug concepts with multiple "
-                    f"{attribute.omop_concept_class_id} attributes"
+                    f"{definition_class_id} attributes"
                 )
             else:
                 self.logger.info(
                     f"No drug concepts with multiple "
-                    f"{attribute.omop_concept_class_id} attributes were "
+                    f"{definition_class_id} attributes were "
                     f"salvaged"
                 )
 
@@ -1532,11 +1549,7 @@ class OMOPVocabulariesV5:
         cdc_strength, _ = self.get_strength_data(
             cdc_concepts["concept_id"],
             expect_cardinality=d.Cardinality.ONE,
-            accepted_configurations=(
-                dc.SolidStrength,
-                dc.LiquidConcentration,
-                dc.GasPercentage,
-            ),
+            accepted_configurations=d.UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
             expect_box_size=False,
         )
         cdc_concepts = cdc_concepts.filter(
@@ -2051,11 +2064,7 @@ class OMOPVocabulariesV5:
         bdc_strength, _ = self.get_strength_data(
             bdc_concepts["concept_id"],
             expect_cardinality=d.Cardinality.NONZERO,
-            accepted_configurations=(
-                dc.SolidStrength,
-                dc.LiquidConcentration,
-                dc.GasPercentage,
-            ),
+            accepted_configurations=d.UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
             expect_box_size=False,
         )
         # Filter out BDCs with no strength data
@@ -2283,11 +2292,7 @@ class OMOPVocabulariesV5:
         cd_strength, _ = self.get_strength_data(
             cd_concepts["concept_id"],
             expect_cardinality=d.Cardinality.NONZERO,
-            accepted_configurations=(
-                dc.SolidStrength,
-                dc.LiquidConcentration,
-                dc.GasPercentage,
-            ),
+            accepted_configurations=d.UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
             expect_box_size=False,
         )
         cd_concepts = cd_concepts.filter(
@@ -2573,11 +2578,7 @@ class OMOPVocabulariesV5:
         bdc_strength, _ = self.get_strength_data(
             bd_concepts["concept_id"],
             expect_cardinality=d.Cardinality.NONZERO,
-            accepted_configurations=(
-                dc.SolidStrength,
-                dc.LiquidConcentration,
-                dc.GasPercentage,
-            ),
+            accepted_configurations=d.UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
             expect_box_size=False,
         )
 
@@ -2931,7 +2932,7 @@ class OMOPVocabulariesV5:
         qcd_strength, _ = self.get_strength_data(
             qcd_concepts["concept_id"],
             expect_cardinality=d.Cardinality.NONZERO,
-            accepted_configurations=(dc.LiquidQuantity,),
+            accepted_configurations=(d.StrengthConfiguration.LIQUID_QUANTITY,),
             expect_box_size=False,
         )
         qcd_concepts = qcd_concepts.filter(
@@ -3211,7 +3212,7 @@ class OMOPVocabulariesV5:
         qbd_strength, _ = self.get_strength_data(
             qbd_concepts["concept_id"],
             expect_cardinality=d.Cardinality.NONZERO,
-            accepted_configurations=(dc.LiquidQuantity,),
+            accepted_configurations=(d.StrengthConfiguration.LIQUID_QUANTITY,),
             expect_box_size=False,
         )
         qbd_concepts = qbd_concepts.filter(
@@ -3563,11 +3564,7 @@ class OMOPVocabulariesV5:
         cdb_strength, cdb_box_size = self.get_strength_data(
             cdb_concepts["concept_id"],
             expect_cardinality=d.Cardinality.NONZERO,
-            accepted_configurations=(
-                dc.SolidStrength,
-                dc.LiquidConcentration,
-                dc.GasPercentage,
-            ),
+            accepted_configurations=d.UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
             expect_box_size=True,
         )
         cdb_concepts = cdb_concepts.filter(
@@ -3766,3 +3763,81 @@ class OMOPVocabulariesV5:
         )
 
         return cdb_nodes
+
+    def add_class_nodes(
+        self,
+        definition: d.ComplexDrugNodeDefinition,
+        parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
+    ) -> _TempNodeView:
+        """
+        Process a set of class nodes and add them to the hierarchy.
+        Args:
+            definition: The definition of the class to be added
+            parent_nodes: A dictionary of parent nodes indexed by their definition.
+                dictionary values are the node indices of the parent nodes in the
+                hierarchy.
+
+        Returns:
+            A dictionary of the node indices of the class nodes indexed by their
+            concept_id.
+        """
+
+        class_id = definition.omop_concept_class_id.value
+        self.logger.info(f"Processing {class_id} nodes")
+        out_nodes: _TempNodeView = {}
+
+        # Test that all parent definitions come with nodes -- programming error
+        for parent_rel in definition.parent_relations:
+            if (p_def := parent_rel.target_definition) not in parent_nodes:
+                raise ValueError(
+                    f"Parent definition {p_def} not found in parent_nodes"
+                )
+
+        relationship_definitions = [
+            *definition.attribute_definitions,
+            *definition.parent_relations,
+        ]
+
+        if definition.defines_explicit_ingredients:
+            relationship_definitions.append(
+                d.RelationshipDescription(
+                    relationship_id="RxNorm has ing",
+                    cardinality=definition.ingredient_cardinality,
+                    target_definition=d.INGREDIENT_DEFINITION,
+                    target_class="Ingredient",
+                )
+            )
+
+        if definition.defines_explicit_precise_ingredients:
+            relationship_definitions.append(
+                d.RelationshipDescription(
+                    relationship_id="RxNorm has precise ing",
+                    cardinality=definition.ingredient_cardinality,
+                    target_definition=d.PRECISE_INGREDIENT_DEFINITION,
+                    target_class="Precise Ingredient",
+                )
+            )
+
+        node_concepts = self.get_validated_relationships_view(
+            source_class=class_id,
+            relationships=relationship_definitions,
+        )
+
+        if len(definition.allowed_strength_configurations) == 0:
+            node_box_size = None
+            node_strength = None
+            node_ingreds = self.get_ds_ingredient_data(
+                node_concepts["concept_id"],
+                expect_cardinality=definition.ingredient_cardinality,
+            )
+        else:
+            node_ingreds = None
+            node_strength, node_box_size = self.get_strength_data(
+                node_concepts["concept_id"],
+                expect_cardinality=definition.ingredient_cardinality,
+                accepted_configurations=definition.allowed_strength_configurations,
+                expect_box_size=definition.defines_box_size,
+            )
+
+        del node_strength, node_ingreds, node_box_size, out_nodes
+        raise NotImplementedError("This function is not yet implemented")

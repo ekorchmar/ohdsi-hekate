@@ -7,13 +7,14 @@ from typing import Final  # for type hinting
 
 import polars as pl  # for expressions
 from utils.constants import PERCENT_CONCEPT_ID  # for strength configuration
+import rx_model.drug_classes as dc  # for constructor classes
 
 
 class StrengthConfiguration(Enum):
-    AMOUNT_ONLY = "AMOUNT_ONLY"
-    LIQUID_CONCENTRATION = "LIQUID_CONCENTRATION"
-    LIQUID_QUANTITY = "LIQUID_QUANTITY"
-    GAS_PERCENTAGE = "GAS_PERCENTAGE"
+    AMOUNT_ONLY = dc.SolidStrength
+    LIQUID_CONCENTRATION = dc.LiquidConcentration
+    LIQUID_QUANTITY = dc.LiquidQuantity
+    GAS_PERCENTAGE = dc.GasPercentage
 
 
 STRENGTH_CONFIGURATIONS_ID: Final[dict[StrengthConfiguration, pl.Expr]] = {
@@ -55,3 +56,9 @@ STRENGTH_CONFIGURATIONS_ID: Final[dict[StrengthConfiguration, pl.Expr]] = {
         & pl.col("denominator_unit_concept_id").is_null()
     ),
 }
+
+UNQUANTIFIED_STRENGTH_CONFIGURATIONS = (
+    StrengthConfiguration.AMOUNT_ONLY,
+    StrengthConfiguration.LIQUID_CONCENTRATION,
+    StrengthConfiguration.GAS_PERCENTAGE,
+)

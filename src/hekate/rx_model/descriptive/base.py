@@ -57,7 +57,7 @@ class ConceptClassId(Enum):
     MP = "Marketed Product"
 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class ConceptDefinition:
     constructor: type
     omop_concept_class_id: ConceptClassId
@@ -85,4 +85,10 @@ class ConceptDefinition:
     def get_abbreviation(self) -> str:
         return "".join(
             word[0].upper() for word in self.omop_concept_class_id.value.split()
+        )
+
+    def get_colname(self) -> str:
+        return (
+            "_".join(self.omop_concept_class_id.value.lower().split())
+            + "_concept_id"
         )
