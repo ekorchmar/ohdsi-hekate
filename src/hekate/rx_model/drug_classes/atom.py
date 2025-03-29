@@ -1,11 +1,15 @@
-from dataclasses import dataclass
-from typing import ClassVar, final, override, TYPE_CHECKING
+from __future__ import annotations
+from dataclasses import dataclass  # For atomic concepts
+from typing import ClassVar, NoReturn, final, override, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import drug_classes.strength as st
+    import drug_classes.strength as st  # For DrugNode interface annotation
+    from rx_model.descriptive.base import (
+        ConceptClassId,  # For alternative constructor
+    )
 
-from utils.classes import SortedTuple
-from utils.exceptions import RxConceptCreationError
+from utils.classes import SortedTuple  # For typing
+from utils.exceptions import RxConceptCreationError  # For error handling
 
 from rx_model.drug_classes.generic import (
     BoundStrength,
@@ -82,8 +86,25 @@ class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], DrugNode[Id, None]):
         ])
 
     @override
-    def get_precise_ingredients(self) -> list[None]:
+    def get_precise_ingredients(self) -> list[None | PreciseIngredient]:
         return [None]
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, BrandName[Id] | DoseForm[Id] | Supplier[Id]
+        ],
+        precise_ingredients: list[PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, st.Strength | None]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError(
+            f"{cls.__name__} should not be constructed from definitions."
+        )
 
 
 @final

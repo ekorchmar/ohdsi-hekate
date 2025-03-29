@@ -1,6 +1,12 @@
+"""
+Implementations of complex drug classes
+"""
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod  # For mixins
 from dataclasses import dataclass
-from typing import override  # For type annotations
+from typing import override, NoReturn  # For type annotations
 
 import rx_model.drug_classes.strength as st
 from rx_model.drug_classes import atom as a
@@ -13,6 +19,7 @@ from utils.classes import (
     SortedTuple,  # To ensure consistent layout
     PyRealNumber,  # For strength comparison
 )
+from rx_model.descriptive.base import ConceptClassId
 from utils.utils import invert_merge_dict, keep_multiple_values
 from utils.exceptions import RxConceptCreationError
 from utils.constants import BOX_SIZE_LIMIT
@@ -166,6 +173,40 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
     def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
         return SortedTuple([(self.ingredient, self.strength)])
 
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, S]],
+        box_size: int | None,
+    ) -> ClinicalDrugComponent[Id, S]:
+        if len(strength_data) != 1:
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have exactly one strength "
+                f"entry, not {len(strength_data)}."
+            )
+
+        if len(precise_ingredients) > 1:
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have at most one precise "
+                f"ingredient, not {len(precise_ingredients)}."
+            )
+
+        pi = precise_ingredients.pop() if precise_ingredients else None
+
+        return cls(
+            identifier=identifier,
+            ingredient=strength_data[0][0],
+            strength=strength_data[0][1],
+            precise_ingredient=pi,
+        )
+
 
 @dataclass(frozen=True, eq=True, slots=True)
 class BrandedDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
@@ -220,6 +261,21 @@ NB: Contains multiple components in one!\
     @override
     def get_brand_name(self) -> a.BrandName[Id]:
         return self.brand_name
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, S]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -280,6 +336,21 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
     def get_precise_ingredients(self) -> list[None]:  # pyright: ignore[reportIncompatibleMethodOverride]  # noqa: E501
         return [None] * len(self.ingredients)
 
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, None]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
@@ -317,6 +388,21 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
     @override
     def get_precise_ingredients(self) -> list[None]:  # pyright: ignore[reportIncompatibleMethodOverride]  # noqa: E501
         return self.clinical_drug_form.get_precise_ingredients()
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, None]],
+        box_size: int | None,
+    ) -> DrugNode[Id, None]:
+        raise NotImplementedError
 
 
 # Prescriptable drug classes
@@ -369,6 +455,21 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
                 return False
         return True
 
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, S]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
@@ -414,6 +515,21 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
     @override
     def get_precise_ingredients(self) -> list[a.PreciseIngredient | None]:
         return self.clinical_drug.get_precise_ingredients()
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, S]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
 
 
 # Quantified liquid forms
@@ -536,6 +652,21 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
 
         return True
 
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedBrandedDrug[Id: ConceptIdentifier](
@@ -579,6 +710,21 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
                 return False
 
         return self.brand_name == other.get_brand_name()
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
 
 
 class __ClinicalBoxMixIn[
@@ -648,6 +794,21 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
                 f"{BOX_SIZE_LIMIT}, not {self.get_box_size()}."
             )
 
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, S]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
@@ -678,3 +839,20 @@ class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
 
         # Box size can only match exactly
         return self.get_box_size() == other.get_box_size()
+
+    @override
+    @classmethod
+    # NOTE: override is reported incompatible, because QCBs are not actually
+    # using LiquidQuantity in strength TypeVar
+    def from_definitions(  # pyright: ignore[reportIncompatibleMethodOverride]
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError
