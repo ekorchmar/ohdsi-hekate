@@ -3,11 +3,8 @@ Contains the definitions of the atomic attributes.
 """
 
 from dataclasses import dataclass  # For shared characteristics
+
 import rx_model.drug_classes as dc  # For constructor classes
-from rx_model.descriptive.relationship import (
-    RelationshipDescription,  # For mono-attribute relations
-    Cardinality,  # For Cardinality.ONE
-)
 from rx_model.descriptive.base import (
     RX_VOCAB,
     ConceptClassId,
@@ -15,7 +12,10 @@ from rx_model.descriptive.base import (
     DomainId,
     VocabularyId,
 )
-
+from rx_model.descriptive.relationship import (
+    Cardinality,  # For Cardinality.ONE
+    RelationshipDescription,  # For mono-attribute relations
+)
 
 # RxN/E Ingredients
 INGREDIENT_DEFINITION = ConceptDefinition(
@@ -40,23 +40,39 @@ PRECISE_INGREDIENT_DEFINITION = ConceptDefinition(
 class MonoAtributeDefiniton(ConceptDefinition):
     """Shared behavior for mono-attribute definitions."""
 
+    node_getter: str
     omop_domain_id: DomainId = DomainId.DRUG
     omop_vocabulary_ids: tuple[VocabularyId, ...] = RX_VOCAB
     standard_concept: bool = False
 
+    def __post_init__(self):
+        # Make sure that DrugNode has the required attribute
+        if not hasattr(dc.DrugNode, self.node_getter):
+            raise ValueError(
+                f"DrugNode does not have a '{self.node_getter}' attribute"
+            )
+
+        if not callable(getattr(dc.DrugNode, self.node_getter)):  # pyright: ignore[reportAny]  # noqa: E501
+            raise ValueError(
+                f"'{self.node_getter}' attribute is not callable on DrugNode"
+            )
+
 
 DOSE_FORM_DEFINITION = MonoAtributeDefiniton(
+    node_getter="get_dose_form",
     omop_concept_class_id=ConceptClassId.DOSE_FORM,
     constructor=dc.DoseForm,
 )
 
 BRAND_NAME_DEFINITION = MonoAtributeDefiniton(
+    node_getter="get_brand_name",
     omop_concept_class_id=ConceptClassId.BRAND_NAME,
     constructor=dc.BrandName,
 )
 
 
 SUPPLIER_DEFINITION = MonoAtributeDefiniton(
+    node_getter="get_supplier",
     omop_concept_class_id=ConceptClassId.SUPPLIER,
     omop_vocabulary_ids=(VocabularyId.RXE,),  # Only in RxNorm Extension
     constructor=dc.Supplier,

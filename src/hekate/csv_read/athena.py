@@ -3787,7 +3787,14 @@ class OMOPVocabulariesV5:
     def add_class_nodes(
         self,
         definition: d.ComplexDrugNodeDefinition,
-        all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
+        all_parent_nodes: dict[
+            d.ComplexDrugNodeDefinition,
+            _TempNodeView,
+        ],
+        require_parent_match: dict[
+            d.ComplexDrugNodeDefinition,
+            list[d.MonoAtributeDefiniton],
+        ],
     ) -> _TempNodeView:
         """
         Process a set of class nodes and add them to the hierarchy.
@@ -3796,6 +3803,9 @@ class OMOPVocabulariesV5:
             parent_nodes: A dictionary of parent nodes indexed by their definition.
                 dictionary values are the node indices of the parent nodes in the
                 hierarchy.
+            require_parent_match: A dictionary where keys are parent definitions
+                and values are lists of attribute definitions that must match
+                between the parent and the predicate.
 
         Returns:
             A dictionary of the node indices of the class nodes indexed by their
@@ -3812,6 +3822,13 @@ class OMOPVocabulariesV5:
                 raise ValueError(
                     f"Parent definition {p_def} not found in parent_nodes"
                 )
+
+        # Test that required attrribute keys match the parents -- ditto
+        if any(p_def not in all_parent_nodes for p_def in require_parent_match):
+            raise ValueError(
+                "Parent definitions in require_parent_match do not subset "
+                "all_parent_nodes"
+            )
 
         relationship_definitions = [
             *definition.attribute_definitions,
@@ -3875,6 +3892,12 @@ class OMOPVocabulariesV5:
                 d.ConceptDefinition,  # Attribute definition
                 list[int],  # Concept IDs
             ],
+        ] = {}
+
+        # Mismatch with parents on ingredients and strengths
+        node_strength_mismatch: dict[
+            d.ConceptDefinition,  # Parent definition
+            list[int],  # Concept IDs
         ] = {}
 
         # Fail on creation
@@ -4103,6 +4126,15 @@ class OMOPVocabulariesV5:
                 )
                 ds_ids = sorted(ing_id_strength.keys())
 
+                if len(cr_ings) != len(ds_ids):
+                    self.logger.debug(
+                        f"Ingredient count mismatch for {class_id} {concept_id}. "
+                        f"Defined by CONCEPT_RELATIONSHIP: {cr_ings}; "
+                        f"Defined by DRUG_STRENGTH: {ds_ids}."
+                    )
+                    node_ingred_ds_mismatch.append(concept_id)
+                    continue
+
                 nested_break = False
                 for cr_ing, ds_id in zip(cr_ings, ds_ids):
                     if cr_ing.identifier != ds_id:
@@ -4122,12 +4154,132 @@ class OMOPVocabulariesV5:
                     continue
             else:
                 # Obtain Ingredient atoms from DS data de novo
-                raise NotImplementedError
+                nested_break = False
+                for ing_id, stg in ing_id_strength.items():
+                    try:
+                        ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
+                    except KeyError:
+                        self.logger.debug(
+                            f"Ingredient {ing_id} not found for {class_id} "
+                            f"{concept_id}"
+                        )
+                        node_bad_ingred.append(concept_id)
+                        nested_break = True
+                        break
+                    bound_strengths.append((ing, stg))
+                if nested_break:
+                    continue
+
+            # Iterate over parent definitions, test attributes gathered so far
+            nested_break = False
+            for p_def, nodes in parent_data.items():
+                # Test attribute matches where required
+                if p_def in require_parent_match:
+                    nested_break_2 = (
+                        False  # FIXME: There must be a better way to do this
+                    )
+                    for attr_rel in d.MONO_ATTRIBUTE_DEFINITIONS.values():
+                        a = attr_rel.target_definition
+                        if a in require_parent_match[p_def]:
+                            if a not in attr_data:
+                                # Programming error
+                                raise ValueError(
+                                    f"Parent {p_def.get_abbreviation()} "
+                                    f"requires match on {a.class_id}, "
+                                    f"but it is not defined for "
+                                    f"{definition.class_id}"
+                                )
+
+                            for parent_node in nodes:
+                                assert isinstance(a, d.MonoAtributeDefiniton)
+                                parent_atom: _MonoAttribute = getattr(
+                                    parent_node, a.node_getter
+                                )()
+                                own_atom = attr_data[a]
+                                if not parent_atom == own_atom:
+                                    ...
+
+                # NOTE: Currently, there is no inheritance rules defined for
+                # Precise Ingredients for any two classes, so there are no
+                # checks or them
+
+                # Test strength/ingredient matches
+                if (
+                    p_def.ingredient_cardinality
+                    == definition.ingredient_cardinality
+                ):
+                    # Both are expected to be either mono or multicomponent
+                    nested_break_2 = (
+                        False  # FIXME: There must be a better way to do this
+                    )
+                    for parent_node in nodes:
+                        parent_strength = parent_node.get_strength_data()
+                        if len(parent_strength) != len(bound_strengths):
+                            self.logger.debug(
+                                f"Strength mismatch for {class_id} "
+                                f"{concept_id}: {len(parent_strength)} != "
+                                f"{len(bound_strengths)} "
+                                f"in {p_def.class_id} "
+                                f"{parent_node.identifier}"
+                            )
+                            node_strength_mismatch.setdefault(p_def, []).append(
+                                concept_id
+                            )
+                            nested_break_2 = True
+                            break
+
+                        shared_iter = zip_longest(
+                            parent_strength, bound_strengths
+                        )
+                        for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
+                            if p_ing != o_ing:
+                                self.logger.debug(
+                                    f"Ingredient mismatch for {class_id} "
+                                    f"{concept_id}: {p_ing} != {o_ing} in "
+                                    f"{p_def.class_id} "
+                                    f"{parent_node.identifier}"
+                                )
+                                node_strength_mismatch.setdefault(
+                                    p_def, []
+                                ).append(concept_id)
+                                nested_break_2 = True
+                                break
+
+                            # Strength can be None
+                            if p_stg is not None:
+                                # Encountering a None strength in the child but
+                                # not in the parent is a programming error
+                                if o_stg is None:
+                                    raise ValueError(
+                                        f"Expected strength for {class_id} "
+                                        f"{concept_id} to be non-None in "
+                                        f"{p_def.class_id} "
+                                        f"{parent_node.identifier}"
+                                    )
+
+                                if not p_stg.matches(o_stg):
+                                    self.logger.debug(
+                                        f"Strength mismatch for {class_id} "
+                                        f"{concept_id}: {p_stg} != {o_stg} in "
+                                        f"{p_def.class_id} "
+                                        f"{parent_node.identifier}"
+                                    )
+                                    node_strength_mismatch.setdefault(
+                                        p_def, []
+                                    ).append(concept_id)
+                                    nested_break_2 = True
+                                    break
+                        if nested_break_2:
+                            nested_break = True
+                            break
+                    if nested_break:
+                        break
 
             del (
                 node_box_size,
                 node_failed,
                 node_attr_mismatch,
+                node_strength_mismatch,
                 out_nodes,
             )
             raise NotImplementedError("This function is not yet implemented")

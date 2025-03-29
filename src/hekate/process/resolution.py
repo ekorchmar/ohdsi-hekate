@@ -4,6 +4,8 @@ mapping results of virtual nodes to RxNorm/RxNorm-Extension concepts, and to
 choose a single virtual node to represent the concept.
 """
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Mapping, Sequence
 from itertools import chain, groupby, product
@@ -77,7 +79,7 @@ class ResultCharacteristics(NamedTuple):
             cls,
             source_strength: _StrengthDefinition,
             target_strength: _StrengthDefinition,
-        ) -> "ResultCharacteristics.StrengthDiff":
+        ) -> ResultCharacteristics.StrengthDiff:
             n_diff: PyRealNumber
             d_diff: PyRealNumber
             t_str = target_strength[0][1]
@@ -135,7 +137,7 @@ class ResultCharacteristics(NamedTuple):
         source: _VirtualNode,
         target: _Terminal,
         concept_metadata: pl.DataFrame,
-    ) -> "ResultCharacteristics":
+    ) -> ResultCharacteristics:
         """
         Calculate the numeric grades for the similarity between the source
         and target nodes.
