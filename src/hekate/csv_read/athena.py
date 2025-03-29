@@ -2,7 +2,7 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
-from itertools import zip_longest
+from itertools import zip_longest  # For iteration
 import logging  # for typing
 from abc import ABC  # For shared table reading methods
 from collections.abc import Sequence, Mapping  # for typing
@@ -3812,8 +3812,7 @@ class OMOPVocabulariesV5:
             concept_id.
         """
 
-        class_id = definition.omop_concept_class_id.value
-        self.logger.info(f"Processing {class_id} nodes")
+        self.logger.info(f"Processing {definition.class_id} nodes")
         out_nodes: _TempNodeView = {}
 
         # Test that all parent definitions come with nodes -- programming error
@@ -3856,7 +3855,7 @@ class OMOPVocabulariesV5:
             )
 
         node_concepts = self.get_validated_relationships_view(
-            source_class=class_id,
+            source_class=definition.class_id,
             relationships=relationship_definitions,
         )
 
@@ -3921,8 +3920,8 @@ class OMOPVocabulariesV5:
                     atom = self.atoms.lookup_unknown(dc.ConceptId(attr_id))
                 except InvalidConceptIdError:
                     self.logger.debug(
-                        f"Attribute {attr_id} not found for {class_id} "
-                        f"{concept_id}"
+                        f"Attribute {attr_id} not found for "
+                        f"{definition.class_id} {concept_id}"
                     )
                     node_bad_attr.setdefault(
                         attr_rel.target_definition, []
@@ -3939,6 +3938,7 @@ class OMOPVocabulariesV5:
                 attr_data[attr_rel.target_definition] = atom  # pyright: ignore[reportArgumentType]
 
             # Parent concepts
+            parent_indices: list[NodeIndex] = []
             parent_data: dict[
                 d.ComplexDrugNodeDefinition, list[_ParentNode]
             ] = {}
@@ -3971,8 +3971,8 @@ class OMOPVocabulariesV5:
                         parent_node_idx = parent_node_view[parent_id]
                     except KeyError:
                         self.logger.debug(
-                            f"Parent {parent_id} not found for {class_id} "
-                            f"{concept_id}"
+                            f"Parent {parent_id} not found for "
+                            f"{definition.class_id} {concept_id}"
                         )
                         node_bad_parent.setdefault(parent_def, []).append(
                             concept_id
@@ -3985,7 +3985,7 @@ class OMOPVocabulariesV5:
                     except IndexError:
                         self.logger.debug(
                             f"Parent {parent_id} not found in hierarchy for "
-                            f"{class_id} {concept_id}"
+                            f"{definition.class_id} {concept_id}"
                         )
                         node_bad_parent.setdefault(parent_def, []).append(
                             concept_id
@@ -4001,6 +4001,7 @@ class OMOPVocabulariesV5:
                         )
 
                     parent_data.setdefault(parent_def, []).append(parent_node)
+                    parent_indices.append(parent_node_idx)
 
             explicit_ingredients: list[dc.Ingredient[dc.ConceptId]] = []
             if definition.defines_explicit_ingredients:
@@ -4016,7 +4017,7 @@ class OMOPVocabulariesV5:
                         # Programming error
                         raise ValueError(
                             f"Expected single ingredient ID for "
-                            f"{class_id}, got {ingred_id_or_ids}"
+                            f"{definition.class_id}, got {ingred_id_or_ids}"
                         )
                     ingred_ids = [ingred_id_or_ids]
                 else:
@@ -4028,8 +4029,8 @@ class OMOPVocabulariesV5:
                         ingred = self.atoms.ingredient[dc.ConceptId(ingred_id)]
                     except KeyError:
                         self.logger.debug(
-                            f"Ingredient {ingred_id} not found for {class_id} "
-                            f"{concept_id}"
+                            f"Ingredient {ingred_id} not found for "
+                            f"{definition.class_id} {concept_id}"
                         )
                         node_bad_ingred.append(concept_id)
                         continue
@@ -4049,7 +4050,7 @@ class OMOPVocabulariesV5:
                         # Programming error
                         raise ValueError(
                             f"Expected single pi ID for "
-                            f"{class_id}, got {pi_id_or_ids}"
+                            f"{definition.class_id}, got {pi_id_or_ids}"
                         )
                     pi_ids = [pi_id_or_ids]
                 else:
@@ -4072,7 +4073,7 @@ class OMOPVocabulariesV5:
                     else:  # No break
                         self.logger.debug(
                             f"Precise ingredient {pi_id} does not match any "
-                            f"ingredient for {class_id} {concept_id}"
+                            f"ingredient for {definition.class_id} {concept_id}"
                         )
                         nested_break = True
                         break
@@ -4083,7 +4084,7 @@ class OMOPVocabulariesV5:
                     except KeyError:
                         self.logger.debug(
                             f"Precise ingredient {pi_id} not found for "
-                            f"{class_id} {concept_id}"
+                            f"{definition.class_id} {concept_id}"
                         )
                         node_bad_pi.append(concept_id)
                         nested_break = True
@@ -4112,7 +4113,7 @@ class OMOPVocabulariesV5:
                 # Programming error
                 raise ValueError(
                     f"Expected either strength or ingredient data for "
-                    f"{class_id} {concept_id}"
+                    f"{definition.class_id} {concept_id}"
                 )
 
             # Get bound strengths
@@ -4128,9 +4129,9 @@ class OMOPVocabulariesV5:
 
                 if len(cr_ings) != len(ds_ids):
                     self.logger.debug(
-                        f"Ingredient count mismatch for {class_id} {concept_id}. "
-                        f"Defined by CONCEPT_RELATIONSHIP: {cr_ings}; "
-                        f"Defined by DRUG_STRENGTH: {ds_ids}."
+                        f"Ingredient count mismatch for {definition.class_id} "
+                        f"{concept_id}. Defined by CONCEPT_RELATIONSHIP: "
+                        f"{cr_ings}; Defined by DRUG_STRENGTH: {ds_ids}."
                     )
                     node_ingred_ds_mismatch.append(concept_id)
                     continue
@@ -4139,9 +4140,9 @@ class OMOPVocabulariesV5:
                 for cr_ing, ds_id in zip(cr_ings, ds_ids):
                     if cr_ing.identifier != ds_id:
                         self.logger.debug(
-                            f"Ingredient mismatch for {class_id} {concept_id}. "
-                            f"Defined by CONCEPT_RELATIONSHIP: {cr_ings}; "
-                            f"Defined by DRUG_STRENGTH: {ds_ids}."
+                            f"Ingredient mismatch for {definition.class_id} "
+                            f"{concept_id}. Defined by CONCEPT_RELATIONSHIP: "
+                            f"{cr_ings}; Defined by DRUG_STRENGTH: {ds_ids}."
                         )
                         node_ingred_ds_mismatch.append(concept_id)
                         nested_break = True
@@ -4160,8 +4161,8 @@ class OMOPVocabulariesV5:
                         ing = self.atoms.ingredient[dc.ConceptId(ing_id)]
                     except KeyError:
                         self.logger.debug(
-                            f"Ingredient {ing_id} not found for {class_id} "
-                            f"{concept_id}"
+                            f"Ingredient {ing_id} not found for "
+                            f"{definition.class_id} {concept_id}"
                         )
                         node_bad_ingred.append(concept_id)
                         nested_break = True
@@ -4169,15 +4170,13 @@ class OMOPVocabulariesV5:
                     bound_strengths.append((ing, stg))
                 if nested_break:
                     continue
+            predicate_strength_data = SortedTuple(bound_strengths)
 
             # Iterate over parent definitions, test attributes gathered so far
             nested_break = False
             for p_def, nodes in parent_data.items():
                 # Test attribute matches where required
                 if p_def in require_parent_match:
-                    nested_break_2 = (
-                        False  # FIXME: There must be a better way to do this
-                    )
                     for attr_rel in d.MONO_ATTRIBUTE_DEFINITIONS.values():
                         a = attr_rel.target_definition
                         if a in require_parent_match[p_def]:
@@ -4196,8 +4195,27 @@ class OMOPVocabulariesV5:
                                     parent_node, a.node_getter
                                 )()
                                 own_atom = attr_data[a]
-                                if not parent_atom == own_atom:
-                                    ...
+                                if parent_atom != own_atom:
+                                    self.logger.debug(
+                                        f"Attribute mismatch for "
+                                        f"{definition.class_id} {concept_id}: "
+                                        f"{own_atom} != {parent_atom} in "
+                                        f"{p_def.class_id} "
+                                        f"{parent_node.identifier}"
+                                    )
+                                    node_attr_mismatch.setdefault(
+                                        p_def, {}
+                                    ).setdefault(a, []).append(concept_id)
+                                    nested_break = True
+                                    break
+                            if nested_break:
+                                break
+                        if nested_break:
+                            break
+                    if nested_break:
+                        break
+                if nested_break:
+                    break
 
                 # NOTE: Currently, there is no inheritance rules defined for
                 # Precise Ingredients for any two classes, so there are no
@@ -4209,40 +4227,37 @@ class OMOPVocabulariesV5:
                     == definition.ingredient_cardinality
                 ):
                     # Both are expected to be either mono or multicomponent
-                    nested_break_2 = (
-                        False  # FIXME: There must be a better way to do this
-                    )
                     for parent_node in nodes:
                         parent_strength = parent_node.get_strength_data()
-                        if len(parent_strength) != len(bound_strengths):
+                        if len(parent_strength) != len(predicate_strength_data):
                             self.logger.debug(
-                                f"Strength mismatch for {class_id} "
+                                f"Strength mismatch for {definition.class_id} "
                                 f"{concept_id}: {len(parent_strength)} != "
-                                f"{len(bound_strengths)} "
+                                f"{len(predicate_strength_data)} "
                                 f"in {p_def.class_id} "
                                 f"{parent_node.identifier}"
                             )
                             node_strength_mismatch.setdefault(p_def, []).append(
                                 concept_id
                             )
-                            nested_break_2 = True
+                            nested_break = True
                             break
 
                         shared_iter = zip_longest(
-                            parent_strength, bound_strengths
+                            parent_strength, predicate_strength_data
                         )
                         for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
                             if p_ing != o_ing:
                                 self.logger.debug(
-                                    f"Ingredient mismatch for {class_id} "
-                                    f"{concept_id}: {p_ing} != {o_ing} in "
-                                    f"{p_def.class_id} "
-                                    f"{parent_node.identifier}"
+                                    f"Ingredient mismatch for "
+                                    f"{definition.class_id} {concept_id}: "
+                                    f"{p_ing} != {o_ing} in "
+                                    f"{p_def.class_id} {parent_node.identifier}"
                                 )
                                 node_strength_mismatch.setdefault(
                                     p_def, []
                                 ).append(concept_id)
-                                nested_break_2 = True
+                                nested_break = True
                                 break
 
                             # Strength can be None
@@ -4251,36 +4266,93 @@ class OMOPVocabulariesV5:
                                 # not in the parent is a programming error
                                 if o_stg is None:
                                     raise ValueError(
-                                        f"Expected strength for {class_id} "
-                                        f"{concept_id} to be non-None in "
-                                        f"{p_def.class_id} "
+                                        f"Expected strength for "
+                                        f"{definition.class_id} {concept_id} "
+                                        f"to be non-None in {p_def.class_id} "
                                         f"{parent_node.identifier}"
                                     )
 
                                 if not p_stg.matches(o_stg):
                                     self.logger.debug(
-                                        f"Strength mismatch for {class_id} "
-                                        f"{concept_id}: {p_stg} != {o_stg} in "
+                                        f"Strength mismatch for "
+                                        f"{definition.class_id} {concept_id}: "
+                                        f"{p_stg} != {o_stg} in "
                                         f"{p_def.class_id} "
                                         f"{parent_node.identifier}"
                                     )
                                     node_strength_mismatch.setdefault(
                                         p_def, []
                                     ).append(concept_id)
-                                    nested_break_2 = True
+                                    nested_break = True
                                     break
-                        if nested_break_2:
+                        if nested_break:
+                            break
+                    if nested_break:
+                        break
+                if nested_break:
+                    break
+
+                if p_def.defines_box_size:
+                    if not definition.defines_box_size:
+                        raise ValueError(
+                            f"Parent {p_def.class_id} defines box size, but "
+                            f"{definition.class_id} does not"
+                        )
+                    if node_box_size is None or concept_id not in node_box_size:
+                        raise ValueError(
+                            f"Expected box size for {definition.class_id} "
+                            f"{concept_id}"
+                        )
+                    for parent_node in nodes:
+                        parent_box_size = parent_node.get_box_size()
+                        if parent_box_size != node_box_size[concept_id]:
+                            self.logger.debug(
+                                f"Box size mismatch for {definition.class_id} "
+                                f"{concept_id}: {node_box_size} != "
+                                f"{parent_box_size} in {p_def.class_id} "
+                                f"{parent_node.identifier}"
+                            )
+                            node_strength_mismatch.setdefault(p_def, []).append(
+                                concept_id
+                            )
                             nested_break = True
                             break
                     if nested_break:
                         break
 
-            del (
-                node_box_size,
-                node_failed,
-                node_attr_mismatch,
-                node_strength_mismatch,
-                out_nodes,
-            )
-            raise NotImplementedError("This function is not yet implemented")
-        raise NotImplementedError("This function is not yet implemented")
+            if nested_break:
+                continue  # Skip to next concept
+
+            # Instantiate the class node
+            node: dc.DrugNode[dc.ConceptId, dc.Strength | None]
+            try:
+                node = definition.constructor.from_definitions(  # pyright: ignore[reportUnknownMemberType] # noqa: E501
+                    identifier=dc.ConceptId(concept_id),
+                    parents={
+                        p_def.omop_concept_class_id: nodes
+                        for p_def, nodes in parent_data.items()
+                    },
+                    attributes={
+                        a_def.omop_concept_class_id: a_atom
+                        for a_def, a_atom in attr_data.items()
+                    },
+                    precise_ingredients=explicit_pis,
+                    strength_data=predicate_strength_data,
+                    box_size=node_box_size[concept_id]
+                    if node_box_size
+                    else None,
+                )
+            except RxConceptCreationError as e:
+                self.logger.debug(
+                    f"Failed to create {definition.class_id} {concept_id}: {e}"
+                )
+                node_failed.append(concept_id)
+                continue
+
+            node_idx = self.hierarchy.add_drug_node(node, parent_indices)
+            out_nodes[concept_id] = node_idx
+
+        # Cleanup
+        # TODO: Implement cleanup
+
+        return out_nodes
