@@ -3,6 +3,8 @@ Contains definitions for complex drug classes, including declaration of their
 relationships to other classes.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass  # For shared characteristics
 from typing import ClassVar  # For registry
 from rx_model import drug_classes as dc  # For class constructors
@@ -28,6 +30,7 @@ from rx_model.descriptive.strength import (
 class ComplexDrugNodeDefinition(ConceptDefinition):
     """Shared behavior for complex drug node definitions."""
 
+    constructor: type[dc.DrugNode]  # pyright: ignore[reportMissingTypeArgument]
     attribute_definitions: tuple[RelationshipDescription, ...] = ()
     parent_relations: tuple[RelationshipDescription, ...] = ()
     allowed_strength_configurations: tuple[StrengthConfiguration, ...] = ()
@@ -43,10 +46,10 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
     standard_concept: bool = True
 
     # Registry
-    _registry: ClassVar[dict[ConceptClassId, "ComplexDrugNodeDefinition"]] = {}
+    _registry: ClassVar[dict[ConceptClassId, ComplexDrugNodeDefinition]] = {}
 
     @classmethod
-    def __get__(cls, key: ConceptClassId) -> "ComplexDrugNodeDefinition":
+    def __get__(cls, key: ConceptClassId) -> ComplexDrugNodeDefinition:
         return cls._registry[key]
 
     def __post_init__(self):
