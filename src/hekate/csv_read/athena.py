@@ -2,9 +2,10 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
+from itertools import zip_longest
 import logging  # for typing
 from abc import ABC  # For shared table reading methods
-from collections.abc import Sequence  # for typing
+from collections.abc import Sequence, Mapping  # for typing
 from pathlib import Path  # To locate the CSV files
 from typing import Literal, NamedTuple, override, overload  # For typing
 
@@ -2773,7 +2774,7 @@ class OMOPVocabulariesV5:
                     nested_break = True
                     break
 
-                shared_iter = zip(parent_strength, own_strength)
+                shared_iter = zip_longest(parent_strength, own_strength)
                 for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
                     if p_ing != o_ing:
                         self.logger.debug(
@@ -3090,7 +3091,7 @@ class OMOPVocabulariesV5:
                 qcd_cd_strength_mismatch.append(concept_id)
                 continue
 
-            shared_iter = zip(parent_strength, own_strength)
+            shared_iter = zip_longest(parent_strength, own_strength)
             nested_break: bool = False
             for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
                 if p_ing != o_ing:
@@ -3429,7 +3430,7 @@ class OMOPVocabulariesV5:
                     nested_break = True
                     break
 
-                shared_iter = zip(parent_strength, own_strength)
+                shared_iter = zip_longest(parent_strength, own_strength)
                 for (p_ing, p_stg), (o_ing, o_stg) in shared_iter:
                     if p_ing != o_ing:
                         self.logger.debug(
@@ -3969,7 +3970,7 @@ class OMOPVocabulariesV5:
                         continue
 
                     # Check class (programming error)
-                    if not isinstance(parent_node, parent_def.constructor):
+                    if not isinstance(parent_node, parent_def.constructor):  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
                         raise ValueError(
                             f"Expected {parent_id} to be of class "
                             f"{parent_def.class_id} for {concept_id}, "
@@ -4069,7 +4070,7 @@ class OMOPVocabulariesV5:
                 if nested_break:
                     continue
 
-            strength_data = (
+            str_ds_data = (
                 {ing: stg for ing, stg in node_strength[concept_id]}
                 if node_strength is not None
                 else None
@@ -4079,12 +4080,53 @@ class OMOPVocabulariesV5:
                 node_ingreds[concept_id] if node_ingreds is not None else None
             )
 
+            ing_id_strength: Mapping[int, dc.Strength | None]
+            if str_ds_data:
+                ing_id_strength = str_ds_data
+            elif ingreds_ds_data:
+                ing_id_strength = {ing_id: None for ing_id in ingreds_ds_data}
+            else:
+                # Programming error
+                raise ValueError(
+                    f"Expected either strength or ingredient data for "
+                    f"{class_id} {concept_id}"
+                )
+
+            # Get bound strengths
+            bound_strengths: list[
+                dc.BoundStrength[dc.ConceptId, dc.Strength | None]
+            ] = []
+            if explicit_ingredients:
+                # If node defines explicit ingredients, check them against DS
+                cr_ings = sorted(
+                    explicit_ingredients, key=lambda x: x.identifier
+                )
+                ds_ids = sorted(ing_id_strength.keys())
+
+                nested_break = False
+                for cr_ing, ds_id in zip(cr_ings, ds_ids):
+                    if cr_ing.identifier != ds_id:
+                        self.logger.debug(
+                            f"Ingredient mismatch for {class_id} {concept_id}. "
+                            f"Defined by CONCEPT_RELATIONSHIP: {cr_ings}; "
+                            f"Defined by DRUG_STRENGTH: {ds_ids}."
+                        )
+                        node_ingred_ds_mismatch.append(concept_id)
+                        nested_break = True
+                        break
+                    bound_strengths.append((
+                        cr_ing,
+                        ing_id_strength[ds_id],
+                    ))
+                if nested_break:
+                    continue
+            else:
+                # Obtain Ingredient atoms from DS data de novo
+                raise NotImplementedError
+
             del (
                 node_box_size,
-                strength_data,
-                ingreds_ds_data,
                 node_failed,
-                node_ingred_ds_mismatch,
                 node_attr_mismatch,
                 out_nodes,
             )
