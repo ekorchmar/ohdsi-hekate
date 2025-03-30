@@ -358,6 +358,13 @@ class OMOPVocabulariesV5:
                 .rename({"concept_id_target": target_colname})
             )
 
+            if len(source_to_target) == 0:
+                # Programming error
+                raise ValueError(
+                    f"No relationships of {rel.relationship_id} found for "
+                    f"{source_class} to {target_class}"
+                )
+
             # Catch empty attributes
             if expected_cardinality in d.CARDINALITY_REQUIRED:
                 source_no_target = source_concepts.join(
@@ -945,7 +952,11 @@ class OMOPVocabulariesV5:
         # Process the drug classes from the simplest to the most complex
         self.process_atoms()
         self.process_precise_ingredients()
-        cdf_nodes: _TempNodeView = self.process_clinical_drug_forms()
+        cdf_nodes: _TempNodeView = self.add_class_nodes(
+            definition=d.ComplexDrugNodeDefinition.get(d.ConceptClassId.CDF),
+            all_parent_nodes={},
+            require_parent_match={},
+        )
         cdc_nodes: _TempNodeView = self.process_clinical_drug_comps()
         bdf_nodes: _TempNodeView = self.process_branded_drug_forms(
             cdf_nodes=cdf_nodes,
@@ -1310,7 +1321,7 @@ class OMOPVocabulariesV5:
         logger.warning(reason_full)
         bad_concepts_df = bad_concepts.to_frame(name="concept_id")
 
-        if ATHENA_OVERFILTERING_WARNING:
+        if ATHENA_OVERFILTERING_WARNING and total_count > 0:
             if len(bad_concepts) / total_count > ATHENA_OVERFILTERING_TRESHOLD:
                 logger.warning(
                     f"Overfiltering detected: {len(bad_concepts):,} concepts "

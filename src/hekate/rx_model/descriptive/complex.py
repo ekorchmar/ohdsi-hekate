@@ -49,7 +49,7 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
     _registry: ClassVar[dict[ConceptClassId, ComplexDrugNodeDefinition]] = {}
 
     @classmethod
-    def __get__(cls, key: ConceptClassId) -> ComplexDrugNodeDefinition:
+    def get(cls, key: ConceptClassId) -> ComplexDrugNodeDefinition:
         return cls._registry[key]
 
     def __post_init__(self):

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod  # For mixins
 from dataclasses import dataclass
-from typing import override, NoReturn  # For type annotations
+from typing import override, NoReturn, TYPE_CHECKING  # For type annotations
 
 import rx_model.drug_classes.strength as st
 from rx_model.drug_classes import atom as a
@@ -19,10 +19,13 @@ from utils.classes import (
     SortedTuple,  # To ensure consistent layout
     PyRealNumber,  # For strength comparison
 )
-from rx_model.descriptive.base import ConceptClassId
 from utils.utils import invert_merge_dict, keep_multiple_values
 from utils.exceptions import RxConceptCreationError
 from utils.constants import BOX_SIZE_LIMIT
+
+if TYPE_CHECKING:
+    # Circular import: required for alternative constructors
+    from rx_model.descriptive.base import ConceptClassId
 
 
 class __MulticomponentMixin[

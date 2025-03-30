@@ -40,7 +40,6 @@ PRECISE_INGREDIENT_DEFINITION = ConceptDefinition(
 class MonoAtributeDefiniton(ConceptDefinition):
     """Shared behavior for mono-attribute definitions."""
 
-    node_getter: str
     omop_domain_id: DomainId = DomainId.DRUG
     omop_vocabulary_ids: tuple[VocabularyId, ...] = RX_VOCAB
     standard_concept: bool = False
@@ -57,22 +56,32 @@ class MonoAtributeDefiniton(ConceptDefinition):
                 f"'{self.node_getter}' attribute is not callable on DrugNode"
             )
 
+    @property
+    def node_getter(self):
+        match self.omop_concept_class_id:
+            case ConceptClassId.DOSE_FORM:
+                return "get_dose_form"
+            case ConceptClassId.BRAND_NAME:
+                return "get_brand_name"
+            case ConceptClassId.SUPPLIER:
+                return "get_supplier"
+            case _:
+                raise ValueError(
+                    f"{self.class_id} definition is not a mono-attribute"
+                )
+
 
 DOSE_FORM_DEFINITION = MonoAtributeDefiniton(
-    node_getter="get_dose_form",
     omop_concept_class_id=ConceptClassId.DOSE_FORM,
     constructor=dc.DoseForm,
 )
 
 BRAND_NAME_DEFINITION = MonoAtributeDefiniton(
-    node_getter="get_brand_name",
     omop_concept_class_id=ConceptClassId.BRAND_NAME,
     constructor=dc.BrandName,
 )
 
-
 SUPPLIER_DEFINITION = MonoAtributeDefiniton(
-    node_getter="get_supplier",
     omop_concept_class_id=ConceptClassId.SUPPLIER,
     omop_vocabulary_ids=(VocabularyId.RXE,),  # Only in RxNorm Extension
     constructor=dc.Supplier,
@@ -82,7 +91,7 @@ MONO_ATTRIBUTE_DEFINITIONS = {
     ConceptClassId.DOSE_FORM: RelationshipDescription(
         relationship_id="RxNorm has dose form",
         cardinality=Cardinality.ONE,
-        target_class="DoseForm",
+        target_class="Dose Form",
         target_definition=DOSE_FORM_DEFINITION,
     ),
     ConceptClassId.BRAND_NAME: RelationshipDescription(
