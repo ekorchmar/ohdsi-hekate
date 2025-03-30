@@ -10,20 +10,18 @@ from typing import ClassVar  # For registry
 from rx_model import drug_classes as dc  # For class constructors
 from rx_model.descriptive.base import (
     RX_VOCAB,
-    ConceptClassId,
     ConceptDefinition,
-    DomainId,
-    VocabularyId,
 )
 from rx_model.descriptive.atom import MONO_ATTRIBUTE_DEFINITIONS
 from rx_model.descriptive.relationship import (
     RelationshipDescription,  # For parent relations
-    Cardinality,  # For different cardinalities
     CARDINALITY_REQUIRED,
 )
 from rx_model.descriptive.strength import (
     StrengthConfiguration,  # For strength configurations
+    UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
 )
+from utils.enums import Cardinality, DomainId, VocabularyId, ConceptClassId
 
 
 @dataclass(frozen=True, eq=True)
@@ -113,14 +111,28 @@ _CDC_DEFINITION = ComplexDrugNodeDefinition(
     omop_concept_class_id=ConceptClassId.CDC,
     attribute_definitions=(),
     parent_relations=(),
-    allowed_strength_configurations=(
-        StrengthConfiguration.AMOUNT_ONLY,
-        StrengthConfiguration.LIQUID_CONCENTRATION,
-        StrengthConfiguration.GAS_PERCENTAGE,
-    ),
+    allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
     ingredient_cardinality=Cardinality.ONE,
     defines_explicit_ingredients=True,
     defines_explicit_precise_ingredients=True,  # Only for CDCs!
+)
+
+_BDC_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.BrandedDrugComponent,
+    omop_concept_class_id=ConceptClassId.BDC,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            relationship_id="Tradename of",
+            cardinality=Cardinality.NONZERO,
+            target_definition=_CDC_DEFINITION,
+        ),
+    ),
+    allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
 )
 
 _CD_DEFINITION = ComplexDrugNodeDefinition(
@@ -133,22 +145,129 @@ _CD_DEFINITION = ComplexDrugNodeDefinition(
         RelationshipDescription(
             target_definition=_CDF_DEFINITION,
             relationship_id="Consists of",
-            target_class="Clinical Drug Form",
             cardinality=Cardinality.ONE,
         ),
         RelationshipDescription(
             target_definition=_CDC_DEFINITION,
             relationship_id="RxNorm has a",
-            target_class="Clinical Drug Component",
             cardinality=Cardinality.NONZERO,
         ),
     ),
-    allowed_strength_configurations=(
-        StrengthConfiguration.AMOUNT_ONLY,
-        StrengthConfiguration.LIQUID_CONCENTRATION,
-        StrengthConfiguration.GAS_PERCENTAGE,
-    ),
+    allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
     ingredient_cardinality=Cardinality.NONZERO,
     defines_explicit_ingredients=False,
     defines_box_size=False,
+)
+
+_BDF_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.BrandedDrugForm,
+    omop_concept_class_id=ConceptClassId.BDF,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_CDF_DEFINITION,
+            relationship_id="Tradename of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=(),
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=False,
+)
+
+_BD_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.BrandedDrug,
+    omop_concept_class_id=ConceptClassId.BD,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_BDC_DEFINITION,
+            relationship_id="Consists of",
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            relationship_id="Tradename of",
+            cardinality=Cardinality.ONE,
+            target_definition=_CD_DEFINITION,
+        ),
+        RelationshipDescription(
+            relationship_id="RxNorm is a",
+            cardinality=Cardinality.ONE,
+            target_definition=_BDF_DEFINITION,
+        ),
+    ),
+    allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=False,
+)
+
+_QCD_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.QuantifiedClinicalDrug,
+    omop_concept_class_id=ConceptClassId.QCD,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_CD_DEFINITION,
+            relationship_id="Quantified form of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=(StrengthConfiguration.LIQUID_QUANTITY,),
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=False,
+)
+
+_QBD_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.QuantifiedBrandedDrug,
+    omop_concept_class_id=ConceptClassId.QBD,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_BD_DEFINITION,
+            relationship_id="Quantified form of",
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            target_definition=_QCD_DEFINITION,
+            relationship_id="Tradename of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=(StrengthConfiguration.LIQUID_QUANTITY,),
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=False,
+)
+
+_CDB_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.ClinicalDrugBox,
+    omop_concept_class_id=ConceptClassId.CDB,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_CD_DEFINITION,
+            relationship_id="Box of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=True,
 )

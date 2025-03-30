@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod  # For mixins
 from dataclasses import dataclass
-from typing import override, NoReturn, TYPE_CHECKING  # For type annotations
+from typing import NoReturn, override  # For type annotations
 
 import rx_model.drug_classes.strength as st
 from rx_model.drug_classes import atom as a
@@ -16,16 +16,13 @@ from rx_model.drug_classes.generic import (
     DrugNode,
 )
 from utils.classes import (
-    SortedTuple,  # To ensure consistent layout
     PyRealNumber,  # For strength comparison
+    SortedTuple,  # To ensure consistent layout
 )
-from utils.utils import invert_merge_dict, keep_multiple_values
-from utils.exceptions import RxConceptCreationError
 from utils.constants import BOX_SIZE_LIMIT
-
-if TYPE_CHECKING:
-    # Circular import: required for alternative constructors
-    from rx_model.descriptive.base import ConceptClassId
+from utils.enums import ConceptClassId
+from utils.exceptions import RxConceptCreationError
+from utils.utils import invert_merge_dict, keep_multiple_values
 
 
 class __MulticomponentMixin[
@@ -351,8 +348,14 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, None]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> ClinicalDrugForm[Id]:
+        dose_form = attributes[ConceptClassId.DOSE_FORM]
+        assert isinstance(dose_form, a.DoseForm)
+        return cls(
+            identifier=identifier,
+            dose_form=dose_form,
+            ingredients=SortedTuple(ing for ing, _ in strength_data),
+        )
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -404,8 +407,16 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, None]],
         box_size: int | None,
-    ) -> DrugNode[Id, None]:
-        raise NotImplementedError
+    ) -> BrandedDrugForm[Id]:
+        cdf = parents[ConceptClassId.CDF][0]
+        brand_name = attributes[ConceptClassId.BRAND_NAME]
+        assert isinstance(brand_name, a.BrandName)
+        assert isinstance(cdf, ClinicalDrugForm)
+        return cls(
+            identifier=identifier,
+            clinical_drug_form=cdf,
+            brand_name=brand_name,
+        )
 
 
 # Prescriptable drug classes

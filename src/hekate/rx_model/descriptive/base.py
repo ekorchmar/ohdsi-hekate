@@ -3,58 +3,13 @@ Contains base classes for declarative OMOP representation of RxNorm and
 RxNorm Extension concepts.
 """
 
-from dataclasses import dataclass  # For concept definitions
-from enum import Enum  # For string enums
+from utils.enums import DomainId, VocabularyId, ConceptClassId  # For enums
+from dataclasses import dataclass  # For dataclass definitions
 
 import polars as pl  # For expression definitions
 
 
-class DomainId(Enum):
-    DRUG = "Drug"
-    UNIT = "Unit"
-
-
-class VocabularyId(Enum):
-    RXN = "RxNorm"
-    RXE = "RxNorm Extension"
-    UCUM = "UCUM"
-
-
 RX_VOCAB = VocabularyId.RXE, VocabularyId.RXN
-
-
-class ConceptClassId(Enum):
-    # RxNorm atoms
-    INGREDIENT = "Ingredient"
-    DOSE_FORM = "Dose Form"
-    BRAND_NAME = "Brand Name"
-    PRECISE_INGREDIENT = "Precise Ingredient"
-    # RxNorm Extension atoms
-    SUPPLIER = "Supplier"
-    # UCUM atoms
-    UNIT = "Unit"
-
-    # RxNorm-native concept classes
-    CDC = "Clinical Drug Comp"
-    BDC = "Branded Drug Comp"
-    CDF = "Clinical Drug Form"
-    BDF = "Branded Drug Form"
-    CD = "Clinical Drug"
-    BD = "Branded Drug"
-    QCD = "Quant Clinical Drug"
-    QBD = "Quant Branded Drug"
-    CP = "Clinical Pack"
-
-    # RxNorm Extension concept classes
-    BP = "Branded Pack"
-    CDB = "Clinical Drug Box"
-    BDB = "Branded Drug Box"
-    QCB = "Quant Clinical Box"
-    QBB = "Quant Branded Box"
-    CPB = "Clinical Pack Box"
-    BPB = "Branded Pack Box"
-    # Pseudoclass
-    MP = "Marketed Product"
 
 
 @dataclass(frozen=True, eq=True)

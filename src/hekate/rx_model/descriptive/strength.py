@@ -2,7 +2,7 @@
 Contains declarative data of strength configurations in OMOP CDM.
 """
 
-from enum import Enum  # for string enums
+from enum import Enum  # for strength enum
 from typing import Final  # for type hinting
 
 import polars as pl  # for expressions

@@ -7,15 +7,12 @@ from dataclasses import dataclass  # For shared characteristics
 import rx_model.drug_classes as dc  # For constructor classes
 from rx_model.descriptive.base import (
     RX_VOCAB,
-    ConceptClassId,
     ConceptDefinition,
-    DomainId,
-    VocabularyId,
 )
 from rx_model.descriptive.relationship import (
-    Cardinality,  # For Cardinality.ONE
     RelationshipDescription,  # For mono-attribute relations
 )
+from utils.enums import DomainId, VocabularyId, ConceptClassId, Cardinality
 
 # RxN/E Ingredients
 INGREDIENT_DEFINITION = ConceptDefinition(
@@ -91,19 +88,16 @@ MONO_ATTRIBUTE_DEFINITIONS = {
     ConceptClassId.DOSE_FORM: RelationshipDescription(
         relationship_id="RxNorm has dose form",
         cardinality=Cardinality.ONE,
-        target_class="Dose Form",
         target_definition=DOSE_FORM_DEFINITION,
     ),
     ConceptClassId.BRAND_NAME: RelationshipDescription(
         relationship_id="Has brand name",
         cardinality=Cardinality.ONE,
-        target_class="BrandName",
-        target_definition=PRECISE_INGREDIENT_DEFINITION,
+        target_definition=BRAND_NAME_DEFINITION,
     ),
     ConceptClassId.SUPPLIER: RelationshipDescription(
         relationship_id="Has supplier",
         cardinality=Cardinality.ONE,
-        target_class="Supplier",
         target_definition=SUPPLIER_DEFINITION,
     ),
 }
