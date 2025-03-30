@@ -2,7 +2,7 @@
 Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 """
 
-from itertools import zip_longest  # For iteration
+from itertools import zip_longest, chain  # For iteration
 import logging  # for typing
 from abc import ABC  # For shared table reading methods
 from collections.abc import Sequence, Mapping  # for typing
@@ -3876,8 +3876,8 @@ class OMOPVocabulariesV5:
             )
 
         # Bad relations
-        node_bad_attr: dict[d.ConceptDefinition, list[int]] = {}
-        node_bad_parent: dict[d.ConceptDefinition, list[int]] = {}
+        node_bad_attr: dict[d.MonoAtributeDefiniton, list[int]] = {}
+        node_bad_parent: dict[d.ComplexDrugNodeDefinition, list[int]] = {}
 
         # Bad ingredients/strengths
         node_bad_ingred: list[int] = []
@@ -3886,16 +3886,16 @@ class OMOPVocabulariesV5:
 
         # Mismatch with parents on attributes
         node_attr_mismatch: dict[
-            d.ConceptDefinition,  # Parent definition
+            d.ComplexDrugNodeDefinition,  # Parent definition
             dict[
-                d.ConceptDefinition,  # Attribute definition
+                d.MonoAtributeDefiniton,  # Attribute definition
                 list[int],  # Concept IDs
             ],
         ] = {}
 
         # Mismatch with parents on ingredients and strengths
         node_strength_mismatch: dict[
-            d.ConceptDefinition,  # Parent definition
+            d.ComplexDrugNodeDefinition,  # Parent definition
             list[int],  # Concept IDs
         ] = {}
 
@@ -3910,9 +3910,12 @@ class OMOPVocabulariesV5:
             concept_id: int = next(listed)
 
             # Attribute data
-            attr_data: dict[d.ConceptDefinition, _MonoAttribute] = {}
+            attr_data: dict[d.MonoAtributeDefiniton, _MonoAttribute] = {}
             for attr_rel in definition.attribute_definitions:
-                assert attr_rel.target_definition is not None  # TODO: remove
+                assert isinstance(
+                    attr_rel.target_definition,
+                    d.MonoAtributeDefiniton,
+                )
                 attr_id: int = next(listed)
 
                 # Lookup the atom
@@ -4289,6 +4292,55 @@ class OMOPVocabulariesV5:
                             break
                     if nested_break:
                         break
+                else:  # Parent must be Cardinality.ONE, predicate -- NONZERO
+                    if (
+                        p_def.ingredient_cardinality != d.Cardinality.ONE
+                        or definition.ingredient_cardinality
+                        != d.Cardinality.NONZERO
+                    ):
+                        # Programming error
+                        raise ValueError(
+                            f"Expected parent {p_def.get_abbreviation()} and "
+                            f"{definition.get_abbreviation()} to have "
+                            f"opposite ingredient cardinalities"
+                        )
+                    for parent_node in nodes:
+                        p_ing, p_stg = parent_node.get_strength_data()[0]
+                        matched_any = False
+                        for o_ing, o_stg in predicate_strength_data:
+                            assert o_stg or (o_stg is None and p_stg is None)
+                            ing_match = p_ing == o_ing
+                            stg_match: bool
+                            if p_stg is None:
+                                stg_match = True
+                            elif o_stg is not None:
+                                stg_match = p_stg.matches(o_stg)
+                            else:
+                                # Programming error
+                                raise ValueError(
+                                    f"Expected strength for "
+                                    f"{definition.class_id} {concept_id} "
+                                    f"to be non-None for testing against "
+                                    f"{p_def.class_id} {parent_node.identifier}"
+                                )
+
+                            if ing_match and stg_match:
+                                matched_any = True
+                                break
+                        if not matched_any:
+                            self.logger.debug(
+                                f"Strength mismatch between "
+                                f"{definition.class_id} {concept_id} and "
+                                f"it's parent {p_def.class_id} "
+                                f"{parent_node.identifier}: match for "
+                                f"{p_ing}, {p_stg} not found in predicate"
+                            )
+                            node_strength_mismatch.setdefault(p_def, []).append(
+                                concept_id
+                            )
+                            nested_break = True
+                            break
+
                 if nested_break:
                     break
 
@@ -4353,6 +4405,88 @@ class OMOPVocabulariesV5:
             out_nodes[concept_id] = node_idx
 
         # Cleanup
-        # TODO: Implement cleanup
+        # Bad attributes and parents
+        for attr_def, lst_bad in chain(
+            node_bad_attr.items(), node_bad_parent.items()
+        ):
+            self.filter_out_bad_concepts(
+                len(node_concepts),
+                pl.Series(lst_bad, dtype=pl.UInt32),
+                f"All {definition.class_id} have valid {attr_def.class_id}",
+                f"{definition.get_abbreviation()}_Bad_"
+                f"{attr_def.get_abbreviation()}",
+                f"{len(lst_bad):,} {definition.class_id} had bad "
+                f"{attr_def.class_id}",
+            )
+
+        # Bad ingredient data
+        self.filter_out_bad_concepts(
+            len(node_concepts),
+            pl.Series(node_bad_ingred, dtype=pl.UInt32),
+            f"All {definition.class_id} have valid I",
+            f"{definition.get_abbreviation()}_Bad_I",
+            f"{len(node_bad_ingred):,} {definition.class_id} had bad "
+            f"Ingredients",
+        )
+
+        # Strength mismatch
+        if (
+            definition.allowed_strength_configurations
+            and definition.defines_explicit_ingredients
+        ):
+            self.filter_out_bad_concepts(
+                len(node_concepts),
+                pl.Series(node_ingred_ds_mismatch, dtype=pl.UInt32),
+                f"All {definition.class_id} match Strengths to Ingredients",
+                f"{definition.get_abbreviation()}_I_DS_Mismatch",
+                f"{len(node_ingred_ds_mismatch):,} {definition.class_id} had "
+                f"mismatched explicit Ingredients and Drug Strength data",
+            )
+
+        # Bad Precise Ingredient data
+        if definition.defines_explicit_precise_ingredients:
+            self.filter_out_bad_concepts(
+                len(node_concepts),
+                pl.Series(node_bad_pi, dtype=pl.UInt32),
+                f"All {definition.class_id} have valid PI",
+                f"{definition.get_abbreviation()}_Bad_PI",
+                f"{len(node_bad_pi):,} {definition.class_id} had bad "
+                f"Precise Ingredients",
+            )
+
+        # Mismatch with parents on attributes
+        for p_def, attr_list in require_parent_match.items():
+            for attr_def in attr_list:
+                mismatched = (
+                    node_attr_mismatch.get(p_def, {}).get(attr_def, []),
+                )
+                self.filter_out_bad_concepts(
+                    len(node_concepts),
+                    pl.Series(mismatched, dtype=pl.UInt32),
+                    f"All {definition.class_id} have matching "
+                    f"{attr_def.class_id} with their {p_def.class_id}s",
+                    definition.get_abbreviation()
+                    + "_"
+                    + attr_def.get_abbreviation()
+                    + "_Mismatch",
+                    f"{mismatched:,} {definition.class_id} had mismatched "
+                    f"{attr_def.class_id} with their {p_def.class_id}s",
+                )
+
+        # Mismatch with parents on ingredients and strengths
+        for p_def in all_parent_nodes:
+            mismatched = node_strength_mismatch.get(p_def, [])
+            self.filter_out_bad_concepts(
+                len(node_concepts),
+                pl.Series(mismatched, dtype=pl.UInt32),
+                f"All {definition.class_id} have matching I and S with their "
+                f"{p_def.class_id}s",
+                definition.get_abbreviation()
+                + "_"
+                + p_def.get_abbreviation()
+                + "_Mismatch",
+                f"{len(mismatched):,} {definition.class_id} had mismatched "
+                f"I and S with their {p_def.class_id}s",
+            )
 
         return out_nodes
