@@ -144,12 +144,12 @@ _CD_DEFINITION = ComplexDrugNodeDefinition(
     parent_relations=(
         RelationshipDescription(
             target_definition=_CDF_DEFINITION,
-            relationship_id="Consists of",
+            relationship_id="RxNorm is a",
             cardinality=Cardinality.ONE,
         ),
         RelationshipDescription(
             target_definition=_CDC_DEFINITION,
-            relationship_id="RxNorm has a",
+            relationship_id="Consists of",
             cardinality=Cardinality.NONZERO,
         ),
     ),

@@ -985,7 +985,7 @@ class OMOPVocabulariesV5:
             all_parent_nodes={CCId.BD: bd_nodes, CCId.QCD: qcd_nodes},
         )
 
-        cdb_nodes: _TempNodeView = self.add_class_nodes(
+        cdb_nodes = self.add_class_nodes(
             class_id=CCId.CDB,
             all_parent_nodes={CCId.CD: cd_nodes},
         )

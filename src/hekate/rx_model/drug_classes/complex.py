@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod  # For mixins
 from dataclasses import dataclass
-from typing import NoReturn, override  # For type annotations
+from typing import override  # For type annotations
 
 import rx_model.drug_classes.strength as st
 from rx_model.drug_classes import atom as a
@@ -274,8 +274,31 @@ NB: Contains multiple components in one!\
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, S]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> BrandedDrugComponent[Id, S]:
+        if len(strength_data) != len(parents[ConceptClassId.CDC]):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have the same number of "
+                f"components as its clinical drug counterpart, but has "
+                f"{len(strength_data)} components."
+            )
+
+        cdcs: list[ClinicalDrugComponent[Id, S]] = []
+        for cdc_node in parents[ConceptClassId.CDC]:
+            if not isinstance(cdc_node, ClinicalDrugComponent):
+                raise RxConceptCreationError(
+                    f"{cls.__name__} {identifier} must have components of "
+                    f"type ClinicalDrugComponent, but has {cdc_node}."
+                )
+            cdc: ClinicalDrugComponent[Id, S] = cdc_node
+            cdcs.append(cdc)
+
+        brand_name = attributes[ConceptClassId.BRAND_NAME]
+        assert isinstance(brand_name, a.BrandName)
+        return cls(
+            identifier=identifier,
+            clinical_drug_components=SortedTuple(cdcs),
+            brand_name=brand_name,
+        )
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -408,7 +431,7 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         strength_data: SortedTuple[BoundStrength[Id, None]],
         box_size: int | None,
     ) -> BrandedDrugForm[Id]:
-        cdf = parents[ConceptClassId.CDF][0]
+        (cdf,) = parents[ConceptClassId.CDF]
         brand_name = attributes[ConceptClassId.BRAND_NAME]
         assert isinstance(brand_name, a.BrandName)
         assert isinstance(cdf, ClinicalDrugForm)
@@ -481,8 +504,36 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, S]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> ClinicalDrug[Id, S]:
+        (cdf,) = parents[ConceptClassId.CDF]
+        if not isinstance(cdf, ClinicalDrugForm):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrugForm, but has {cdf}."
+            )
+        cdc_nodes = parents[ConceptClassId.CDC]
+        if len(cdc_nodes) != len(strength_data):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have the same number of "
+                f"components as strength data, but has {len(cdc_nodes)} "
+                f"components and {len(strength_data)} strength entries."
+            )
+
+        cdcs: list[ClinicalDrugComponent[Id, S]] = []
+        cdc: ClinicalDrugComponent[Id, S]
+        for cdc_node in cdc_nodes:
+            if not isinstance(cdc_node, ClinicalDrugComponent):
+                raise RxConceptCreationError(
+                    f"{cls.__name__} {identifier} must have components of "
+                    f"type ClinicalDrugComponent, but has {cdc_node}."
+                )
+            cdc = cdc_node
+            cdcs.append(cdc)
+        return cls(
+            identifier=identifier,
+            form=cdf,
+            clinical_drug_components=SortedTuple(cdcs),
+        )
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -542,8 +593,42 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, S]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> BrandedDrug[Id, S]:
+        (cd_node,) = parents[ConceptClassId.CD]
+        (bdf_node,) = parents[ConceptClassId.BDF]
+        (bdc_node,) = parents[ConceptClassId.BDC]
+
+        cd: ClinicalDrug[Id, S]
+        bdf: BrandedDrugForm[Id]
+        bdc: BrandedDrugComponent[Id, S]
+
+        if not isinstance(cd_node, ClinicalDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrug, but has {cd_node}."
+            )
+        cd = cd_node
+
+        if not isinstance(bdf_node, BrandedDrugForm):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"BrandedDrugForm, but has {bdf_node}."
+            )
+        bdf = bdf_node
+
+        if not isinstance(bdc_node, BrandedDrugComponent):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"BrandedDrugComponent, but has {bdc_node}."
+            )
+        bdc = bdc_node
+
+        return cls(
+            identifier=identifier,
+            clinical_drug=cd,
+            branded_form=bdf,
+            branded_component=bdc,
+        )
 
 
 # Quantified liquid forms
@@ -586,7 +671,8 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
         ):
             raise RxConceptCreationError(
                 f"Quantified clinical drug {self.identifier} must have the "
-                f"same number of components as its unquantified counterpart."
+                f"same number of components as its unquantified counterpart"
+                f" {self.unquantified.identifier}."
             )
 
         shared_iter = zip(
@@ -678,8 +764,19 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> QuantifiedClinicalDrug[Id, C]:
+        (cd_node,) = parents[ConceptClassId.CD]
+        if not isinstance(cd_node, ClinicalDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrug, but has {cd_node}."
+            )
+        cd: ClinicalDrug[Id, C] = cd_node
+        return cls(
+            identifier=identifier,
+            contents=strength_data,
+            unquantified=cd,
+        )
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -737,8 +834,21 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> QuantifiedBrandedDrug[Id]:
+        qcd_node = parents[ConceptClassId.QCD][0]
+        if not isinstance(qcd_node, QuantifiedClinicalDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"QuantifiedClinicalDrug, but has {qcd_node}."
+            )
+        qcd: QuantifiedClinicalDrug[Id, Concentration] = qcd_node
+        brand_name = attributes[ConceptClassId.BRAND_NAME]
+        assert isinstance(brand_name, a.BrandName)
+        return cls(
+            identifier=identifier,
+            unbranded=qcd,
+            brand_name=brand_name,
+        )
 
 
 class __ClinicalBoxMixIn[
@@ -820,8 +930,23 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, S]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> ClinicalDrugBox[Id, S]:
+        if box_size is None:
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a box size defined."
+            )
+        (cd_node,) = parents[ConceptClassId.CD]
+        if not isinstance(cd_node, ClinicalDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrug, but has {cd_node}."
+            )
+        cd: ClinicalDrug[Id, S] = cd_node
+        return cls(
+            identifier=identifier,
+            unboxed=cd,
+            box_size=box_size,
+        )
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -868,5 +993,25 @@ class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
         precise_ingredients: list[a.PreciseIngredient],
         strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> QuantifiedClinicalBox[Id, C]:
+        (qcd_node,) = parents[ConceptClassId.QCD]
+        if not isinstance(qcd_node, QuantifiedClinicalDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"QuantifiedClinicalDrug, but has {qcd_node}."
+            )
+        qcd: QuantifiedClinicalDrug[Id, C] = qcd_node
+
+        (cdb_node,) = parents[ConceptClassId.CDB]
+        if not isinstance(cdb_node, ClinicalDrugBox):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrugBox, but has {cdb_node}."
+            )
+        cdb: ClinicalDrugBox[Id, C] = cdb_node
+
+        return cls(
+            identifier=identifier,
+            unboxed=qcd,
+            unquantified=cdb,
+        )
