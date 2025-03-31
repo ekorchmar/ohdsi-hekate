@@ -851,7 +851,7 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
         )
 
 
-class __ClinicalBoxMixIn[
+class __Boxed[
     Id: ConceptIdentifier,
     S: st.Strength,
 ](DrugNode[Id, S], ABC):
@@ -885,7 +885,7 @@ class __ClinicalBoxMixIn[
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
-    __ClinicalBoxMixIn[Id, S]
+    __Boxed[Id, S]
 ):
     identifier: Id
     unboxed: ClinicalDrug[Id, S]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
@@ -951,7 +951,7 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
-    __ClinicalBoxMixIn[Id, C]
+    __Boxed[Id, st.LiquidQuantity],
 ):
     identifier: Id
     unboxed: QuantifiedClinicalDrug[Id, C]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
@@ -981,9 +981,7 @@ class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
 
     @override
     @classmethod
-    # NOTE: override is reported incompatible, because QCBs are not actually
-    # using LiquidQuantity in strength TypeVar
-    def from_definitions(  # pyright: ignore[reportIncompatibleMethodOverride]
+    def from_definitions(
         cls,
         identifier: Id,
         parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
@@ -1014,4 +1012,134 @@ class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
             identifier=identifier,
             unboxed=qcd,
             unquantified=cdb,
+        )
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BrandedDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
+    __Boxed[Id, S]
+):
+    identifier: Id
+    unboxed: BrandedDrug[Id, S]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
+    clinical_box: ClinicalDrugBox[Id, S]
+
+    @override
+    def get_box_size(self) -> int:
+        return self.clinical_box.box_size
+
+    @override
+    def is_superclass_of(
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
+    ) -> bool:
+        if not passed_hierarchy_checks:
+            for node in (self.unboxed, self.clinical_box):
+                if not node.is_superclass_of(
+                    other, passed_hierarchy_checks=False
+                ):
+                    return False
+        # BDB is redundant to its parents, so hierarchy checks are all we need
+        return True
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, S]],
+        box_size: int | None,
+    ) -> BrandedDrugBox[Id, S]:
+        if box_size is None:
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a box size defined."
+            )
+        (bd_node,) = parents[ConceptClassId.BD]
+        (cdb_node,) = parents[ConceptClassId.CDB]
+        if not isinstance(bd_node, BrandedDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"Branded Drug, but has {bd_node}."
+            )
+        if not isinstance(cdb_node, ClinicalDrugBox):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrugBox, but has {cdb_node}."
+            )
+        bd: BrandedDrug[Id, S] = bd_node
+        cdb: ClinicalDrugBox[Id, S] = cdb_node
+        return cls(
+            identifier=identifier,
+            unboxed=bd,
+            clinical_box=cdb,
+        )
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class QuantifiedBrandedBox[Id: ConceptIdentifier, C: Concentration](
+    __Boxed[Id, st.LiquidQuantity],
+):
+    identifier: Id
+    unboxed: QuantifiedBrandedDrug[Id]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
+    quant_clinical_box: QuantifiedClinicalBox[Id, C]
+
+    @override
+    def get_box_size(self) -> int:
+        return self.quant_clinical_box.get_box_size()
+
+    @override
+    def is_superclass_of(
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
+    ) -> bool:
+        if not passed_hierarchy_checks:
+            for node in (self.unboxed, self.quant_clinical_box):
+                if not node.is_superclass_of(
+                    other, passed_hierarchy_checks=False
+                ):
+                    return False
+        # BDB is redundant to its parents, so hierarchy checks are all we need
+        return True
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        box_size: int | None,
+    ) -> QuantifiedBrandedBox[Id, C]:
+        if box_size is None:
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a box size defined."
+            )
+        (qcb_node,) = parents[ConceptClassId.QCB]
+        (qbd_node,) = parents[ConceptClassId.QBD]
+        if not isinstance(qcb_node, QuantifiedClinicalBox):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"Branded Drug, but has {qcb_node}."
+            )
+        if not isinstance(qbd_node, QuantifiedBrandedDrug):
+            raise RxConceptCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalDrugBox, but has {qbd_node}."
+            )
+        qbd: QuantifiedBrandedDrug[Id] = qbd_node
+        qcb: QuantifiedClinicalBox[Id, C] = qcb_node
+        return cls(
+            identifier=identifier,
+            unboxed=qbd,
+            quant_clinical_box=qcb,
         )

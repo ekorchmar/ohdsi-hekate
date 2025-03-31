@@ -937,7 +937,9 @@ class OMOPVocabulariesV5:
         )
         bdf_nodes = self.add_class_nodes(
             class_id=CCId.BDF,
-            all_parent_nodes={CCId.CDF: cdf_nodes},
+            all_parent_nodes={
+                CCId.CDF: cdf_nodes,
+            },
         )
         cdc_nodes = self.add_class_nodes(
             class_id=CCId.CDC,
@@ -945,11 +947,16 @@ class OMOPVocabulariesV5:
         )
         bdc_nodes = self.add_class_nodes(
             class_id=CCId.BDC,
-            all_parent_nodes={CCId.CDC: cdc_nodes},
+            all_parent_nodes={
+                CCId.CDC: cdc_nodes,
+            },
         )
         cd_nodes = self.add_class_nodes(
             class_id=CCId.CD,
-            all_parent_nodes={CCId.CDC: cdc_nodes, CCId.CDF: cdf_nodes},
+            all_parent_nodes={
+                CCId.CDC: cdc_nodes,
+                CCId.CDF: cdf_nodes,
+            },
         )
         bd_nodes = self.add_class_nodes(
             class_id=CCId.BD,
@@ -965,16 +972,43 @@ class OMOPVocabulariesV5:
         )
         qbd_nodes = self.add_class_nodes(
             class_id=CCId.QBD,
-            all_parent_nodes={CCId.BD: bd_nodes, CCId.QCD: qcd_nodes},
+            all_parent_nodes={
+                CCId.BD: bd_nodes,
+                CCId.QCD: qcd_nodes,
+            },
         )
-
         cdb_nodes = self.add_class_nodes(
             class_id=CCId.CDB,
-            all_parent_nodes={CCId.CD: cd_nodes},
+            all_parent_nodes={
+                CCId.CD: cd_nodes,
+            },
+        )
+        bdb_nodes = self.add_class_nodes(
+            class_id=CCId.BDB,
+            all_parent_nodes={
+                CCId.BD: bd_nodes,
+                CCId.CDB: cdb_nodes,
+            },
+        )
+
+        qcb_nodes = self.add_class_nodes(
+            class_id=CCId.QCB,
+            all_parent_nodes={
+                CCId.CDB: cdb_nodes,
+                CCId.QCD: qcd_nodes,
+            },
+        )
+        qbb_nodes = self.add_class_nodes(
+            class_id=CCId.QBB,
+            all_parent_nodes={
+                CCId.QBD: qbd_nodes,
+                CCId.BDB: bdb_nodes,
+                CCId.QCB: qcb_nodes,
+            },
         )
 
         # TODO: process the remaining classes
-        del qbd_nodes, cdb_nodes
+        del qbb_nodes
 
     def process_atoms(self) -> None:
         """

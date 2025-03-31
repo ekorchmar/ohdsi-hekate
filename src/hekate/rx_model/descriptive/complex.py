@@ -270,4 +270,87 @@ _CDB_DEFINITION = ComplexDrugNodeDefinition(
     ingredient_cardinality=Cardinality.NONZERO,
     defines_explicit_ingredients=False,
     defines_box_size=True,
+    omop_vocabulary_ids=(VocabularyId.RXE,),  # NOTE: Boxes are RxE-only
+)
+
+_BDB_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.BrandedDrugBox,
+    omop_concept_class_id=ConceptClassId.BDB,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_BD_DEFINITION,
+            relationship_id="Box of",
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            target_definition=_CDB_DEFINITION,
+            relationship_id="Tradename of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=True,
+    omop_vocabulary_ids=(VocabularyId.RXE,),
+)
+
+_QCB_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.QuantifiedClinicalBox,
+    omop_concept_class_id=ConceptClassId.QCB,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_CDB_DEFINITION,
+            relationship_id="Quantified form of",
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            target_definition=_QCD_DEFINITION,
+            relationship_id="Box of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=(StrengthConfiguration.LIQUID_QUANTITY,),
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=True,
+    omop_vocabulary_ids=(VocabularyId.RXE,),
+)
+
+_QBB_DEFINITION = ComplexDrugNodeDefinition(
+    constructor=dc.QuantifiedBrandedBox,
+    omop_concept_class_id=ConceptClassId.QBB,
+    attribute_definitions=(
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    ),
+    parent_relations=(
+        RelationshipDescription(
+            target_definition=_QBD_DEFINITION,
+            relationship_id="Box of",
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            target_definition=_BDB_DEFINITION,
+            relationship_id="Quantified form of",
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            target_definition=_QCB_DEFINITION,
+            relationship_id="Tradename of",
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    allowed_strength_configurations=(StrengthConfiguration.LIQUID_QUANTITY,),
+    ingredient_cardinality=Cardinality.NONZERO,
+    defines_explicit_ingredients=False,
+    defines_box_size=True,
+    omop_vocabulary_ids=(VocabularyId.RXE,),
 )

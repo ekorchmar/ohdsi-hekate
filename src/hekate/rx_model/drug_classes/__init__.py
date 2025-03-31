@@ -47,6 +47,8 @@ from rx_model.drug_classes.complex import (
     QuantifiedBrandedDrug,
     ClinicalDrugBox,
     QuantifiedClinicalBox,
+    BrandedDrugBox,
+    QuantifiedBrandedBox,
 )
 from rx_model.drug_classes.foreign import (
     BoundForeignStrength,
@@ -67,6 +69,7 @@ __all__ = [
     "BoundForeignStrength",
     "BrandName",
     "BrandedDrug",
+    "BrandedDrugBox",
     "BrandedDrugComponent",
     "BrandedDrugForm",
     "ClinicalDrug",
@@ -89,6 +92,7 @@ __all__ = [
     "LiquidQuantity",
     "PrecedenceData",
     "PreciseIngredient",
+    "QuantifiedBrandedBox",
     "QuantifiedBrandedDrug",
     "QuantifiedClinicalBox",
     "QuantifiedClinicalDrug",
