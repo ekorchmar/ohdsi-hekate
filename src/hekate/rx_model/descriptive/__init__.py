@@ -9,6 +9,7 @@ from rx_model.descriptive.atom import (
     DOSE_FORM_DEFINITION,
     BRAND_NAME_DEFINITION,
     SUPPLIER_DEFINITION,
+    UNIT_DEFINITION,
 )
 from rx_model.descriptive.relationship import (
     RelationshipDescription,
@@ -32,6 +33,7 @@ __all__ = [
     "DOSE_FORM_DEFINITION",
     "BRAND_NAME_DEFINITION",
     "SUPPLIER_DEFINITION",
+    "UNIT_DEFINITION",
     "RelationshipDescription",
     "CARDINALITY_SINGLE",
     "CARDINALITY_REQUIRED",

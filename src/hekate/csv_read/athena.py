@@ -51,9 +51,6 @@ class _StrengthTuple(NamedTuple):
     strength: dc.Strength
 
 
-_get_def = d.ComplexDrugNodeDefinition.get
-
-
 class OMOPTable[IdS: pl.Series | None](CSVReader[IdS], ABC):
     """
     Abstract class to read Athena OMOP CDM Vocabularies
@@ -99,47 +96,33 @@ class ConceptTable(OMOPTable[None]):
         self, frame: pl.LazyFrame, valid_concepts: None = None
     ) -> pl.LazyFrame:
         del valid_concepts
-        return frame.filter(
-            # Invalid reason is needed for filtering, so we keep it
-            # pl.col("invalid_reason").is_null(),
-            ((pl.col("domain_id") == "Drug") | (pl.col("domain_id") == "Unit")),
-            (
-                (pl.col("vocabulary_id") == "RxNorm")
-                | (pl.col("vocabulary_id") == "RxNorm Extension")
-                | (pl.col("vocabulary_id") == "UCUM")
-            ),
-            (
-                # RxNorm atoms
-                (pl.col("concept_class_id") == "Ingredient")
-                | (pl.col("concept_class_id") == "Precise Ingredient")
-                | (pl.col("concept_class_id") == "Brand Name")
-                | (pl.col("concept_class_id") == "Dose Form")
-                |
-                # RxNorm Extension atoms
-                (pl.col("concept_class_id") == "Supplier")
-                |
-                # UCUM atoms
-                (pl.col("concept_class_id") == "Unit")
-                |
-                # RxNorm drug concepts
-                (pl.col("concept_class_id") == "Clinical Drug Comp")
-                | (pl.col("concept_class_id") == "Branded Drug Comp")
-                | (pl.col("concept_class_id") == "Clinical Drug Form")
-                | (pl.col("concept_class_id") == "Branded Drug Form")
-                | (pl.col("concept_class_id") == "Clinical Drug")
-                | (pl.col("concept_class_id") == "Branded Drug")
-                | (pl.col("concept_class_id") == "Quant Clinical Drug")
-                | (pl.col("concept_class_id") == "Quant Branded Drug")
-                | (pl.col("concept_class_id") == "Clinical Drug Box")
-                | (pl.col("concept_class_id") == "Branded Drug Box")
-                | (pl.col("concept_class_id") == "Quant Clinical Box")
-                | (pl.col("concept_class_id") == "Quant Branded Box")
-                # | (pl.col("concept_class_id") == "Clinical Pack")
-                # | (pl.col("concept_class_id") == "Branded Pack")
-                # | (pl.col("concept_class_id") == "Clinical Pack Box")
-                # | (pl.col("concept_class_id") == "Branded Pack Box")
-            ),
-        )
+
+        # Form expression from all definitions
+        filter_expression: bool | pl.Expr = False
+        atom_definitions: list[d.ConceptDefinition] = [
+            # Ingredients
+            d.INGREDIENT_DEFINITION,
+            d.PRECISE_INGREDIENT_DEFINITION,
+            # Unit
+            d.UNIT_DEFINITION,
+        ] + [
+            # Mono attributes
+            rel.target_definition
+            for rel in d.MONO_ATTRIBUTE_DEFINITIONS.values()
+        ]
+
+        for definition in atom_definitions:
+            filter_expression |= definition.get_concept_expression()
+
+        # Add complex drug node definitions
+        for ccid in CCId:
+            try:
+                definition = d.ComplexDrugNodeDefinition.get(ccid)
+            except KeyError:
+                continue
+            filter_expression |= definition.get_concept_expression()
+
+        return frame.filter(filter_expression)
 
     def get_metadata(self, ids: Sequence[dc.ConceptId]):
         """
