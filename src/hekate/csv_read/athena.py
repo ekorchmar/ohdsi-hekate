@@ -931,84 +931,30 @@ class OMOPVocabulariesV5:
         self.process_atoms()
         self.process_precise_ingredients()
 
-        cdf_nodes = self.add_class_nodes(
-            class_id=CCId.CDF,
-            all_parent_nodes={},
-        )
-        bdf_nodes = self.add_class_nodes(
-            class_id=CCId.BDF,
-            all_parent_nodes={
-                CCId.CDF: cdf_nodes,
-            },
-        )
-        cdc_nodes = self.add_class_nodes(
-            class_id=CCId.CDC,
-            all_parent_nodes={},
-        )
-        bdc_nodes = self.add_class_nodes(
-            class_id=CCId.BDC,
-            all_parent_nodes={
-                CCId.CDC: cdc_nodes,
-            },
-        )
-        cd_nodes = self.add_class_nodes(
-            class_id=CCId.CD,
-            all_parent_nodes={
-                CCId.CDC: cdc_nodes,
-                CCId.CDF: cdf_nodes,
-            },
-        )
-        bd_nodes = self.add_class_nodes(
-            class_id=CCId.BD,
-            all_parent_nodes={
-                CCId.BDC: bdc_nodes,
-                CCId.BDF: bdf_nodes,
-                CCId.CD: cd_nodes,
-            },
-        )
-        qcd_nodes = self.add_class_nodes(
-            class_id=CCId.QCD,
-            all_parent_nodes={CCId.CD: cd_nodes},
-        )
-        qbd_nodes = self.add_class_nodes(
-            class_id=CCId.QBD,
-            all_parent_nodes={
-                CCId.BD: bd_nodes,
-                CCId.QCD: qcd_nodes,
-            },
-        )
-        cdb_nodes = self.add_class_nodes(
-            class_id=CCId.CDB,
-            all_parent_nodes={
-                CCId.CD: cd_nodes,
-            },
-        )
-        bdb_nodes = self.add_class_nodes(
-            class_id=CCId.BDB,
-            all_parent_nodes={
-                CCId.BD: bd_nodes,
-                CCId.CDB: cdb_nodes,
-            },
-        )
-
-        qcb_nodes = self.add_class_nodes(
-            class_id=CCId.QCB,
-            all_parent_nodes={
-                CCId.CDB: cdb_nodes,
-                CCId.QCD: qcd_nodes,
-            },
-        )
-        qbb_nodes = self.add_class_nodes(
-            class_id=CCId.QBB,
-            all_parent_nodes={
-                CCId.QBD: qbd_nodes,
-                CCId.BDB: bdb_nodes,
-                CCId.QCB: qcb_nodes,
-            },
-        )
-
-        # TODO: process the remaining classes
-        del qbb_nodes
+        # Add nodes in order of complexity
+        # TODO: use topological sort to compute this list from definitions
+        complexity_order = [
+            CCId.CDF,
+            CCId.BDF,
+            CCId.CDC,
+            CCId.BDC,
+            CCId.CD,
+            CCId.BD,
+            CCId.QCD,
+            CCId.QBD,
+            CCId.CDB,
+            CCId.BDB,
+            CCId.QCB,
+            CCId.QBB,
+            # TODO: process the remaining classes
+        ]
+        all_parent_nodes: dict[CCId, _TempNodeView] = {}
+        for ccid in complexity_order:
+            class_nodes = self.add_class_nodes(
+                class_id=ccid,
+                all_parent_nodes=all_parent_nodes,
+            )
+            all_parent_nodes[ccid] = class_nodes
 
     def process_atoms(self) -> None:
         """
@@ -1647,6 +1593,11 @@ class OMOPVocabulariesV5:
         p_def_nodes = {
             d.ComplexDrugNodeDefinition.get(p_id): p_view
             for p_id, p_view in all_parent_nodes.items()
+            if p_id
+            in [
+                p_rel.target_definition.omop_concept_class_id
+                for p_rel in definition.parent_relations
+            ]
         }
 
         # If both predicate and parent definition specifies an attribute,
@@ -2271,7 +2222,7 @@ class OMOPVocabulariesV5:
             # If parent indices are not given, attach to ingredients
             if not parent_indices:
                 # Make sure this is not and error
-                if len(all_parent_nodes) > 0:
+                if len(p_def_nodes) > 0:
                     raise ValueError(
                         f"parent indices must not be empty for "
                         f"{definition.class_id} {concept_id} "

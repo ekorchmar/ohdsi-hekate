@@ -58,13 +58,9 @@ from rx_model.drug_classes.foreign import (
     PseudoUnit,
     ForeignStrength,
 )
-from rx_model.drug_classes.relations import (
-    ALLOWED_DRUG_MULTIMAP,
-    DRUG_CLASS_PREFERENCE_ORDER,
-)
+from rx_model.drug_classes.relations import DRUG_CLASS_PREFERENCE_ORDER
 
 __all__ = [
-    "ALLOWED_DRUG_MULTIMAP",
     "BoundStrength",
     "BoundForeignStrength",
     "BrandName",

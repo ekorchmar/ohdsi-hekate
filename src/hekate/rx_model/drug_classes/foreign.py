@@ -34,6 +34,11 @@ type _AnyComplex[Id: ConceptIdentifier] = (
     | c.QuantifiedClinicalDrug[Id, c.Concentration]
     | c.QuantifiedBrandedDrug[Id]
     | c.ClinicalDrugBox[Id, st.UnquantifiedStrength]
+    | c.BrandedDrugBox[Id, st.UnquantifiedStrength]
+    | c.QuantifiedClinicalDrug[Id, st.LiquidConcentration | st.GasPercentage]
+    | c.QuantifiedBrandedDrug[Id]
+    | c.QuantifiedClinicalBox[Id, st.LiquidConcentration | st.GasPercentage]
+    | c.QuantifiedBrandedBox[Id, st.LiquidConcentration | st.GasPercentage]
 )
 
 # PseudoUnit is verbatim string representation of a unit in source data
@@ -274,6 +279,7 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
         presence of attributes and shape of the strength data.
         """
 
+        box_size = self.box_size is not None
         branded = self.brand_name is not None
         marketed = self.supplier is not None
         with_form = self.dose_form is not None
@@ -287,9 +293,16 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
             if with_form:
                 return c.BrandedDrugForm if branded else c.ClinicalDrugForm
             return a.Ingredient
-        elif self.box_size is not None:
-            # TODO: all box size classes
-            return c.ClinicalDrugBox
+        elif box_size:
+            if isinstance(strength, st.LiquidQuantity):
+                # QCB or QBB
+                return (
+                    c.QuantifiedBrandedDrug
+                    if branded
+                    else c.QuantifiedClinicalDrug
+                )
+            # CB or BB
+            return c.BrandedDrugBox if branded else c.ClinicalDrugBox
         elif isinstance(strength, st.LiquidQuantity):
             # QCD or QBD
             return (

@@ -882,6 +882,10 @@ class __Boxed[
         assert df is not None
         return df
 
+    @override
+    def get_brand_name(self) -> a.BrandName[Id] | None:
+        return self.unboxed.get_brand_name()
+
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
 class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
