@@ -951,27 +951,22 @@ class OMOPVocabulariesV5:
         cdf_nodes = self.add_class_nodes(
             class_id=CCId.CDF,
             all_parent_nodes={},
-            require_parent_match={},
         )
         bdf_nodes = self.add_class_nodes(
             class_id=CCId.BDF,
             all_parent_nodes={CCId.CDF: cdf_nodes},
-            require_parent_match={CCId.CDF: [CCId.DOSE_FORM]},
         )
         cdc_nodes = self.add_class_nodes(
             class_id=CCId.CDC,
             all_parent_nodes={},
-            require_parent_match={},
         )
         bdc_nodes = self.add_class_nodes(
             class_id=CCId.BDC,
             all_parent_nodes={CCId.CDC: cdc_nodes},
-            require_parent_match={},
         )
         cd_nodes = self.add_class_nodes(
             class_id=CCId.CD,
             all_parent_nodes={CCId.CDC: cdc_nodes, CCId.CDF: cdf_nodes},
-            require_parent_match={CCId.CDF: [CCId.DOSE_FORM]},
         )
         bd_nodes = self.add_class_nodes(
             class_id=CCId.BD,
@@ -980,30 +975,19 @@ class OMOPVocabulariesV5:
                 CCId.BDF: bdf_nodes,
                 CCId.CD: cd_nodes,
             },
-            require_parent_match={
-                CCId.BDF: [CCId.DOSE_FORM, CCId.BRAND_NAME],
-                CCId.BDC: [CCId.BRAND_NAME],
-                CCId.CD: [CCId.DOSE_FORM],
-            },
         )
         qcd_nodes = self.add_class_nodes(
             class_id=CCId.QCD,
             all_parent_nodes={CCId.CD: cd_nodes},
-            require_parent_match={CCId.CD: [CCId.DOSE_FORM]},
         )
         qbd_nodes = self.add_class_nodes(
             class_id=CCId.QBD,
             all_parent_nodes={CCId.BD: bd_nodes, CCId.QCD: qcd_nodes},
-            require_parent_match={
-                CCId.BD: [CCId.BRAND_NAME, CCId.DOSE_FORM],
-                CCId.QCD: [CCId.DOSE_FORM],
-            },
         )
 
         cdb_nodes: _TempNodeView = self.add_class_nodes(
             class_id=CCId.CDB,
             all_parent_nodes={CCId.CD: cd_nodes},
-            require_parent_match={CCId.CD: [CCId.DOSE_FORM]},
         )
 
         # TODO: process the remaining classes
@@ -1628,7 +1612,6 @@ class OMOPVocabulariesV5:
         self,
         class_id: CCId,
         all_parent_nodes: dict[CCId, _TempNodeView],
-        require_parent_match: dict[CCId, list[CCId]],
     ) -> _TempNodeView:
         """
         Process a set of class nodes and add them to the hierarchy.
@@ -1637,9 +1620,6 @@ class OMOPVocabulariesV5:
             all_parent_nodes: A dictionary of parent nodes indexed by their
                 class_id dictionary values are the node indices of the parent
                 nodes in the hierarchy.
-            require_parent_match: A dictionary where keys are parent classes
-                and values are lists of attribute classes that must match
-                between the parent and the predicate.
 
         Returns:
             A dictionary of the node indices of the class nodes indexed by their
@@ -1651,24 +1631,22 @@ class OMOPVocabulariesV5:
             d.ComplexDrugNodeDefinition.get(p_id): p_view
             for p_id, p_view in all_parent_nodes.items()
         }
+
+        # If both predicate and parent definition specifies an attribute,
+        # they must match
         p_def_a_def: dict[
             d.ComplexDrugNodeDefinition, list[d.MonoAtributeDefiniton]
         ] = {}
-        for p_id, a_ids in require_parent_match.items():
-            attrs: list[d.MonoAtributeDefiniton] = []
-            for a_id in a_ids:
-                match a_id:
-                    case CCId.DOSE_FORM:
-                        attrs.append(d.DOSE_FORM_DEFINITION)
-                    case CCId.BRAND_NAME:
-                        attrs.append(d.BRAND_NAME_DEFINITION)
-                    case CCId.SUPPLIER:
-                        attrs.append(d.SUPPLIER_DEFINITION)
-                    case _:
-                        raise ValueError(f"Unexpected attribute class {a_id}")
-            p_def_a_def[d.ComplexDrugNodeDefinition.get(p_id)] = attrs
-
-            p_def_a_def[d.ComplexDrugNodeDefinition.get(p_id)]
+        for p_def in p_def_nodes:
+            for attr_rel in p_def.attribute_definitions:
+                if attr_rel in definition.attribute_definitions:
+                    assert isinstance(
+                        attr_rel.target_definition,
+                        d.MonoAtributeDefiniton,
+                    )
+                    p_def_a_def.setdefault(p_def, []).append(
+                        attr_rel.target_definition
+                    )
 
         self.logger.info(f"Processing {definition.class_id} nodes")
         out_nodes: _TempNodeView = {}
