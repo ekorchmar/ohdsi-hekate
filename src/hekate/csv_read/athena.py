@@ -1794,6 +1794,7 @@ class OMOPVocabulariesV5:
             parent_data: dict[
                 d.ComplexDrugNodeDefinition, list[_ParentNode]
             ] = {}
+            parents_failed = False
             for parent_rel in definition.parent_relations:
                 parent_def = parent_rel.target_definition
                 assert isinstance(
@@ -1829,7 +1830,8 @@ class OMOPVocabulariesV5:
                         node_bad_parent.setdefault(parent_def, []).append(
                             concept_id
                         )
-                        continue
+                        parents_failed = True
+                        break
 
                     # Try getting the node
                     try:
@@ -1842,7 +1844,8 @@ class OMOPVocabulariesV5:
                         node_bad_parent.setdefault(parent_def, []).append(
                             concept_id
                         )
-                        continue
+                        parents_failed = True
+                        break
 
                     # Check class (programming error)
                     if not isinstance(parent_node, parent_def.constructor):  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
@@ -1854,6 +1857,10 @@ class OMOPVocabulariesV5:
 
                     parent_data.setdefault(parent_def, []).append(parent_node)
                     parent_indices.append(parent_node_idx)
+                if parents_failed:
+                    break
+            if parents_failed:
+                continue  # to next concept
 
             explicit_ingredients: list[dc.Ingredient[dc.ConceptId]] = []
             if definition.defines_explicit_ingredients:
@@ -2243,6 +2250,20 @@ class OMOPVocabulariesV5:
                 )
                 node_failed.append(concept_id)
                 continue
+
+            # If parent indices are not given, attach to ingredients
+            if not parent_indices:
+                # Make sure this is not and error
+                if len(all_parent_nodes) > 0:
+                    raise ValueError(
+                        f"parent indices must not be empty for "
+                        f"{definition.class_id} {concept_id} "
+                        f"by this point."
+                    )
+                parent_indices.extend(
+                    self.hierarchy.ingredients[ing]
+                    for ing, _ in predicate_strength_data
+                )
 
             node_idx = self.hierarchy.add_drug_node(node, parent_indices)
             out_nodes[concept_id] = node_idx

@@ -61,6 +61,7 @@ reportUninitializedInstanceVariable = false # Pyright doesn't understand datacla
 reportImplicitRelativeImport = false        # Importing in python is a headache
 reportImportCycles = false                  # Impossible to resolve for TYPE_CHECKING cond
 reportUnnecessaryComparison = false         # Never unnecessary in a dynamic language
+reportUnnecessaryIsInstance = false         # Never unnecessary in a dynamic language
 reportUnreachable = false                   # Only pops up for exhaustive pattern matching
 
 [tool.ruff]

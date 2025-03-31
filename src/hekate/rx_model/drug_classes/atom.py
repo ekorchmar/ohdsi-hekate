@@ -4,11 +4,9 @@ from typing import ClassVar, NoReturn, final, override, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import drug_classes.strength as st  # For DrugNode interface annotation
-    from rx_model.descriptive.base import (
-        ConceptClassId,  # For alternative constructor
-    )
 
 from utils.classes import SortedTuple  # For typing
+from utils.enums import ConceptClassId  # For typing
 from utils.exceptions import RxConceptCreationError  # For error handling
 
 from rx_model.drug_classes.generic import (

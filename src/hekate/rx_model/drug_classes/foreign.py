@@ -18,6 +18,7 @@ import rx_model.drug_classes.complex as c
 from rx_model.descriptive import StrengthConfiguration
 
 from utils.classes import SortedTuple, PyRealNumber
+from utils.enums import ConceptClassId
 from utils.constants import BOX_SIZE_LIMIT
 from utils.exceptions import ForeignNodeCreationError
 from utils.utils import count_repeated_first_entries
@@ -361,3 +362,25 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
                 f"Node {self.identifier} has no form and {self.box_size} "
                 f"as the box size."
             )
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: ConceptId,
+        parents: dict[
+            ConceptClassId, list[DrugNode[ConceptId, st.Strength | None]]
+        ],
+        attributes: dict[
+            ConceptClassId,
+            a.BrandName[ConceptId]
+            | a.DoseForm[ConceptId]
+            | a.Supplier[ConceptId],
+        ],
+        precise_ingredients: list[a.PreciseIngredient],
+        strength_data: SortedTuple[BoundStrength[ConceptId, S]],
+        box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError(
+            "Foreign nodes cannot be created from definitions."
+        )

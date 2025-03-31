@@ -65,7 +65,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
 
         # The class of nodes to prune the search at. All descendants will be
         # redundant.
-        self.aim_for: type[DrugNode[ConceptId, Strength | None]] = (
+        self.aim_for: type[DrugNode] = (  # pyright: ignore[reportMissingTypeArgument]  # noqa: E501
             self.node.best_case_class()
         )
 
@@ -97,7 +97,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
             # Implicitly accept
             return
 
-        if not isinstance(drug_node, Ingredient):
+        if not isinstance(drug_node, Ingredient):  # pyright: ignore[reportUnnecessaryIsInstance]  # noqa: E501
             # Check if all of the node's predecessors were accepted
             if any(
                 p_idx not in self.accepted_nodes
@@ -136,7 +136,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         }
         self.terminal_node_indices.add(v)
 
-        if isinstance(drug_node, self.aim_for):
+        if isinstance(drug_node, self.aim_for):  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
             # This is the node we are looking for. But we still may
             # match sister nodes, and disambiguation will be needed.
             raise rx.visit.PruneSearch
@@ -154,7 +154,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         # starting point of the search.
 
         # We make it an Ingredient, so that type checker accepts it
-        temporary_root_idx = self.hierarchy.add_node(self.SENTINEL)
+        temporary_root_idx = self.hierarchy.add_node(self.SENTINEL)  # pyright: ignore[reportArgumentType]  # noqa: E501
 
         for ing, _ in self.node.get_strength_data():
             ing_idx = self.hierarchy.ingredients[ing]
