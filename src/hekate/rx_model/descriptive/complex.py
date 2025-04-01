@@ -7,21 +7,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass  # For shared characteristics
 from typing import ClassVar  # For registry
+
 from rx_model import drug_classes as dc  # For class constructors
+from rx_model.descriptive.atom import MONO_ATTRIBUTE_DEFINITIONS
 from rx_model.descriptive.base import (
     RX_VOCAB,
     ConceptDefinition,
 )
-from rx_model.descriptive.atom import MONO_ATTRIBUTE_DEFINITIONS
 from rx_model.descriptive.relationship import (
-    RelationshipDescription,  # For parent relations
     CARDINALITY_REQUIRED,
+    RelationshipDescription,  # For parent relations
 )
 from rx_model.descriptive.strength import (
-    StrengthConfiguration,  # For strength configurations
     UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
+    StrengthConfiguration,  # For strength configurations
 )
-from utils.enums import Cardinality, DomainId, VocabularyId, ConceptClassId
+from utils.enums import Cardinality, ConceptClassId, DomainId, VocabularyId
 
 
 @dataclass(frozen=True, eq=True)
