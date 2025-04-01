@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass  # For dataclass definitions
 from typing import ClassVar  # For registry
 
+import rx_model.drug_classes as dc  # For drug classes
 from rx_model.descriptive.base import (
     RX_VOCAB,
     ConceptDefinition,  # For content definitions
@@ -26,11 +27,10 @@ class PackDefinition(ConceptDefinition):
     Class representing the RxNorm and RxNorm Extension Pack classes.
     """
 
-    constructor: type  # TODO: define and use PackNode type
-    content_definition: ComplexDrugNodeDefinition
+    constructor: type[dc.PackNode[dc.ConceptId]]
+    content_definitions: tuple[ComplexDrugNodeDefinition, ...]
     attribute_definitions: tuple[RelationshipDescription, ...]
 
-    defines_pack_amount: bool
     defines_pack_size: bool
 
     omop_domain_id: DomainId = DomainId.DRUG

@@ -7,11 +7,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod  # For DrugNode interface
 from typing import (
     TYPE_CHECKING,  # For conditional imports for typechecking
-    override,  # for typing
     NamedTuple,  # For ConceptCodeVocab
+    override,  # for typing
 )
 
 from utils.classes import SortedTuple  # For typing
+from utils.enums import ConceptClassId  # For typing
 
 if TYPE_CHECKING:
     # Circular import: atom.Ingredient is also a DrugNode
@@ -19,10 +20,6 @@ if TYPE_CHECKING:
 
     # Circular import: Strength needs ConceptId
     import rx_model.drug_classes.strength as st
-
-    from rx_model.descriptive.base import (
-        ConceptClassId,  # For alternative constructor
-    )
 
 
 # Identifiers

@@ -37,6 +37,12 @@ class RxConceptCreationError(RxConceptError):
     """
 
 
+class PackCreationError(RxConceptCreationError):
+    """
+    Occurs when a pack cannot be created due to integrity constraints.
+    """
+
+
 class ForeignNodeCreationError(RxConceptError):
     """
     Occurs when a foreign node cannot be created due to integrity constraints.
