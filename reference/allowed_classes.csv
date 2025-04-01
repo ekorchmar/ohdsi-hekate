@@ -1,0 +1,15 @@
+concept_class_id_pack,vocabulary_id,concept_class_id_drug,len
+Branded Pack,RxNorm,Branded Drug,516
+Branded Pack,RxNorm,Clinical Drug,798
+Branded Pack,RxNorm,Quant Branded Drug,281
+Branded Pack,RxNorm,Quant Clinical Drug,39
+Branded Pack,RxNorm Extension,Clinical Drug,3099
+Branded Pack,RxNorm Extension,Quant Clinical Drug,872
+Clinical Pack,RxNorm,Clinical Drug,1101
+Clinical Pack,RxNorm,Quant Clinical Drug,334
+Clinical Pack,RxNorm Extension,Clinical Drug,2462
+Clinical Pack,RxNorm Extension,Quant Clinical Drug,902
+Branded Pack Box,RxNorm Extension,Clinical Drug,1478
+Branded Pack Box,RxNorm Extension,Quant Clinical Drug,192
+Clinical Pack Box,RxNorm Extension,Clinical Drug,1081
+Clinical Pack Box,RxNorm Extension,Quant Clinical Drug,195
