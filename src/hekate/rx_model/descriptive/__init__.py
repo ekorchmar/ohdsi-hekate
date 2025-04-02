@@ -4,7 +4,7 @@ from rx_model.descriptive.base import (
 from rx_model.descriptive.atom import (
     INGREDIENT_DEFINITION,
     PRECISE_INGREDIENT_DEFINITION,
-    MONO_ATTRIBUTE_DEFINITIONS,
+    MONO_ATTRIBUTE_RELATIONS,
     MonoAtributeDefiniton,
     DOSE_FORM_DEFINITION,
     BRAND_NAME_DEFINITION,
@@ -28,7 +28,7 @@ __all__ = [
     "ConceptDefinition",
     "INGREDIENT_DEFINITION",
     "PRECISE_INGREDIENT_DEFINITION",
-    "MONO_ATTRIBUTE_DEFINITIONS",
+    "MONO_ATTRIBUTE_RELATIONS",
     "MonoAtributeDefiniton",
     "DOSE_FORM_DEFINITION",
     "BRAND_NAME_DEFINITION",

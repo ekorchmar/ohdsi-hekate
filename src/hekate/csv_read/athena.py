@@ -108,7 +108,7 @@ class ConceptTable(OMOPTable[None]):
         ] + [
             # Mono attributes
             rel.target_definition
-            for rel in d.MONO_ATTRIBUTE_DEFINITIONS.values()
+            for rel in d.MONO_ATTRIBUTE_RELATIONS.values()
         ]
 
         for definition in atom_definitions:
@@ -1270,7 +1270,7 @@ class OMOPVocabulariesV5:
             ~(pl.col("concept_class_id") == "Ingredient"),
         )
 
-        for attribute_rel in d.MONO_ATTRIBUTE_DEFINITIONS.values():
+        for attribute_rel in d.MONO_ATTRIBUTE_RELATIONS.values():
             definition = attribute_rel.target_definition
             assert definition is not None
             definition_class_id = definition.omop_concept_class_id.value
@@ -1606,8 +1606,8 @@ class OMOPVocabulariesV5:
             d.ComplexDrugNodeDefinition, list[d.MonoAtributeDefiniton]
         ] = {}
         for p_def in p_def_nodes:
-            for attr_rel in p_def.attribute_definitions:
-                if attr_rel in definition.attribute_definitions:
+            for attr_rel in p_def.attribute_relations:
+                if attr_rel in definition.attribute_relations:
                     assert isinstance(
                         attr_rel.target_definition,
                         d.MonoAtributeDefiniton,
@@ -1635,7 +1635,7 @@ class OMOPVocabulariesV5:
             )
 
         relationship_definitions = [
-            *definition.attribute_definitions,
+            *definition.attribute_relations,
             *definition.parent_relations,
         ]
 
@@ -1728,7 +1728,7 @@ class OMOPVocabulariesV5:
 
             # Attribute data
             attr_data: dict[d.MonoAtributeDefiniton, _MonoAttribute] = {}
-            for attr_rel in definition.attribute_definitions:
+            for attr_rel in definition.attribute_relations:
                 assert isinstance(
                     attr_rel.target_definition,
                     d.MonoAtributeDefiniton,
@@ -1998,7 +1998,7 @@ class OMOPVocabulariesV5:
             for p_def, nodes in parent_data.items():
                 # Test attribute matches where required
                 if p_def in p_def_a_def:
-                    for attr_rel in d.MONO_ATTRIBUTE_DEFINITIONS.values():
+                    for attr_rel in d.MONO_ATTRIBUTE_RELATIONS.values():
                         a = attr_rel.target_definition
                         if a in p_def_a_def[p_def]:
                             if a not in attr_data:

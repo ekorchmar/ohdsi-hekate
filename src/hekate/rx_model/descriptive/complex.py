@@ -9,7 +9,7 @@ from dataclasses import dataclass  # For shared characteristics
 from typing import ClassVar  # For registry
 
 from rx_model import drug_classes as dc  # For class constructors
-from rx_model.descriptive.atom import MONO_ATTRIBUTE_DEFINITIONS
+from rx_model.descriptive.atom import MONO_ATTRIBUTE_RELATIONS
 from rx_model.descriptive.base import (
     RX_VOCAB,
     ConceptDefinition,
@@ -30,7 +30,7 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
     """Shared behavior for complex drug node definitions."""
 
     constructor: type[dc.DrugNode]  # pyright: ignore[reportMissingTypeArgument]
-    attribute_definitions: tuple[RelationshipDescription, ...] = ()
+    attribute_relations: tuple[RelationshipDescription, ...] = ()
     parent_relations: tuple[RelationshipDescription, ...] = ()
     allowed_strength_configurations: tuple[StrengthConfiguration, ...] = ()
     ingredient_cardinality: Cardinality = Cardinality.ANY
@@ -98,9 +98,7 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
 _CDF_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.ClinicalDrugForm,
     omop_concept_class_id=ConceptClassId.CDF,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
-    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],),
     parent_relations=(),
     allowed_strength_configurations=(),
     ingredient_cardinality=Cardinality.NONZERO,
@@ -110,7 +108,7 @@ _CDF_DEFINITION = ComplexDrugNodeDefinition(
 _CDC_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.ClinicalDrugComponent,
     omop_concept_class_id=ConceptClassId.CDC,
-    attribute_definitions=(),
+    attribute_relations=(),
     parent_relations=(),
     allowed_strength_configurations=UNQUANTIFIED_STRENGTH_CONFIGURATIONS,
     ingredient_cardinality=Cardinality.ONE,
@@ -121,9 +119,7 @@ _CDC_DEFINITION = ComplexDrugNodeDefinition(
 _BDC_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.BrandedDrugComponent,
     omop_concept_class_id=ConceptClassId.BDC,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
-    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],),
     parent_relations=(
         RelationshipDescription(
             relationship_id="Tradename of",
@@ -139,9 +135,7 @@ _BDC_DEFINITION = ComplexDrugNodeDefinition(
 _CD_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.ClinicalDrug,
     omop_concept_class_id=ConceptClassId.CD,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
-    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],),
     parent_relations=(
         RelationshipDescription(
             target_definition=_CDF_DEFINITION,
@@ -163,9 +157,9 @@ _CD_DEFINITION = ComplexDrugNodeDefinition(
 _BDF_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.BrandedDrugForm,
     omop_concept_class_id=ConceptClassId.BDF,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
+    attribute_relations=(
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],
     ),
     parent_relations=(
         RelationshipDescription(
@@ -183,9 +177,9 @@ _BDF_DEFINITION = ComplexDrugNodeDefinition(
 _BD_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.BrandedDrug,
     omop_concept_class_id=ConceptClassId.BD,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    attribute_relations=(
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],
     ),
     parent_relations=(
         RelationshipDescription(
@@ -213,9 +207,7 @@ _BD_DEFINITION = ComplexDrugNodeDefinition(
 _QCD_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.QuantifiedClinicalDrug,
     omop_concept_class_id=ConceptClassId.QCD,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
-    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],),
     parent_relations=(
         RelationshipDescription(
             target_definition=_CD_DEFINITION,
@@ -232,9 +224,9 @@ _QCD_DEFINITION = ComplexDrugNodeDefinition(
 _QBD_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.QuantifiedBrandedDrug,
     omop_concept_class_id=ConceptClassId.QBD,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    attribute_relations=(
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],
     ),
     parent_relations=(
         RelationshipDescription(
@@ -257,9 +249,7 @@ _QBD_DEFINITION = ComplexDrugNodeDefinition(
 _CDB_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.ClinicalDrugBox,
     omop_concept_class_id=ConceptClassId.CDB,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
-    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],),
     parent_relations=(
         RelationshipDescription(
             target_definition=_CD_DEFINITION,
@@ -277,9 +267,9 @@ _CDB_DEFINITION = ComplexDrugNodeDefinition(
 _BDB_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.BrandedDrugBox,
     omop_concept_class_id=ConceptClassId.BDB,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    attribute_relations=(
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],
     ),
     parent_relations=(
         RelationshipDescription(
@@ -303,9 +293,7 @@ _BDB_DEFINITION = ComplexDrugNodeDefinition(
 _QCB_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.QuantifiedClinicalBox,
     omop_concept_class_id=ConceptClassId.QCB,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
-    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],),
     parent_relations=(
         RelationshipDescription(
             target_definition=_CDB_DEFINITION,
@@ -328,9 +316,9 @@ _QCB_DEFINITION = ComplexDrugNodeDefinition(
 _QBB_DEFINITION = ComplexDrugNodeDefinition(
     constructor=dc.QuantifiedBrandedBox,
     omop_concept_class_id=ConceptClassId.QBB,
-    attribute_definitions=(
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.BRAND_NAME],
-        MONO_ATTRIBUTE_DEFINITIONS[ConceptClassId.DOSE_FORM],
+    attribute_relations=(
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],
+        MONO_ATTRIBUTE_RELATIONS[ConceptClassId.DOSE_FORM],
     ),
     parent_relations=(
         RelationshipDescription(

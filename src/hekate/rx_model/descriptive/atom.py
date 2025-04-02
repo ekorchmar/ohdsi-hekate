@@ -84,7 +84,7 @@ SUPPLIER_DEFINITION = MonoAtributeDefiniton(
     constructor=dc.Supplier,
 )
 
-MONO_ATTRIBUTE_DEFINITIONS = {
+MONO_ATTRIBUTE_RELATIONS = {
     ConceptClassId.DOSE_FORM: RelationshipDescription(
         relationship_id="RxNorm has dose form",
         cardinality=Cardinality.ONE,
