@@ -20,15 +20,13 @@ class ConceptDefinition:
     omop_vocabulary_ids: tuple[VocabularyId, ...]
     standard_concept: bool
 
-    def get_concept_expression(self) -> pl.Expr:
-        return (
+    def get_concept_expression(self, allow_invalid: bool) -> pl.Expr:
+        expr = (
+            # Concept class id value from enum
             (pl.col("concept_class_id") == self.omop_concept_class_id.value)
+            # Domain id
             & (pl.col("domain_id") == self.omop_domain_id.value)
-            & (
-                (pl.col("standard_concept") == "S")
-                if self.standard_concept
-                else pl.col("standard_concept").is_null()
-            )
+            # Vocabulary id(s)
             & (
                 pl.col("vocabulary_id").is_in([
                     vocabulary_id.value
@@ -36,6 +34,19 @@ class ConceptDefinition:
                 ])
             )
         )
+
+        if not allow_invalid:
+            expr &= (
+                # Standard status
+                (pl.col("standard_concept") == "S")
+                if self.standard_concept
+                else pl.col("standard_concept").is_null()
+            ) & (
+                # Validity
+                pl.col("invalid_reason").is_null()
+            )
+
+        return expr
 
     def get_abbreviation(self) -> str:
         return "".join(

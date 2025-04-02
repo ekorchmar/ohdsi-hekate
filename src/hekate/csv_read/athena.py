@@ -112,7 +112,9 @@ class ConceptTable(OMOPTable[None]):
         ]
 
         for definition in atom_definitions:
-            filter_expression |= definition.get_concept_expression()
+            filter_expression |= definition.get_concept_expression(
+                allow_invalid=True
+            )
 
         # Add complex drug node definitions
         for ccid in CCId:
@@ -120,7 +122,9 @@ class ConceptTable(OMOPTable[None]):
                 definition = d.ComplexDrugNodeDefinition.get(ccid)
             except KeyError:
                 continue
-            filter_expression |= definition.get_concept_expression()
+            filter_expression |= definition.get_concept_expression(
+                allow_invalid=True
+            )
 
         return frame.filter(filter_expression)
 
@@ -311,10 +315,22 @@ class OMOPVocabulariesV5:
 
         self.logger.info(f"Finding relationships for {source_class.value}")
 
+        # Get expression from definition
+        try:
+            definition = d.ComplexDrugNodeDefinition.get(source_class)
+        except KeyError:
+            # TODO: There should be a universal way to retrieve the definition
+            # from CCId, not only for nodes
+            filter_expr = (pl.col("concept_class_id") == source_class.value) & (
+                pl.col("invalid_reason").is_null()
+            )
+        else:
+            filter_expr = definition.get_concept_expression(allow_invalid=False)
+
         source_abbr = "".join(char[0] for char in source_class.value.split())
         source_concepts = (
             self.concept.collect()
-            .filter(pl.col("concept_class_id") == source_class.value)
+            .filter(filter_expr)
             .select(
                 ["concept_id", "concept_name"] if include_name else "concept_id"
             )
