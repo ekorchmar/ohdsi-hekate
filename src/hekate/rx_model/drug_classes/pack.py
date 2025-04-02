@@ -30,16 +30,29 @@ class PackEntry[Id: ConceptIdentifier]:
     amount: int | None
     box_size: int | None
 
-    def __post_init__(self):
-        # TODO: validate the drug (e.g. no box size, quantified)
+    def validate_entry(self) -> str | None:
+        """
+        Validate the pack entry. Returns either a string with the error message
+        or None if the entry is valid.
+        """
+        strength_data = self.drug.get_strength_data()
+        strength_instance = strength_data[0][1]
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            strength_instance, (st.LiquidQuantity, st.SolidStrength)
+        ):
+            return (
+                f"Pack entry {self.drug.identifier} "
+                f"{self.drug.__class__.__name__} has unquantified strength and "
+                f"can not participate in pack creation: {strength_data}"
+            )
 
         if self.box_size is not None and 0 >= self.box_size >= BOX_SIZE_LIMIT:
-            raise PackCreationError(
+            return (
                 f"Box size {self.box_size} is not valid. Must be between"
                 f"0 and {BOX_SIZE_LIMIT}"
             )
         if self.amount is not None and 0 >= self.amount >= BOX_SIZE_LIMIT:
-            raise PackCreationError(
+            return (
                 f"Box size {self.amount} is not valid. Must be between"
                 f"0 and {BOX_SIZE_LIMIT}"
             )
@@ -96,9 +109,15 @@ class ClinicalPack[Id: ConceptIdentifier](PackNode[Id]):
     identifier: Id
     entries: SortedTuple[PackEntry[Id]]
 
-    def __post_init__(self) -> NoReturn:
-        # TODO: implement checks
-        raise NotImplementedError("Clinical packs are not implemented yet.")
+    def __post_init__(self) -> None:
+        if len(self.entries) == 0:
+            raise PackCreationError(f"Pack {self.identifier} has no entries.")
+
+        for entry in self.entries:
+            if (msg := entry.validate_entry()) is not None:
+                raise PackCreationError(
+                    f"Pack {self.identifier} has invalid entry: {msg}"
+                )
 
     @override
     def get_brand_name(self) -> None:
