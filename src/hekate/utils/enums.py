@@ -59,11 +59,9 @@ class Cardinality(Enum):
     showing how many target concepts can be related to a single source concept.
     """
 
-    ANY = "0..*"  # Will not be used in practice
+    ANY = "0..*"  # Only used for pack contents
     ONE = "1..1"
     OPTIONAL = "0..1"
     NONZERO = "1..*"
     # Relationship that is ideally exists as 1..1, but can be 1..* in practice
     REDUNDANT = "1..?"
-
-
