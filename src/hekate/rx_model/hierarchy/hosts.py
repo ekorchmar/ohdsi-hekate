@@ -158,7 +158,7 @@ class KnownStrengths[Id: dc.ConceptIdentifier]:
 
 
 class RxHierarchy[Id: dc.ConceptIdentifier](
-    rx.PyDAG[dc.DrugNode[Id, dc.Strength | None], None]
+    rx.PyDAG[dc.HierarchyNode[Id], None]
 ):
     """
     The drug concept hierarchy that contains all the atomic and composite

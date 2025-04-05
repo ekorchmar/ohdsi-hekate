@@ -1,20 +1,14 @@
 from __future__ import annotations
+
 from dataclasses import dataclass  # For atomic concepts
-from typing import ClassVar, NoReturn, final, override, TYPE_CHECKING
+from typing import ClassVar, NoReturn, final, override
 
-if TYPE_CHECKING:
-    import drug_classes.strength as st  # For DrugNode interface annotation
-
-from utils.classes import SortedTuple  # For typing
-from utils.enums import ConceptClassId  # For typing
-from utils.exceptions import RxConceptCreationError  # For error handling
-
-from rx_model.drug_classes.generic import (
-    BoundStrength,
+from rx_model.drug_classes.base import (
     ConceptId,
     ConceptIdentifier,
-    DrugNode,
+    HierarchyNode,
 )
+from utils.exceptions import RxConceptCreationError  # For error handling
 
 
 # Atomic named concepts
@@ -59,7 +53,7 @@ class _RxAtom[Id: ConceptIdentifier]:
 
 # RxNorm
 @final
-class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], DrugNode[Id, None]):
+class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], HierarchyNode[Id]):
     """
     RxNorm or RxNorm Extension ingredient concept.
     """
@@ -67,41 +61,13 @@ class Ingredient[Id: ConceptIdentifier](_RxAtom[Id], DrugNode[Id, None]):
     @override
     def is_superclass_of(
         self,
-        other: DrugNode[Id, "st.Strength | None"],
+        other: HierarchyNode[Id],
         passed_hierarchy_checks: bool = True,
-    ) -> bool:
-        del passed_hierarchy_checks
-        # Ingredients are superclasses of any node containing them
-        for ing, _ in other.get_strength_data():
-            if self == ing:
-                return True
-        return False
-
-    @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, None]]:
-        return SortedTuple([
-            (self, None),
-        ])
-
-    @override
-    def get_precise_ingredients(self) -> list[None | PreciseIngredient]:
-        return [None]
-
-    @override
-    @classmethod
-    def from_definitions(
-        cls,
-        identifier: Id,
-        parents: dict[ConceptClassId, list[DrugNode[Id, st.Strength | None]]],
-        attributes: dict[
-            ConceptClassId, BrandName[Id] | DoseForm[Id] | Supplier[Id]
-        ],
-        precise_ingredients: list[PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, st.Strength | None]],
-        box_size: int | None,
     ) -> NoReturn:
         raise NotImplementedError(
-            f"{cls.__name__} should not be constructed from definitions."
+            "Ingredients are meant to be entry points to the search space, "
+            "known in advance. Generic interface for superclass testing should "
+            "not be used."
         )
 
 

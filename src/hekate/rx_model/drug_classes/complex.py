@@ -8,18 +8,15 @@ from abc import ABC, abstractmethod  # For mixins
 from dataclasses import dataclass
 from typing import override  # For type annotations
 
+from rx_model.drug_classes.base import ConceptIdentifier
 import rx_model.drug_classes.strength as st
 from rx_model.drug_classes import atom as a
-from rx_model.drug_classes.generic import (
-    BoundStrength,
-    ConceptIdentifier,
-    DrugNode,
-)
+from rx_model.drug_classes.generic import DrugNode  # Generic parent class
 from utils.classes import (
     PyRealNumber,  # For strength comparison
     SortedTuple,  # To ensure consistent layout
 )
-from utils.constants import BOX_SIZE_LIMIT
+from utils.constants import BOX_SIZE_LIMIT  # For integrity checks of boxes
 from utils.enums import ConceptClassId
 from utils.exceptions import RxConceptCreationError
 from utils.utils import invert_merge_dict, keep_multiple_values
@@ -142,7 +139,7 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return [self.precise_ingredient]
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
@@ -170,7 +167,7 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return False
 
     @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
+    def get_strength_data(self) -> SortedTuple[st.BoundStrength[Id, S]]:
         return SortedTuple([(self.ingredient, self.strength)])
 
     @override
@@ -183,7 +180,7 @@ class ClinicalDrugComponent[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> ClinicalDrugComponent[Id, S]:
         if len(strength_data) != 1:
@@ -226,7 +223,7 @@ NB: Contains multiple components in one!\
         self.check_multiple_components(self.clinical_drug_components)
 
     @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
+    def get_strength_data(self) -> SortedTuple[st.BoundStrength[Id, S]]:
         # Return contents of unwrapped tuples
         return SortedTuple([
             cdc.get_strength_data()[0] for cdc in self.clinical_drug_components
@@ -237,14 +234,16 @@ NB: Contains multiple components in one!\
         return [cdc.precise_ingredient for cdc in self.clinical_drug_components]
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             if not all(
-                cdc.is_superclass_of(other, passed_hierarchy_checks=False)
+                cdc.is_superclass_of_drug_node(
+                    other, passed_hierarchy_checks=False
+                )
                 for cdc in self.clinical_drug_components
             ):
                 return False
@@ -272,7 +271,7 @@ NB: Contains multiple components in one!\
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> BrandedDrugComponent[Id, S]:
         if len(strength_data) != len(parents[ConceptClassId.CDC]):
@@ -334,14 +333,17 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
             raise RxConceptCreationError(msg)
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             # Check all ingredients
-            if not all(ing.is_superclass_of(other) for ing in self.ingredients):
+            if any(
+                ing not in self.ingredients
+                for ing, _ in other.get_strength_data()
+            ):
                 return False
         else:
             # We are the first jump to multicomponent classes
@@ -352,7 +354,7 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         return self.dose_form == other.get_dose_form()
 
     @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, None]]:
+    def get_strength_data(self) -> SortedTuple[st.BoundStrength[Id, None]]:
         return SortedTuple([(ing, None) for ing in self.ingredients])
 
     @override
@@ -369,7 +371,7 @@ class ClinicalDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, None]],
+        strength_data: SortedTuple[st.BoundStrength[Id, None]],
         box_size: int | None,
     ) -> ClinicalDrugForm[Id]:
         dose_form = attributes[ConceptClassId.DOSE_FORM]
@@ -396,13 +398,13 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         return self.brand_name
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
-            if not self.clinical_drug_form.is_superclass_of(
+            if not self.clinical_drug_form.is_superclass_of_drug_node(
                 other, passed_hierarchy_checks=False
             ):
                 return False
@@ -411,7 +413,7 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
         return self.brand_name == other.get_brand_name()
 
     @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, None]]:
+    def get_strength_data(self) -> SortedTuple[st.BoundStrength[Id, None]]:
         return self.clinical_drug_form.get_strength_data()
 
     @override
@@ -428,7 +430,7 @@ class BrandedDrugForm[Id: ConceptIdentifier](DrugNode[Id, None]):
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, None]],
+        strength_data: SortedTuple[st.BoundStrength[Id, None]],
         box_size: int | None,
     ) -> BrandedDrugForm[Id]:
         (cdf,) = parents[ConceptClassId.CDF]
@@ -461,13 +463,13 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return [cdc.precise_ingredient for cdc in self.clinical_drug_components]
 
     @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
+    def get_strength_data(self) -> SortedTuple[st.BoundStrength[Id, S]]:
         return SortedTuple(
             cdc.get_strength_data()[0] for cdc in self.clinical_drug_components
         )
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
@@ -481,12 +483,12 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
                 return False
 
             if not all(
-                comp.is_superclass_of(other)
+                comp.is_superclass_of_drug_node(other)
                 for comp in self.clinical_drug_components
             ):
                 return False
 
-            if not self.form.is_superclass_of(
+            if not self.form.is_superclass_of_drug_node(
                 other, passed_hierarchy_checks=False
             ):
                 return False
@@ -502,7 +504,7 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> ClinicalDrug[Id, S]:
         (cdf,) = parents[ConceptClassId.CDF]
@@ -559,14 +561,14 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return self.branded_component.brand_name
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             # Takes care of strength and dose form checks
-            if not self.clinical_drug.is_superclass_of(
+            if not self.clinical_drug.is_superclass_of_drug_node(
                 other, passed_hierarchy_checks=False
             ):
                 return False
@@ -574,7 +576,7 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return self.get_brand_name() == other.get_brand_name()
 
     @override
-    def get_strength_data(self) -> SortedTuple[BoundStrength[Id, S]]:
+    def get_strength_data(self) -> SortedTuple[st.BoundStrength[Id, S]]:
         return self.clinical_drug.get_strength_data()
 
     @override
@@ -591,7 +593,7 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> BrandedDrug[Id, S]:
         (cd_node,) = parents[ConceptClassId.CD]
@@ -640,7 +642,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
     DrugNode[Id, st.LiquidQuantity]
 ):
     identifier: Id
-    contents: SortedTuple[BoundStrength[Id, st.LiquidQuantity]]
+    contents: SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]]
     unquantified: ClinicalDrug[Id, C]
 
     @override
@@ -698,17 +700,17 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
     @override
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, st.LiquidQuantity]]:
+    ) -> SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]]:
         return self.contents
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
-            if not self.unquantified.is_superclass_of(
+            if not self.unquantified.is_superclass_of_drug_node(
                 other, passed_hierarchy_checks=False
             ):
                 return False
@@ -762,7 +764,7 @@ class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        strength_data: SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
     ) -> QuantifiedClinicalDrug[Id, C]:
         (cd_node,) = parents[ConceptClassId.CD]
@@ -788,7 +790,7 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
     brand_name: a.BrandName[Id]
     # Redundant, hierarchy builder should check for ancestor consistency
     # unquantified: BrandedDrug[Id, C]
-    # contents: SortedTuple[BoundStrength[Id, st.LiquidQuantity]]
+    # contents: SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]]
 
     @override
     def get_dose_form(self) -> a.DoseForm[Id]:
@@ -805,17 +807,17 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
     @override
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, st.LiquidQuantity]]:
+    ) -> SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]]:
         return self.unbranded.get_strength_data()
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
-            if not self.unbranded.is_superclass_of(
+            if not self.unbranded.is_superclass_of_drug_node(
                 other, passed_hierarchy_checks=False
             ):
                 return False
@@ -832,7 +834,7 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        strength_data: SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
     ) -> QuantifiedBrandedDrug[Id]:
         qcd_node = parents[ConceptClassId.QCD][0]
@@ -869,7 +871,7 @@ class __Boxed[
     @override
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, S]]:
+    ) -> SortedTuple[st.BoundStrength[Id, S]]:
         return self.unboxed.get_strength_data()
 
     @override
@@ -900,13 +902,13 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return self.box_size
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
-            if not self.unboxed.is_superclass_of(
+            if not self.unboxed.is_superclass_of_drug_node(
                 other, passed_hierarchy_checks=False
             ):
                 return False
@@ -932,7 +934,7 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> ClinicalDrugBox[Id, S]:
         if box_size is None:
@@ -968,14 +970,14 @@ class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
         return self.unquantified.box_size
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             for node in (self.unboxed, self.unquantified):
-                if not node.is_superclass_of(
+                if not node.is_superclass_of_drug_node(
                     other, passed_hierarchy_checks=False
                 ):
                     return False
@@ -993,7 +995,7 @@ class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        strength_data: SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
     ) -> QuantifiedClinicalBox[Id, C]:
         (qcd_node,) = parents[ConceptClassId.QCD]
@@ -1032,14 +1034,14 @@ class BrandedDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         return self.clinical_box.box_size
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             for node in (self.unboxed, self.clinical_box):
-                if not node.is_superclass_of(
+                if not node.is_superclass_of_drug_node(
                     other, passed_hierarchy_checks=False
                 ):
                     return False
@@ -1056,7 +1058,7 @@ class BrandedDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> BrandedDrugBox[Id, S]:
         if box_size is None:
@@ -1097,14 +1099,14 @@ class QuantifiedBrandedBox[Id: ConceptIdentifier, C: Concentration](
         return self.quant_clinical_box.get_box_size()
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[Id, st.Strength | None],
         passed_hierarchy_checks: bool = True,
     ) -> bool:
         if not passed_hierarchy_checks:
             for node in (self.unboxed, self.quant_clinical_box):
-                if not node.is_superclass_of(
+                if not node.is_superclass_of_drug_node(
                     other, passed_hierarchy_checks=False
                 ):
                     return False
@@ -1121,7 +1123,7 @@ class QuantifiedBrandedBox[Id: ConceptIdentifier, C: Concentration](
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, st.LiquidQuantity]],
+        strength_data: SortedTuple[st.BoundStrength[Id, st.LiquidQuantity]],
         box_size: int | None,
     ) -> QuantifiedBrandedBox[Id, C]:
         if box_size is None:

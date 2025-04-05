@@ -3,18 +3,25 @@ Contains the ForeignDrugNode class, which represents an unknown node in the
 drug concept hierarchy.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import NoReturn, override, NamedTuple
-from rx_model.drug_classes.generic import (
-    ConceptCodeVocab,
-    ConceptId,
+from rx_model.drug_classes.base import (
+    ConceptCodeVocab,  # Source identifier
+    ConceptId,  # RxNorm identifier
     ConceptIdentifier,
-    BoundStrength,
-    DrugNode,
+    HierarchyNode,  # Generic identifier
+)
+from rx_model.drug_classes.generic import (
+    DrugNode,  # Generic supertype for FDN
+    PackNode,  # Generic supertype for FPN
+    PackEntry,  # FPN Pack content
 )
 import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.strength as st
 import rx_model.drug_classes.complex as c
+import rx_model.drug_classes.pack as p
 from rx_model.descriptive import StrengthConfiguration
 
 from utils.classes import SortedTuple, PyRealNumber
@@ -39,6 +46,14 @@ type _AnyComplex[Id: ConceptIdentifier] = (
     | c.QuantifiedBrandedDrug[Id]
     | c.QuantifiedClinicalBox[Id, st.LiquidConcentration | st.GasPercentage]
     | c.QuantifiedBrandedBox[Id, st.LiquidConcentration | st.GasPercentage]
+)
+
+type _AnyPack[Id: ConceptIdentifier] = (
+    p.ClinicalPack[Id] | p.BrandedPack[Id]
+    # | p.QuantifiedClinicalPack[Id]
+    # | p.QuantifiedBrandedPack[Id]
+    # | p.ClinicalPackBox[Id]
+    # | p.BrandedPackBox[Id]
 )
 
 # PseudoUnit is verbatim string representation of a unit in source data
@@ -113,6 +128,15 @@ class PrecedenceData(NamedTuple):
     brand_name_diff: int = 0
     supplier_diff: int = 0
 
+    @override
+    def __add__(self, other: tuple[int, ...]) -> PrecedenceData:
+        """
+        Adds precedence data of two different drug nodes element-wise. Use case
+        for this is calculating cumulative precedence deviation for pack node
+        from participating drug nodes.
+        """
+        return PrecedenceData(*(s + o for s, o in zip(self, other)))
+
 
 @dataclass(frozen=True, slots=True)
 class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
@@ -126,17 +150,17 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     precedence_data: PrecedenceData
     identifier: ConceptId
 
-    strength_data: SortedTuple[BoundStrength[ConceptId, S]]
+    strength_data: SortedTuple[st.BoundStrength[ConceptId, S]]
     dose_form: a.DoseForm[ConceptId] | None = None
     brand_name: a.BrandName[ConceptId] | None = None
     supplier: a.Supplier[ConceptId] | None = None
     box_size: int | None = None
 
-    # Is curently None for practical purposes
+    # Is currently None for practical purposes
     precise_ingredients: list[a.PreciseIngredient | None] | None = None
 
     @override
-    def is_superclass_of(
+    def is_superclass_of_drug_node(
         self,
         other: DrugNode[ConceptId, st.Strength | None],
         passed_hierarchy_checks: bool = True,
@@ -149,7 +173,7 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
     @override
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[ConceptId, S]]:
+    ) -> SortedTuple[st.BoundStrength[ConceptId, S]]:
         return self.strength_data
 
     @override
@@ -266,12 +290,12 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
         if self.dose_form is not None:
             return
 
-        for _, strength in self.strength_data:
-            if isinstance(strength, st.LiquidQuantity):
-                raise ForeignNodeCreationError(
-                    f"All quantified strength data entries must have a dose "
-                    f"form, but Node {self.identifier} does not have one."
-                )
+        strength = self.strength_data[0][1]
+        if isinstance(strength, st.LiquidQuantity):
+            raise ForeignNodeCreationError(
+                f"All quantified strength data entries must have a dose "
+                f"form, but Node {self.identifier} does not have one."
+            )
 
     def best_case_class(self) -> type[_AnyComplex[ConceptId]]:
         """
@@ -391,8 +415,64 @@ class ForeignDrugNode[S: st.Strength | None](DrugNode[ConceptId, S]):
             | a.Supplier[ConceptId],
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[ConceptId, S]],
+        strength_data: SortedTuple[st.BoundStrength[ConceptId, S]],
         box_size: int | None,
+    ) -> NoReturn:
+        raise NotImplementedError(
+            "Foreign nodes cannot be created from definitions."
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignPackNode(PackNode[ConceptId]):
+    """
+    Represents an unknown node in the pack concept hierarchy. This is used to
+    model a virtual representation of a source pack concept in form native to
+    RxNorm/RxNorm-Extension model.
+    """
+
+    # Metadata populated at creation
+    precedence_data: PrecedenceData
+    identifier: ConceptId
+
+    entries: SortedTuple[PackEntry[ConceptId]]
+
+    brand_name: a.BrandName[ConceptId] | None = None
+    supplier: a.Supplier[ConceptId] | None = None
+
+    @override
+    def is_superclass_of(
+        self,
+        other: HierarchyNode[ConceptId],
+        passed_hierarchy_checks: bool = True,
+    ) -> NoReturn:
+        del passed_hierarchy_checks, other
+        raise NotImplementedError(
+            "Cannot check superclass relationship with a foreign node."
+        )
+
+    @override
+    def get_entries(self) -> SortedTuple[PackEntry[ConceptId]]:
+        return self.entries
+
+    @override
+    def get_brand_name(self) -> a.BrandName[ConceptId] | None:
+        return self.brand_name
+
+    @override
+    def get_supplier(self) -> a.Supplier[ConceptId] | None:
+        return self.supplier
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: ConceptId,
+        parents: dict[ConceptClassId, list[PackNode[ConceptId]]],
+        attributes: dict[
+            ConceptClassId, a.BrandName[ConceptId] | a.Supplier[ConceptId]
+        ],
+        entries: list[PackEntry[ConceptId]],
     ) -> NoReturn:
         raise NotImplementedError(
             "Foreign nodes cannot be created from definitions."

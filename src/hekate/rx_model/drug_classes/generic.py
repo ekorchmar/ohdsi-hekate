@@ -1,57 +1,29 @@
 """
-Contains generic data classes and types used throughout the project.
+Contains generic high level supertypes and interfaces for the drug
+concept hierarchy.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod  # For DrugNode interface
-from typing import (
-    TYPE_CHECKING,  # For conditional imports for typechecking
-    NamedTuple,  # For ConceptCodeVocab
-    override,  # for typing
-)
+from abc import ABC, abstractmethod
+from typing import override  # for HierarchyNode interface
+from dataclasses import dataclass  # for PackEntry
 
+import rx_model.drug_classes.atom as a
+import rx_model.drug_classes.strength as st
+from rx_model.drug_classes.base import (
+    ConceptIdentifier,  # For identifiers
+    HierarchyNode,  # For node interface
+)
 from utils.classes import SortedTuple  # For typing
 from utils.enums import ConceptClassId  # For typing
-
-if TYPE_CHECKING:
-    # Circular import: atom.Ingredient is also a DrugNode
-    import rx_model.drug_classes.atom as a
-
-    # Circular import: Strength needs ConceptId
-    import rx_model.drug_classes.strength as st
+from utils.constants import BOX_SIZE_LIMIT  # aka Postgres smallint limit
 
 
-# Identifiers
-class ConceptId(int):
-    """
-    Unique identifier for a concept in the OMOP vocabulary.
-
-    This is just a subclass of int, meaning CPython will treat it as an int.
-    """
-
-
-class ConceptCodeVocab(NamedTuple):
-    """
-    Vocabulary and code pair for a concept in the OMOP vocabulary.
-    """
-
-    concept_code: str
-    vocabulary_id: str
-
-    @override
-    def __str__(self):
-        return f"{self.vocabulary_id}/{self.concept_code}"
-
-
-type ConceptIdentifier = ConceptId | ConceptCodeVocab
-
-type BoundStrength[Id: ConceptIdentifier, S: st.Strength | None] = tuple[
-    "a.Ingredient[Id]", S
-]
-
-
-class DrugNode[Id: ConceptIdentifier, S: st.Strength | None](ABC):
+class DrugNode[
+    Id: ConceptIdentifier,
+    S: st.Strength | None,
+](HierarchyNode[Id], ABC):
     """
     Metaclass for the nodes in the drug concept hierarchy.
 
@@ -62,25 +34,9 @@ class DrugNode[Id: ConceptIdentifier, S: st.Strength | None](ABC):
     identifier: Id
 
     @abstractmethod
-    def is_superclass_of(
-        self,
-        other: DrugNode[Id, st.Strength | None],
-        passed_hierarchy_checks: bool = True,
-    ) -> bool:
-        """
-        Check if this node is a superclass of another node.
-
-        Args:
-            other: The node to check against.
-            passed_hierarchy_checks: Whether the tested node had already passed
-                the corresponding checks by the predecessors of this node. This
-                is used to avoid redundant checks in the hierarchy.
-        """
-
-    @abstractmethod
     def get_strength_data(
         self,
-    ) -> SortedTuple[BoundStrength[Id, S]]:
+    ) -> SortedTuple[st.BoundStrength[Id, S]]:
         """
         Retrieve all strength data for this node. Every entry will always
         specify an ingredient and a strength, which may be None for nodes
@@ -131,7 +87,7 @@ class DrugNode[Id: ConceptIdentifier, S: st.Strength | None](ABC):
             ConceptClassId, a.BrandName[Id] | a.DoseForm[Id] | a.Supplier[Id]
         ],
         precise_ingredients: list[a.PreciseIngredient],
-        strength_data: SortedTuple[BoundStrength[Id, S]],
+        strength_data: SortedTuple[st.BoundStrength[Id, S]],
         box_size: int | None,
     ) -> DrugNode[Id, S]:
         """
@@ -143,3 +99,137 @@ class DrugNode[Id: ConceptIdentifier, S: st.Strength | None](ABC):
         raise NotImplementedError(
             f"{cls.__name__} should not be constructed from definitions."
         )
+
+    @abstractmethod
+    def is_superclass_of_drug_node(
+        self,
+        other: DrugNode[Id, st.Strength | None],
+        passed_hierarchy_checks: bool = True,
+    ) -> bool:
+        """
+        Check if this node is a superclass of another DrugNode.
+
+        Args:
+            other: The node to check against.
+            passed_hierarchy_checks: Whether the tested node had already passed
+                the corresponding checks by the predecessors of this node. This
+                is used to avoid redundant checks in the hierarchy.
+        """
+
+    @override
+    def is_superclass_of(
+        self, other: HierarchyNode[Id], passed_hierarchy_checks: bool = True
+    ) -> bool:
+        """
+        Check if this node is a superclass of another HierarchyNode.
+        """
+        match other:
+            case DrugNode():
+                return self.is_superclass_of_drug_node(
+                    other,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                    passed_hierarchy_checks,
+                )
+            case PackNode():
+                raise NotImplementedError(
+                    "Testing if drug node is superclass of pack node is not "
+                    "yet implemented."
+                )
+            case a.Ingredient():
+                # NOTE: A bit weird we did end up here. Raising an error is
+                # better than returning False, although would make sense
+
+                raise TypeError(
+                    "DrugNode should not be tested as Ingredient superclass."
+                )
+                # return False
+            case _:
+                # Unreachable
+                raise ValueError(f"{other} is not a valid node type to test.")
+
+
+@dataclass(frozen=True, eq=True, slots=True)
+class PackEntry[Id: ConceptIdentifier]:
+    """
+    Drug entry in a pack
+    """
+
+    drug: DrugNode[Id, st.LiquidQuantity | st.SolidStrength]
+    amount: int | None
+    box_size: int | None
+
+    def __lt__(self, other: PackEntry[Id]) -> bool:
+        """
+        Enable sorting of pack entries
+        """
+        # NOTE: Comparison between different identifier types can only occur in
+        # a programming error state
+        return self.drug.identifier < other.drug.identifier  # pyright: ignore[reportOperatorIssue, reportUnknownVariableType]  # noqa: 501
+
+    def validate_entry(self) -> str | None:
+        """
+        Validate the pack entry. Returns either a string with the error message
+        or None if the entry is valid.
+        """
+        strength_data = self.drug.get_strength_data()
+        strength_instance: st.Strength = strength_data[0][1]
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            strength_instance, (st.LiquidQuantity, st.SolidStrength)
+        ):
+            return (
+                f"Pack entry {self.drug.identifier} "
+                f"{self.drug.__class__.__name__} has unquantified strength and "
+                f"can not participate in pack creation: {strength_data}"
+            )
+
+        if self.box_size is not None and 0 >= self.box_size >= BOX_SIZE_LIMIT:
+            return (
+                f"Box size {self.box_size} is not valid. Must be between"
+                f"0 and {BOX_SIZE_LIMIT}"
+            )
+        if self.amount is not None and 0 >= self.amount >= BOX_SIZE_LIMIT:
+            return (
+                f"Box size {self.amount} is not valid. Must be between"
+                f"0 and {BOX_SIZE_LIMIT}"
+            )
+
+
+class PackNode[Id: ConceptIdentifier](HierarchyNode[Id], ABC):
+    """
+    Metaclass for the pack nodes in the drug concept hierarchy.
+
+    Purpose of this class is to provide a consistent interface for the
+    transitive closure methods, allowing dynamic typing to be used.
+    """
+
+    identifier: Id
+
+    @abstractmethod
+    def get_entries(self) -> SortedTuple[PackEntry[Id]]:
+        """
+        Get the entries of the pack.
+        """
+
+    @abstractmethod
+    def get_brand_name(self) -> a.BrandName[Id] | None:
+        """
+        Get the brand name of the pack.
+        """
+
+    @abstractmethod
+    def get_supplier(self) -> a.Supplier[Id] | None:
+        """
+        Get the supplier of the pack.
+        """
+
+    @classmethod
+    @abstractmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[PackNode[Id]]],
+        attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
+        entries: list[PackEntry[Id]],
+    ) -> PackNode[Id]:
+        """
+        Create a pack node from the definitions.
+        """

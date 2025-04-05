@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import override  # For type annotations
 
 from rx_model.drug_classes import atom as a  # For unit classes
-from rx_model.drug_classes.generic import ConceptId
+from rx_model.drug_classes.base import ConceptId, ConceptIdentifier
 from utils.constants import (
     PERCENT_CONCEPT_ID,  # For gaseous percentage check
     STRENGTH_CLOSURE_BOUNDARY_HIGH,
@@ -294,3 +294,7 @@ type UnquantifiedStrength = SolidStrength | LiquidConcentration | GasPercentage
 
 # Exhaustive list of strength types
 type Strength = UnquantifiedStrength | LiquidQuantity
+
+type BoundStrength[Id: ConceptIdentifier, S: Strength | None] = tuple[
+    a.Ingredient[Id], S
+]
