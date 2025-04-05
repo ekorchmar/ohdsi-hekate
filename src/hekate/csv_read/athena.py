@@ -1629,7 +1629,6 @@ class OMOPVocabulariesV5:
         # NOTE: topological sorting will prevent this from happening
         for parent_rel in definition.parent_relations:
             if (p_def := parent_rel.target_definition) not in all_parent_nodes:
-                assert p_def is not None
                 raise ValueError(
                     f"Definition {p_def.class_id} not found in parent_nodes"
                 )
@@ -2329,3 +2328,88 @@ class OMOPVocabulariesV5:
             )
 
         return out_nodes
+
+    def add_pack_nodes(
+        self,
+        definition: d.PackDefinition,
+        all_parent_nodes: dict[d.PackDefinition, _TempNodeView],
+        all_component_definition: dict[
+            d.ComplexDrugNodeDefinition, _TempNodeView
+        ],
+    ) -> _TempNodeView:
+        """
+        Process a set of pack nodes and add them to the hierarchy.
+        Args:
+            definition: The definition of the class to be added.
+            all_parent_nodes: A dictionary of parent nodes indexed by their
+                class_id dictionary values are the node indices of the parent
+                nodes in the hierarchy.
+            all_component_definition: A dictionary of component nodes indexed by
+                their class_id dictionary values are the node indices of the
+                component nodes in the hierarchy.
+
+        Returns:
+            A dictionary of the node indices of the class nodes indexed by their
+            concept_id.
+        """
+        # If both predicate and parent definition specifies an attribute,
+        # they must match
+        p_def_a_def: dict[d.PackDefinition, list[d.MonoAtributeDefiniton]] = {}
+        for p_rel in definition.parent_relations:
+            p_def = p_rel.target_definition
+            assert isinstance(p_def, d.PackDefinition)
+            for attr_rel in p_def.attribute_relations:
+                if attr_rel in definition.attribute_relations:
+                    assert isinstance(
+                        attr_rel.target_definition,
+                        d.MonoAtributeDefiniton,
+                    )
+                    p_def_a_def.setdefault(p_def, []).append(
+                        attr_rel.target_definition
+                    )
+
+        # NOTE: Although components are not prohibited from sharing attributes
+        # with parents, they are not required to, so we will not check for the
+        # match
+        self.logger.info(f"Processing {definition.class_id} nodes")
+        out_nodes: _TempNodeView = {}
+
+        # Test that all parent definitions come with nodes -- programming error
+        # NOTE: topological sorting will prevent this from happening
+        for parent_rel in definition.parent_relations:
+            if (p_def := parent_rel.target_definition) not in all_parent_nodes:
+                raise ValueError(
+                    f"Definition {p_def.class_id} not found in parent_nodes"
+                )
+        # Test that required components also come with nodes -- ditto
+        for c_rel in definition.content_relations:
+            if (c := c_rel.target_definition) not in all_component_definition:
+                raise ValueError(
+                    f"Definition {c.class_id} not found in parent_nodes"
+                )
+
+        # Test that required attrribute keys match the parents -- ditto
+        if any(p_def not in all_parent_nodes for p_def in p_def_a_def):
+            raise ValueError(
+                "Parent definitions in require_parent_match do not subset "
+                "all_parent_nodes"
+            )
+
+        # Test that required components also come with nodes -- ditto
+        if any(
+            c_rel.target_definition not in all_component_definition
+            for c_rel in definition.content_relations
+        ):
+            raise ValueError(
+                "Component definitions do not subset all_component_definition"
+            )
+
+        relationship_definitions = [
+            *definition.attribute_relations,
+            *definition.content_relations,
+            *definition.parent_relations,
+        ]
+
+        del relationship_definitions
+        del out_nodes
+        raise NotImplementedError

@@ -23,6 +23,7 @@ from rx_model.descriptive.strength import (
 )
 from rx_model.descriptive.complex import ComplexDrugNodeDefinition
 
+from rx_model.descriptive.pack import PackDefinition
 
 __all__ = [
     "ConceptDefinition",
@@ -41,4 +42,5 @@ __all__ = [
     "UNQUANTIFIED_STRENGTH_CONFIGURATIONS",
     "StrengthConfiguration",
     "ComplexDrugNodeDefinition",
+    "PackDefinition",
 ]
