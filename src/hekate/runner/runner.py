@@ -27,7 +27,7 @@ type _InterimResult = dict[
     dc.ForeignNodePrototype,
     dict[
         dc.ForeignDrugNode[dc.Strength | None],
-        Sequence[dc.DrugNode[dc.ConceptId, dc.Strength | None]],
+        Sequence[dc.HierarchyNode[dc.ConceptId]],
     ],
 ]
 
@@ -121,7 +121,7 @@ class HekateRunner:
         LOGGER.debug(f"Logging to {log_file}")
 
     def write_results(self):
-        columns = {
+        columns: dict[str, list[str | pl.Series]] = {
             "concept_code_1": [],
             "vocabulary_id_1": [],
             "concept_id_2": [],
@@ -218,7 +218,7 @@ class HekateRunner:
                     )
                     continue
 
-                visitor = p.DrugNodeFinder(
+                visitor = p.NodeFinder(
                     option,
                     self.athena_rxne.hierarchy,
                     self.logger,

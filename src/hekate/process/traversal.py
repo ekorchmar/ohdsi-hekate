@@ -21,7 +21,7 @@ from rustworkx.visualization import (  # For illustration
 from rx_model.drug_classes import (
     ConceptId,  # Typing
     ConceptCodeVocab,  # Typing
-    DrugNode,  # Operand
+    HierarchyNode,  # Operand
     ForeignDrugNode,  # Operand
     Ingredient,  # Entry point, special case
     Strength,  # Typing
@@ -29,13 +29,13 @@ from rx_model.drug_classes import (
 from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
 
 
-class DrugNodeFinder(rx.visit.BFSVisitor):
+class NodeFinder(rx.visit.BFSVisitor):
     """
     A visitor class that traverses the RxHierarchy tree (BFS) and finds a new
     appropriate location for a new node.
     """
 
-    SENTINEL: DrugNode[ConceptId, None] = Ingredient(ConceptId(0), "__SENTINEL")
+    SENTINEL: HierarchyNode[ConceptId] = Ingredient(ConceptId(0), "__SENTINEL")
 
     def __init__(
         self,
@@ -65,7 +65,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
 
         # The class of nodes to prune the search at. All descendants will be
         # redundant.
-        self.aim_for: type[DrugNode] = (  # pyright: ignore[reportMissingTypeArgument]  # noqa: E501
+        self.aim_for: type[HierarchyNode] = (  # pyright: ignore[reportMissingTypeArgument]  # noqa: E501
             self.node.best_case_class()
         )
 
@@ -82,9 +82,9 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         # Will only be populated if save_subplot is True
         self.rejected_nodes: set[NodeIndex] = set()
         self._rejected_by_accepted: dict[NodeIndex, set[NodeIndex]] = {}
-        self.subgraph: (
-            None | rx.PyDiGraph[DrugNode[ConceptId, Strength | None], None]
-        ) = None
+        self.subgraph: None | rx.PyDiGraph[HierarchyNode[ConceptId], None] = (
+            None
+        )
 
     @override
     def discover_vertex(self, v: NodeIndex) -> None:
@@ -93,24 +93,24 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         """
         drug_node = self.hierarchy[v]
 
-        if drug_node is self.SENTINEL:
-            # Implicitly accept
+        if isinstance(drug_node, Ingredient):
+            # Sentinel or ingredient node
+            self._accept_node(v)
             return
 
-        if not isinstance(drug_node, Ingredient):  # pyright: ignore[reportUnnecessaryIsInstance]  # noqa: E501
-            # Check if all of the node's predecessors were accepted
-            if any(
-                p_idx not in self.accepted_nodes
-                for p_idx in self.hierarchy.predecessor_indices(v)
-            ):
-                # Not all predecessors are accepted
-                self._reject_node(v)
+        # Check if all of the node's predecessors were accepted
+        if any(
+            p_idx not in self.accepted_nodes
+            for p_idx in self.hierarchy.predecessor_indices(v)
+        ):
+            # Not all predecessors are accepted
+            self._reject_node(v)
 
-        if not drug_node.is_superclass_of(self.node):
+        if drug_node.is_superclass_of(self.node):
+            self._accept_node(v)
+        else:
             # None of the descendants will match
             self._reject_node(v)
-        else:
-            self._accept_node(v)
 
     def _reject_node(self, v: NodeIndex) -> NoReturn:
         """
@@ -125,6 +125,9 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         Accepts a node and remembers it.
         """
         drug_node = self.hierarchy[v]
+        if drug_node is self.SENTINEL:
+            return
+
         self.accepted_nodes.add(v)
 
         # Update the terminal node list, removing the node(s) that is
@@ -154,7 +157,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         # starting point of the search.
 
         # We make it an Ingredient, so that type checker accepts it
-        temporary_root_idx = self.hierarchy.add_node(self.SENTINEL)  # pyright: ignore[reportArgumentType]  # noqa: E501
+        temporary_root_idx = self.hierarchy.add_node(self.SENTINEL)
 
         for ing, _ in self.node.get_strength_data():
             ing_idx = self.hierarchy.ingredients[ing]
@@ -173,7 +176,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
 
     def get_search_results(
         self,
-    ) -> dict[NodeIndex, DrugNode[ConceptId, Strength | None]]:
+    ) -> dict[NodeIndex, HierarchyNode[ConceptId]]:
         """
         Returns the search results as a dictionary.
         """
@@ -225,7 +228,7 @@ class DrugNodeFinder(rx.visit.BFSVisitor):
         )
 
     def _get_graphviz_node_attr(
-        self, node: DrugNode[ConceptId, Strength | None]
+        self, node: HierarchyNode[ConceptId]
     ) -> dict[str, str]:
         """
         Returns the Graphviz node attributes for the given node.

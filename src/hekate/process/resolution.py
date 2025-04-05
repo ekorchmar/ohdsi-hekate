@@ -18,12 +18,14 @@ from utils import exceptions
 from utils.classes import PyRealNumber, SortedTuple
 
 type _VirtualNode = dc.ForeignDrugNode[dc.Strength | None]
-type _Terminal = dc.DrugNode[dc.ConceptId, dc.Strength | None]
+type _Terminal = dc.HierarchyNode[dc.ConceptId]
 
 type _CDC = dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength]
 type _StrengthDefinition = SortedTuple[
     dc.BoundStrength[dc.ConceptId, dc.Strength | None]
 ]
+
+_ZERO = PyRealNumber(0)
 
 
 # TODO: Document the order elsewhere
@@ -91,22 +93,22 @@ class ResultCharacteristics(NamedTuple):
                 d_diff = abs(t_str.denominator_value - s_str.denominator_value)
             elif t_str is not None:
                 # Always 0 for unquantified strengths
-                d_diff = PyRealNumber(0)
+                d_diff = _ZERO
             else:
                 # No strength data, noop
                 return cls(
-                    numerator_score=PyRealNumber(0),
-                    denominator_score=PyRealNumber(0),
+                    numerator_score=_ZERO,
+                    denominator_score=_ZERO,
                 )
 
             # Accumulate relative differences
-            n_diff = PyRealNumber(0)
+            n_diff = _ZERO
             for (_, s_str), (_, t_str) in zip(source_strength, target_strength):
                 if isinstance(t_str, dc.SolidStrength):
                     # Only possible source counterpart
                     assert isinstance(s_str, dc.SolidStrength)
                     assert isinstance(t_str, dc.SolidStrength)
-                    if s_str.amount_value == PyRealNumber(0):
+                    if s_str.amount_value == _ZERO:
                         # Avoid division by zero for inert ingredients
                         continue
                     t_val = t_str.amount_value
@@ -157,10 +159,35 @@ class ResultCharacteristics(NamedTuple):
                 f"metadata."
             )
 
-        n_diff, d_diff = cls.StrengthDiff.from_strength_pair(
-            source_strength=source.get_strength_data(),
-            target_strength=target.get_strength_data(),
-        )
+        match target:
+            case dc.Ingredient():
+                # No strength data
+                return cls(
+                    source.precedence_data.ingredient_diff,
+                    _ZERO,
+                    0,
+                    0,
+                    0,
+                    _ZERO,
+                    is_extension=metadata[0, "vocabulary_id"]
+                    == "RxNorm Extension",
+                    valid_start_date=metadata[0, "valid_start_date"],
+                    concept_id=target.identifier,
+                )
+            case dc.DrugNode():
+                target_node: dc.DrugNode[dc.ConceptId, dc.Strength] = target
+                n_diff, d_diff = cls.StrengthDiff.from_strength_pair(
+                    source_strength=source.get_strength_data(),
+                    target_strength=target_node.get_strength_data(),
+                )
+            case dc.PackNode():
+                raise NotImplementedError(
+                    "PackNode not implemented for this resolver yet."
+                )
+            case _:
+                raise NotImplementedError(
+                    f"Unknown target type {target.__class__.__name__}."
+                )
 
         return cls(
             ingredient_diff=source.precedence_data.ingredient_diff,
@@ -262,9 +289,7 @@ class Resolver:
         # Concept data lookup
         self.concept_handle: athena.ConceptTable = concept_handle
 
-    def pick_omop_mapping(
-        self,
-    ) -> list[dc.DrugNode[dc.ConceptId, dc.Strength | None]]:
+    def pick_omop_mapping(self) -> list[dc.HierarchyNode[dc.ConceptId]]:
         """
         Pick the mapping result that has the highest priority and is ready for
         inclusion.
@@ -280,7 +305,8 @@ class Resolver:
         best_class = min(
             chain(*self.mapping_results.values()),
             key=lambda node: dc.DRUG_CLASS_PREFERENCE_ORDER.index(
-                node.__class__
+                # TODO: use CCId enum
+                node.__class__  # pyright: ignore[reportArgumentType]
             ),
         ).__class__
 
@@ -312,11 +338,8 @@ class Resolver:
             # 2.a. No nodes with all components found, return ingredients of
             # the best node
             if not cdc_nodes:
-                return [
-                    # Only monoingredients here, ignore strength
-                    target.get_strength_data()[0][0]
-                    for target in self.mapping_results[nodes_by_ingredient[0]]
-                ]
+                # Only monoingredients here, ignore strength
+                return list(self.mapping_results[nodes_by_ingredient[0]])
             # 2.b. Rate and deduplicate the components grouped by ingredient
             else:
                 scored: Sequence[

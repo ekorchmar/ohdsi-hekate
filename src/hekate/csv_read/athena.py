@@ -43,7 +43,7 @@ type _MonoAttribute = (
     | dc.BrandName[dc.ConceptId]
 )
 
-type _ParentNode = dc.DrugNode[dc.ConceptId, dc.Strength | None]
+type _ParentDrugNode = dc.DrugNode[dc.ConceptId, dc.Strength | None]
 
 
 class _StrengthTuple(NamedTuple):
@@ -81,7 +81,7 @@ class ConceptTable(OMOPTable[None]):
     TABLE_COLUMNS: list[str] = [
         "concept_id",
         "concept_name",
-        # "domain_id", Made redundant by class
+        "domain_id",  # Redundant, but may speed up filtering
         "vocabulary_id",
         "concept_class_id",
         "standard_concept",
@@ -966,7 +966,7 @@ class OMOPVocabulariesV5:
         ]
         all_parent_nodes: dict[CCId, _TempNodeView] = {}
         for ccid in complexity_order:
-            class_nodes = self.add_class_nodes(
+            class_nodes = self.add_drug_nodes(
                 class_id=ccid,
                 all_parent_nodes=all_parent_nodes,
             )
@@ -1587,7 +1587,7 @@ class OMOPVocabulariesV5:
             f"configurations for {len(invalid_drugs):,} drug concepts",
         )
 
-    def add_class_nodes(
+    def add_drug_nodes(
         self,
         class_id: CCId,
         all_parent_nodes: dict[CCId, _TempNodeView],
@@ -1776,7 +1776,7 @@ class OMOPVocabulariesV5:
             # Parent concepts
             parent_indices: list[NodeIndex] = []
             parent_data: dict[
-                d.ComplexDrugNodeDefinition, list[_ParentNode]
+                d.ComplexDrugNodeDefinition, list[_ParentDrugNode]
             ] = {}
             parents_failed = False
             for parent_rel in definition.parent_relations:
@@ -1839,7 +1839,7 @@ class OMOPVocabulariesV5:
                             f"got {type(parent_node)}"
                         )
 
-                    parent_data.setdefault(parent_def, []).append(parent_node)
+                    parent_data.setdefault(parent_def, []).append(parent_node)  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
                     parent_indices.append(parent_node_idx)
                 if parents_failed:
                     break
