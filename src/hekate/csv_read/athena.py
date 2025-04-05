@@ -962,15 +962,15 @@ class OMOPVocabulariesV5:
             CCId.BDB,
             CCId.QCB,
             CCId.QBB,
-            # TODO: process the remaining classes
         ]
-        all_parent_nodes: dict[CCId, _TempNodeView] = {}
+        all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView] = {}
         for ccid in complexity_order:
+            definition = d.ComplexDrugNodeDefinition.get(ccid)
             class_nodes = self.add_drug_nodes(
-                class_id=ccid,
+                definition=definition,
                 all_parent_nodes=all_parent_nodes,
             )
-            all_parent_nodes[ccid] = class_nodes
+            all_parent_nodes[definition] = class_nodes
 
     def process_atoms(self) -> None:
         """
@@ -1589,13 +1589,13 @@ class OMOPVocabulariesV5:
 
     def add_drug_nodes(
         self,
-        class_id: CCId,
-        all_parent_nodes: dict[CCId, _TempNodeView],
+        definition: d.ComplexDrugNodeDefinition,
+        all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
     ) -> _TempNodeView:
         """
-        Process a set of class nodes and add them to the hierarchy.
+        Process a set of drug class nodes and add them to the hierarchy.
         Args:
-            class_id: The concept_class_id of the class to be added
+            definition: The definition of the class to be added.
             all_parent_nodes: A dictionary of parent nodes indexed by their
                 class_id dictionary values are the node indices of the parent
                 nodes in the hierarchy.
@@ -1604,24 +1604,14 @@ class OMOPVocabulariesV5:
             A dictionary of the node indices of the class nodes indexed by their
             concept_id.
         """
-        # Convert input to definitions args
-        definition = d.ComplexDrugNodeDefinition.get(class_id)
-        p_def_nodes = {
-            d.ComplexDrugNodeDefinition.get(p_id): p_view
-            for p_id, p_view in all_parent_nodes.items()
-            if p_id
-            in [
-                p_rel.target_definition.omop_concept_class_id
-                for p_rel in definition.parent_relations
-            ]
-        }
-
         # If both predicate and parent definition specifies an attribute,
         # they must match
         p_def_a_def: dict[
             d.ComplexDrugNodeDefinition, list[d.MonoAtributeDefiniton]
         ] = {}
-        for p_def in p_def_nodes:
+        for p_rel in definition.parent_relations:
+            p_def = p_rel.target_definition
+            assert isinstance(p_def, d.ComplexDrugNodeDefinition)
             for attr_rel in p_def.attribute_relations:
                 if attr_rel in definition.attribute_relations:
                     assert isinstance(
@@ -1636,15 +1626,16 @@ class OMOPVocabulariesV5:
         out_nodes: _TempNodeView = {}
 
         # Test that all parent definitions come with nodes -- programming error
+        # NOTE: topological sorting will prevent this from happening
         for parent_rel in definition.parent_relations:
-            if (p_def := parent_rel.target_definition) not in p_def_nodes:
+            if (p_def := parent_rel.target_definition) not in all_parent_nodes:
                 assert p_def is not None
                 raise ValueError(
                     f"Definition {p_def.class_id} not found in parent_nodes"
                 )
 
         # Test that required attrribute keys match the parents -- ditto
-        if any(p_def not in p_def_nodes for p_def in p_def_a_def):
+        if any(p_def not in all_parent_nodes for p_def in p_def_a_def):
             raise ValueError(
                 "Parent definitions in require_parent_match do not subset "
                 "all_parent_nodes"
@@ -1802,7 +1793,7 @@ class OMOPVocabulariesV5:
                     parent_ids = parent_id_or_ids
 
                 # Lookup the nodes
-                parent_node_view = p_def_nodes[parent_def]
+                parent_node_view = all_parent_nodes[parent_def]
                 for parent_id in parent_ids:
                     try:
                         parent_node_idx = parent_node_view[parent_id]
@@ -2238,7 +2229,7 @@ class OMOPVocabulariesV5:
             # If parent indices are not given, attach to ingredients
             if not parent_indices:
                 # Make sure this is not and error
-                if len(p_def_nodes) > 0:
+                if len(definition.parent_relations) > 0:
                     raise ValueError(
                         f"parent indices must not be empty for "
                         f"{definition.class_id} {concept_id} "
@@ -2320,7 +2311,9 @@ class OMOPVocabulariesV5:
                 )
 
         # Mismatch with parents on ingredients and strengths
-        for p_def in p_def_nodes:
+        for p_rel in definition.parent_relations:
+            p_def = p_rel.target_definition
+            assert isinstance(p_def, d.ComplexDrugNodeDefinition)
             mismatched = node_strength_mismatch.get(p_def, [])
             self.filter_out_bad_concepts(
                 len(node_concepts),
