@@ -37,22 +37,22 @@ class PackDefinition(ConceptDefinition):
     """
 
     constructor: type[dc.PackNode[dc.ConceptId]]
-    content_relations: tuple[RelationshipDescription, ...]
-    attribute_relations: tuple[RelationshipDescription, ...]
-    parent_relations: tuple[RelationshipDescription, ...]
+    content_relations: tuple[RelationshipDescription, ...] = ()
+    attribute_relations: tuple[RelationshipDescription, ...] = ()
+    parent_relations: tuple[RelationshipDescription, ...] = ()
 
-    defines_pack_size: bool
+    defines_pack_size: bool = False
 
     omop_domain_id: DomainId = DomainId.DRUG
     omop_vocabulary_ids: tuple[VocabularyId, ...] = RX_VOCAB  # RxE only for Box
     standard_concept: bool = True
 
     # Registry
-    _registry: ClassVar[dict[ConceptClassId, PackDefinition]] = {}
+    registry: ClassVar[dict[ConceptClassId, PackDefinition]] = {}
 
     @classmethod
     def get(cls, key: ConceptClassId) -> PackDefinition:
-        return cls._registry[key]
+        return cls.registry[key]
 
     def __post_init__(self):
         # Pack size is only defined for *Boxes, and is as such specific to RxE
@@ -78,7 +78,7 @@ class PackDefinition(ConceptDefinition):
         ):
             raise ValueError("Only pack nodes can be parents of packs!")
 
-        self._registry[self.omop_concept_class_id] = self
+        self.registry[self.omop_concept_class_id] = self
 
 
 # Declarations of pack classes
