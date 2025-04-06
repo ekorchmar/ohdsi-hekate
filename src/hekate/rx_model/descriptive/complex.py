@@ -45,11 +45,11 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
     standard_concept: bool = True
 
     # Registry
-    _registry: ClassVar[dict[ConceptClassId, ComplexDrugNodeDefinition]] = {}
+    registry: ClassVar[dict[ConceptClassId, ComplexDrugNodeDefinition]] = {}
 
     @classmethod
     def get(cls, key: ConceptClassId) -> ComplexDrugNodeDefinition:
-        return cls._registry[key]
+        return cls.registry[key]
 
     def __post_init__(self):
         if self.ingredient_cardinality not in CARDINALITY_REQUIRED:
@@ -90,7 +90,7 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
                 "explicit ingredients"
             )
 
-        self._registry[self.omop_concept_class_id] = self
+        self.registry[self.omop_concept_class_id] = self
 
 
 # Declarations of complex drug classes

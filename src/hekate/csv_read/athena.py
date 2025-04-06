@@ -947,25 +947,15 @@ class OMOPVocabulariesV5:
         self.process_atoms()
         self.process_precise_ingredients()
 
-        # Add nodes in order of complexity
-        # TODO: use topological sort to compute this list from definitions
-        complexity_order = [
-            CCId.CDF,
-            CCId.BDF,
-            CCId.CDC,
-            CCId.BDC,
-            CCId.CD,
-            CCId.BD,
-            CCId.QCD,
-            CCId.QBD,
-            CCId.CDB,
-            CCId.BDB,
-            CCId.QCB,
-            CCId.QBB,
-        ]
+        # Add drug nodes in order of declared inheritance
+        drug_complexity_order: list[d.ComplexDrugNodeDefinition] = (
+            d.ClassHierarchy.resolve_from_definitions(  # pyright: ignore[reportUnknownMemberType] # noqa: E501
+                d.ComplexDrugNodeDefinition
+            )
+        )
+
         all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView] = {}
-        for ccid in complexity_order:
-            definition = d.ComplexDrugNodeDefinition.get(ccid)
+        for definition in drug_complexity_order:
             class_nodes = self.add_drug_nodes(
                 definition=definition,
                 all_parent_nodes=all_parent_nodes,
