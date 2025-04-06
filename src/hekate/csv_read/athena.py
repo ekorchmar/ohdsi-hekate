@@ -135,6 +135,16 @@ class ConceptTable(OMOPTable[None]):
                 allow_invalid=True
             )
 
+        # Add complex pack node definitions
+        for ccid in CCId:
+            try:
+                definition = d.PackDefinition.get(ccid)
+            except KeyError:
+                continue
+            filter_expression |= definition.get_concept_expression(
+                allow_invalid=True
+            )
+
         return frame.filter(filter_expression)
 
     def get_metadata(self, ids: Sequence[dc.ConceptId]):
@@ -269,7 +279,12 @@ class PackContentTable(OMOPTable[pl.Series]):
     def table_filter(
         self, frame: pl.LazyFrame, valid_concepts: pl.Series | None = None
     ) -> pl.LazyFrame:
-        raise NotImplementedError
+        if valid_concepts is None:
+            raise ValueError("Concept filter argument is required.")
+
+        # Only keep valid packs
+        # This includes packs that are descendants of invalid drugs
+        return frame.filter(pl.col("pack_concept_id").is_in(valid_concepts))
 
 
 class OMOPVocabulariesV5:
@@ -284,19 +299,24 @@ class OMOPVocabulariesV5:
 
         drug_concept_id: int
         ingredient_concept_id: int
-        amount_value: PyRealNumber
-        amount_unit_concept_id: int
-        numerator_value: PyRealNumber
-        numerator_unit_concept_id: int
-        denominator_value: PyRealNumber
-        denominator_unit_concept_id: int
-        box_size: int
+        amount_value: PyRealNumber | None
+        amount_unit_concept_id: int | None
+        numerator_value: PyRealNumber | None
+        numerator_unit_concept_id: int | None
+        denominator_value: PyRealNumber | None
+        denominator_unit_concept_id: int | None
+        box_size: int | None
 
         # Boolean flags for strength data shape
         amount_only: bool
         liquid_concentration: bool
         liquid_quantity: bool
         gas_concentration: bool
+
+    class _PackEntryProto(NamedTuple):
+        drug_concept_id: int
+        amount: int | None
+        box_size: int | None
 
     def get_class_relationships(
         self, class_id_1: str, class_id_2: str, relationship_id: str
@@ -724,11 +744,17 @@ class OMOPVocabulariesV5:
             try:
                 match True:
                     case row.amount_only:
+                        assert row.amount_unit_concept_id
+                        assert row.amount_value is not None
                         strength = dc.SolidStrength(
                             amount_value=row.amount_value,
                             amount_unit=get_unit(row.amount_unit_concept_id),
                         )
                     case row.liquid_concentration:
+                        assert row.numerator_unit_concept_id
+                        assert row.numerator_value
+                        assert row.denominator_unit_concept_id
+
                         strength = dc.LiquidConcentration(
                             numerator_value=row.numerator_value,
                             numerator_unit=get_unit(
@@ -739,6 +765,10 @@ class OMOPVocabulariesV5:
                             ),
                         )
                     case row.liquid_quantity:
+                        assert row.numerator_unit_concept_id
+                        assert row.numerator_value
+                        assert row.denominator_value
+                        assert row.denominator_unit_concept_id
                         strength = dc.LiquidQuantity(
                             numerator_value=row.numerator_value,
                             numerator_unit=get_unit(
@@ -750,6 +780,8 @@ class OMOPVocabulariesV5:
                             ),
                         )
                     case row.gas_concentration:
+                        assert row.numerator_unit_concept_id
+                        assert row.numerator_value
                         strength = dc.GasPercentage(
                             numerator_value=row.numerator_value,
                             numerator_unit=get_unit(
@@ -984,13 +1016,35 @@ class OMOPVocabulariesV5:
             )
         )
 
-        all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView] = {}
+        drug_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView] = {}
         for definition in drug_complexity_order:
             class_nodes = self.add_drug_nodes(
                 definition=definition,
-                all_parent_nodes=all_parent_nodes,
+                all_parent_nodes=drug_parent_nodes,
             )
-            all_parent_nodes[definition] = class_nodes
+            drug_parent_nodes[definition] = class_nodes
+
+        # Add and process packs
+        self.pack_content: PackContentTable = PackContentTable(
+            path=vocab_download_path / "pack_content.csv",
+            reference_data=self.concept.collect()["concept_id"],
+        )
+        self.pack_content.materialize()
+
+        pack_complexity_order: list[d.PackDefinition] = (
+            d.ClassHierarchy.resolve_from_definitions(  # pyright: ignore[reportUnknownMemberType] # noqa: E501
+                d.PackDefinition
+            )
+        )
+
+        pack_parent_nodes: dict[d.PackDefinition, _TempNodeView] = {}
+        for definition in pack_complexity_order:
+            class_nodes = self.add_pack_nodes(
+                definition=definition,
+                all_parent_nodes=pack_parent_nodes,
+                all_component_nodes=drug_parent_nodes,
+            )
+            pack_parent_nodes[definition] = class_nodes
 
     def process_atoms(self) -> None:
         """
@@ -1269,6 +1323,18 @@ class OMOPVocabulariesV5:
         strength.anti_join(
             bad_concepts_df,
             left_on=["ingredient_concept_id"],
+            right_on=["concept_id"],
+        )
+
+        # Same with pack content
+        try:
+            pack_content = self.pack_content
+        except AttributeError:
+            return
+        logger.debug("Removing from pack content table")
+        pack_content.anti_join(
+            bad_concepts_df,
+            left_on=["pack_concept_id"],
             right_on=["concept_id"],
         )
 
@@ -1644,21 +1710,6 @@ class OMOPVocabulariesV5:
 
         self.logger.info(f"Processing {definition.class_id} nodes")
         out_nodes: _TempNodeView = {}
-
-        # Test that all parent definitions come with nodes -- programming error
-        # NOTE: topological sorting will prevent this from happening
-        for parent_rel in definition.parent_relations:
-            if (p_def := parent_rel.target_definition) not in all_parent_nodes:
-                raise ValueError(
-                    f"Definition {p_def.class_id} not found in parent_nodes"
-                )
-
-        # Test that required attrribute keys match the parents -- ditto
-        if any(p_def not in all_parent_nodes for p_def in p_def_a_def):
-            raise ValueError(
-                "Parent definitions in require_parent_match do not subset "
-                "all_parent_nodes"
-            )
 
         relationship_definitions = [
             *definition.attribute_relations,
@@ -2353,9 +2404,7 @@ class OMOPVocabulariesV5:
         self,
         definition: d.PackDefinition,
         all_parent_nodes: dict[d.PackDefinition, _TempNodeView],
-        all_component_definition: dict[
-            d.ComplexDrugNodeDefinition, _TempNodeView
-        ],
+        all_component_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
     ) -> _TempNodeView:
         """
         Process a set of pack nodes and add them to the hierarchy.
@@ -2364,7 +2413,7 @@ class OMOPVocabulariesV5:
             all_parent_nodes: A dictionary of parent nodes indexed by their
                 class_id dictionary values are the node indices of the parent
                 nodes in the hierarchy.
-            all_component_definition: A dictionary of component nodes indexed by
+            all_component_nodes: A dictionary of component nodes indexed by
                 their class_id dictionary values are the node indices of the
                 component nodes in the hierarchy.
 
@@ -2391,38 +2440,9 @@ class OMOPVocabulariesV5:
         # NOTE: Although components are not prohibited from sharing attributes
         # with parents, they are not required to, so we will not check for the
         # match
+
         self.logger.info(f"Processing {definition.class_id} nodes")
         out_nodes: _TempNodeView = {}
-
-        # Test that all parent definitions come with nodes -- programming error
-        # NOTE: topological sorting will prevent this from happening
-        for parent_rel in definition.parent_relations:
-            if (p_def := parent_rel.target_definition) not in all_parent_nodes:
-                raise ValueError(
-                    f"Definition {p_def.class_id} not found in parent_nodes"
-                )
-        # Test that required components also come with nodes -- ditto
-        for c_rel in definition.content_relations:
-            if (c := c_rel.target_definition) not in all_component_definition:
-                raise ValueError(
-                    f"Definition {c.class_id} not found in parent_nodes"
-                )
-
-        # Test that required attrribute keys match the parents -- ditto
-        if any(p_def not in all_parent_nodes for p_def in p_def_a_def):
-            raise ValueError(
-                "Parent definitions in require_parent_match do not subset "
-                "all_parent_nodes"
-            )
-
-        # Test that required components also come with nodes -- ditto
-        if any(
-            c_rel.target_definition not in all_component_definition
-            for c_rel in definition.content_relations
-        ):
-            raise ValueError(
-                "Component definitions do not subset all_component_definition"
-            )
 
         relationship_definitions = [
             *definition.attribute_relations,
@@ -2430,6 +2450,159 @@ class OMOPVocabulariesV5:
             *definition.parent_relations,
         ]
 
-        del relationship_definitions
-        del out_nodes
+        node_concepts = self.get_validated_relationships_view(
+            source_class=definition.omop_concept_class_id,
+            relationships=relationship_definitions,
+            # Attach pack content
+        ).join(
+            other=self.pack_content.collect().group_by("pack_concept_id").all(),
+            left_on="concept_id",
+            right_on="pack_concept_id",
+        )
+
+        # Bad relations
+        node_bad_attr: dict[d.MonoAtributeDefiniton, list[int]] = {}
+        node_bad_parent: dict[d.PackDefinition, list[int]] = {}
+        node_bad_content: dict[d.ComplexDrugNodeDefinition, list[int]] = {}
+
+        # Bad entry shape
+        node_bad_shape: list[int] = []
+
+        # Mismatch with parents
+        node_attr_mismatch: dict[
+            d.PackDefinition,  # Parent definition
+            dict[
+                d.MonoAtributeDefiniton,  # Attribute definition
+                list[int],  # Concept IDs
+            ],
+        ] = {}
+        node_entry_mismatch: dict[
+            d.PackDefinition,  # Parent definition
+            list[int],  # Concept IDs
+        ] = {}
+
+        # Fail on creation
+        node_failed: list[int] = []
+
+        for row in node_concepts.iter_rows():
+            # Consume the row
+            listed = iter(row)
+
+            # Own concept_id
+            concept_id: int = next(listed)
+
+            # Attribute data
+            attr_data: dict[d.MonoAtributeDefiniton, _MonoAttribute] = {}
+            for attr_rel in definition.attribute_relations:
+                assert isinstance(
+                    attr_rel.target_definition,
+                    d.MonoAtributeDefiniton,
+                )
+                attr_id: int = next(listed)
+
+                # Lookup the atom
+                try:
+                    atom = self.atoms.lookup_unknown(dc.ConceptId(attr_id))
+                except InvalidConceptIdError:
+                    self.logger.debug(
+                        f"Attribute {attr_id} not found for "
+                        f"{definition.class_id} {concept_id}"
+                    )
+                    node_bad_attr.setdefault(
+                        attr_rel.target_definition, []
+                    ).append(concept_id)
+                    continue
+
+                # Test atom class. Catching this means a programming error
+                if not isinstance(atom, attr_rel.target_definition.constructor):
+                    raise ValueError(
+                        f"Expected {attr_id} to be of class "
+                        f"{attr_rel.target_definition.class_id} "
+                        f"for {concept_id}, got {type(atom)}"
+                    )
+                attr_data[attr_rel.target_definition] = atom  # pyright: ignore[reportArgumentType]  # noqa: E501
+
+            # Parent concepts
+            parent_indices: list[NodeIndex] = []
+            parent_data: dict[
+                d.PackDefinition, list[dc.PackNode[dc.ConceptId]]
+            ] = {}
+            parents_failed = False
+            for parent_rel in definition.parent_relations:
+                parent_def = parent_rel.target_definition
+                assert isinstance(
+                    parent_def,
+                    d.PackDefinition,
+                )
+                parent_id_or_ids: int | list[int] = next(listed)
+
+                # For simplicity, convert to iterable
+                parent_ids: list[int]
+                if isinstance(parent_id_or_ids, int):
+                    if not parent_rel.cardinality == Cardinality.ONE:
+                        # Programming error
+                        raise ValueError(
+                            f"Expected single parent ID for "
+                            f"{parent_def.class_id}, "
+                            f"got {parent_id_or_ids}"
+                        )
+                    parent_ids = [parent_id_or_ids]
+                else:
+                    parent_ids = parent_id_or_ids
+
+                # Lookup the nodes
+                parent_node_view = all_parent_nodes[parent_def]
+                for parent_id in parent_ids:
+                    try:
+                        parent_node_idx = parent_node_view[parent_id]
+                    except KeyError:
+                        self.logger.debug(
+                            f"Parent {parent_id} not found for "
+                            f"{definition.class_id} {concept_id}"
+                        )
+                        node_bad_parent.setdefault(parent_def, []).append(
+                            concept_id
+                        )
+                        parents_failed = True
+                        break
+
+                    # Try getting the node
+                    try:
+                        parent_node = self.hierarchy[parent_node_idx]
+                    except IndexError:
+                        self.logger.debug(
+                            f"Parent {parent_id} not found in hierarchy for "
+                            f"{definition.class_id} {concept_id}"
+                        )
+                        node_bad_parent.setdefault(parent_def, []).append(
+                            concept_id
+                        )
+                        parents_failed = True
+                        break
+
+                    # Check class (programming error)
+                    if not isinstance(parent_node, parent_def.constructor):
+                        raise ValueError(
+                            f"Expected {parent_id} to be of class "
+                            f"{parent_def.class_id} for {concept_id}, "
+                            f"got {type(parent_node)}"
+                        )
+
+                    parent_data.setdefault(parent_def, []).append(parent_node)
+                    parent_indices.append(parent_node_idx)
+                if parents_failed:
+                    break
+            if parents_failed:
+                continue  # to next concept
+
+        del (
+            out_nodes,
+            node_concepts,
+            all_component_nodes,
+            node_bad_content,
+            node_bad_shape,
+            node_attr_mismatch,
+            node_entry_mismatch,
+            node_failed,
+        )
         raise NotImplementedError
