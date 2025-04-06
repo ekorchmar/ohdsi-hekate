@@ -3,20 +3,30 @@ Contains implementations to read TSV data from a file and transform it
 into ForeignDrugNode objects for evaluation.
 """
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Generator, Sequence
-from pathlib import Path
+from pathlib import Path  # for CSV locations
 from typing import Annotated, override
 
-import polars as pl
-from csv_read.generic import CSVReader, Schema
-from rx_model import drug_classes as dc
-from rx_model import hierarchy as h
+import polars as pl  # for tabular data manipulation
+from csv_read.generic import CSVReader, Schema  # Inheriting
+from rx_model import drug_classes as dc  # for drug atoms and identifiers
+from rx_model import hierarchy as h  # For hierarchy and atom containers
 from utils.exceptions import (
     ForeignDosageStrengthError,
     ForeignNodeCreationError,
 )
-from utils.classes import PlRealNumber, PyRealNumber, SortedTuple
+from utils.classes import (
+    # For type aliases
+    PlConceptId,
+    PlRealNumber,
+    PyRealNumber,
+    SortedTuple,
+    PlString,
+    PlSmallInt,
+)
 from utils.logger import LOGGER
 
 type _SourceBoxSize = int | None
@@ -24,15 +34,15 @@ type _SourceBoxSize = int | None
 
 class DrugConceptStage(CSVReader[None]):
     TABLE_SCHEMA: Schema = {
-        "concept_code": pl.Utf8,
-        "concept_name": pl.Utf8,
-        "concept_class_id": pl.Utf8,
-        "vocabulary_id": pl.Utf8,
-        "source_concept_class_id": pl.Utf8,
+        "concept_code": PlString,
+        "concept_name": PlString,
+        "concept_class_id": PlString,
+        "vocabulary_id": PlString,
+        "source_concept_class_id": PlString,
         "possible_excipient": pl.Null,  # NOTE: not implemented yet
         "valid_start_date": pl.Date,
         "valid_end_date": pl.Date,
-        "invalid_reason": pl.Utf8,
+        "invalid_reason": PlString,
     }
 
     TABLE_COLUMNS: list[str] = [
@@ -72,15 +82,15 @@ class DSStage(CSVReader[pl.DataFrame]):
     type dss_strength_tuple = tuple[PyRealNumber | None, dc.PseudoUnit]
 
     TABLE_SCHEMA: Schema = {
-        "drug_concept_code": pl.Utf8,
-        "ingredient_concept_code": pl.Utf8,
+        "drug_concept_code": PlString,
+        "ingredient_concept_code": PlString,
         "amount_value": PlRealNumber,
-        "amount_unit": pl.Utf8,
+        "amount_unit": PlString,
         "numerator_value": PlRealNumber,
-        "numerator_unit": pl.Utf8,
+        "numerator_unit": PlString,
         "denominator_value": PlRealNumber,
-        "denominator_unit": pl.Utf8,
-        "box_size": pl.UInt16,
+        "denominator_unit": PlString,
+        "box_size": PlSmallInt,
     }
 
     TABLE_COLUMNS: list[str] = [
@@ -108,10 +118,10 @@ class DSStage(CSVReader[pl.DataFrame]):
 
 class RelationshipToConcept(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
-        "concept_code_1": pl.Utf8,
-        "vocabulary_id_1": pl.Utf8,
-        "concept_id_2": pl.UInt32,
-        "precedence": pl.UInt8,
+        "concept_code_1": PlString,
+        "vocabulary_id_1": PlString,
+        "concept_id_2": PlConceptId,
+        "precedence": PlSmallInt,
         "conversion_factor": PlRealNumber,
     }
 
@@ -136,8 +146,8 @@ class RelationshipToConcept(CSVReader[pl.DataFrame]):
 
 class InternalRelationshipStage(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
-        "concept_code_1": pl.Utf8,
-        "concept_code_2": pl.Utf8,
+        "concept_code_1": PlString,
+        "concept_code_2": PlString,
     }
 
     TABLE_COLUMNS: list[str] = list(TABLE_SCHEMA.keys())
@@ -159,10 +169,10 @@ class InternalRelationshipStage(CSVReader[pl.DataFrame]):
 
 class PCSStage(CSVReader[pl.DataFrame]):
     TABLE_SCHEMA: Schema = {
-        "pack_concept_code": pl.Utf8,
-        "drug_concept_code": pl.Utf8,
-        "amount": pl.UInt16,
-        "box_size": pl.UInt16,
+        "pack_concept_code": PlString,
+        "drug_concept_code": PlString,
+        "amount": PlSmallInt,
+        "box_size": PlSmallInt,
     }
     TABLE_COLUMNS: list[str] = list(TABLE_SCHEMA.keys())
 

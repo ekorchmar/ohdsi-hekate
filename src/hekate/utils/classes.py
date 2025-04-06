@@ -24,6 +24,12 @@ class SortedTuple[T: SupportsRichComparison](tuple[T]):
         return f"SortedTuple({super().__repr__()})"
 
 
+# Polars types
+PlConceptId = pl.UInt32
+PlString = pl.Utf8
+PlAthenaDate = pl.UInt32  # YYYYMMDD in Athena
+PlSmallInt = pl.UInt16
+
 PlRealNumber = pl.Decimal(
     precision=None,  # infer
     scale=6,  # Down to 6 decimal places

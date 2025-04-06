@@ -20,7 +20,16 @@ from utils.exceptions import (
 
 from rx_model.hierarchy.hosts import NodeIndex
 from rx_model import descriptive as d
-from utils.classes import SortedTuple, PlRealNumber, PyRealNumber
+from utils.classes import (
+    SortedTuple,
+    # Polars types
+    PlConceptId,
+    PlRealNumber,
+    PyRealNumber,
+    PlString,
+    PlAthenaDate,
+    PlSmallInt,
+)
 from utils.constants import (
     ALL_CONCEPT_RELATIONSHIP_IDS,
     ATHENA_OVERFILTERING_TRESHOLD,
@@ -66,17 +75,17 @@ class OMOPTable[IdS: pl.Series | None](CSVReader[IdS], ABC):
 
 class ConceptTable(OMOPTable[None]):
     TABLE_SCHEMA: Schema = {
-        "concept_id": pl.UInt32,
-        "concept_name": pl.Utf8,
-        "domain_id": pl.Utf8,
-        "vocabulary_id": pl.Utf8,
-        "concept_class_id": pl.Utf8,
-        "standard_concept": pl.Utf8,
-        "concept_code": pl.Utf8,
+        "concept_id": PlConceptId,
+        "concept_name": PlString,
+        "domain_id": PlString,
+        "vocabulary_id": PlString,
+        "concept_class_id": PlString,
+        "standard_concept": PlString,
+        "concept_code": PlString,
         # Athena dates are given as YYYYMMDD, and polars does not pick them up
-        "valid_start_date": pl.UInt32,  # NB: Not pl.Date
-        "valid_end_date": pl.UInt32,
-        "invalid_reason": pl.Utf8,
+        "valid_start_date": PlAthenaDate,  # NB: Not pl.Date
+        "valid_end_date": PlAthenaDate,
+        "invalid_reason": PlString,
     }
     TABLE_COLUMNS: list[str] = [
         "concept_id",
@@ -141,12 +150,12 @@ class ConceptTable(OMOPTable[None]):
 
 class RelationshipTable(OMOPTable[pl.Series]):
     TABLE_SCHEMA: Schema = {
-        "concept_id_1": pl.UInt32,
-        "concept_id_2": pl.UInt32,
-        "relationship_id": pl.Utf8,
-        "valid_start_date": pl.UInt32,
-        "valid_end_date": pl.UInt32,
-        "invalid_reason": pl.Utf8,
+        "concept_id_1": PlConceptId,
+        "concept_id_2": PlConceptId,
+        "relationship_id": PlString,
+        "valid_start_date": PlAthenaDate,
+        "valid_end_date": PlAthenaDate,
+        "invalid_reason": PlString,
     }
     TABLE_COLUMNS: list[str] = [
         "concept_id_1",
@@ -176,18 +185,18 @@ class RelationshipTable(OMOPTable[pl.Series]):
 
 class StrengthTable(OMOPTable[pl.Series]):
     TABLE_SCHEMA: Schema = {
-        "drug_concept_id": pl.UInt32,
-        "ingredient_concept_id": pl.UInt32,
+        "drug_concept_id": PlConceptId,
+        "ingredient_concept_id": PlConceptId,
         "amount_value": PlRealNumber,
-        "amount_unit_concept_id": pl.UInt32,
+        "amount_unit_concept_id": PlConceptId,
         "numerator_value": PlRealNumber,
-        "numerator_unit_concept_id": pl.UInt32,
+        "numerator_unit_concept_id": PlConceptId,
         "denominator_value": PlRealNumber,
-        "denominator_unit_concept_id": pl.UInt32,
-        "box_size": pl.UInt16,
-        "valid_start_date": pl.UInt32,
-        "valid_end_date": pl.UInt32,
-        "invalid_reason": pl.Utf8,
+        "denominator_unit_concept_id": PlConceptId,
+        "box_size": PlSmallInt,
+        "valid_start_date": PlAthenaDate,
+        "valid_end_date": PlAthenaDate,
+        "invalid_reason": PlString,
     }
     TABLE_COLUMNS: list[str] = [
         "drug_concept_id",
@@ -216,10 +225,10 @@ class StrengthTable(OMOPTable[pl.Series]):
 
 class AncestorTable(OMOPTable[pl.Series]):
     TABLE_SCHEMA: Schema = {
-        "ancestor_concept_id": pl.UInt32,
-        "descendant_concept_id": pl.UInt32,
-        "min_levels_of_separation": pl.UInt32,
-        "max_levels_of_separation": pl.UInt32,
+        "ancestor_concept_id": PlConceptId,
+        "descendant_concept_id": PlConceptId,
+        "min_levels_of_separation": PlSmallInt,
+        "max_levels_of_separation": PlSmallInt,
     }
     TABLE_COLUMNS: list[str] = [
         "ancestor_concept_id",
@@ -240,6 +249,27 @@ class AncestorTable(OMOPTable[pl.Series]):
             pl.col("descendant_concept_id").is_in(valid_concepts),
             pl.col("ancestor_concept_id").is_in(valid_concepts),
         )
+
+
+class PackContentTable(OMOPTable[pl.Series]):
+    TABLE_SCHEMA: Schema = {
+        "pack_concept_id": PlConceptId,
+        "drug_concept_id": PlConceptId,
+        "amount": PlSmallInt,
+        "box_size": PlSmallInt,
+    }
+    TABLE_COLUMNS: list[str] = [
+        "pack_concept_id",
+        "drug_concept_id",
+        "amount",
+        "box_size",
+    ]
+
+    @override
+    def table_filter(
+        self, frame: pl.LazyFrame, valid_concepts: pl.Series | None = None
+    ) -> pl.LazyFrame:
+        raise NotImplementedError
 
 
 class OMOPVocabulariesV5:
@@ -788,7 +818,7 @@ class OMOPVocabulariesV5:
 
         self.filter_out_bad_concepts(
             len(drug_ids),
-            pl.Series(failed_concept_ids, dtype=pl.UInt32),
+            pl.Series(failed_concept_ids, dtype=PlConceptId),
             "All strength data was successfully created",
             "Strength_Creation",
             f"{len(failed_concept_ids):,} drug concepts had failed "
@@ -2239,7 +2269,7 @@ class OMOPVocabulariesV5:
         ):
             self.filter_out_bad_concepts(
                 len(node_concepts),
-                pl.Series(lst_bad, dtype=pl.UInt32),
+                pl.Series(lst_bad, dtype=PlConceptId),
                 f"All {definition.class_id} have valid {attr_def.class_id}",
                 f"{definition.get_abbreviation()}_Bad_"
                 f"{attr_def.get_abbreviation()}",
@@ -2250,7 +2280,7 @@ class OMOPVocabulariesV5:
         # Bad ingredient data
         self.filter_out_bad_concepts(
             len(node_concepts),
-            pl.Series(node_bad_ingred, dtype=pl.UInt32),
+            pl.Series(node_bad_ingred, dtype=PlConceptId),
             f"All {definition.class_id} have valid I",
             f"{definition.get_abbreviation()}_Bad_I",
             f"{len(node_bad_ingred):,} {definition.class_id} had bad "
@@ -2264,7 +2294,7 @@ class OMOPVocabulariesV5:
         ):
             self.filter_out_bad_concepts(
                 len(node_concepts),
-                pl.Series(node_ingred_ds_mismatch, dtype=pl.UInt32),
+                pl.Series(node_ingred_ds_mismatch, dtype=PlConceptId),
                 f"All {definition.class_id} match Strengths to Ingredients",
                 f"{definition.get_abbreviation()}_I_DS_Mismatch",
                 f"{len(node_ingred_ds_mismatch):,} {definition.class_id} had "
@@ -2275,7 +2305,7 @@ class OMOPVocabulariesV5:
         if definition.defines_explicit_precise_ingredients:
             self.filter_out_bad_concepts(
                 len(node_concepts),
-                pl.Series(node_bad_pi, dtype=pl.UInt32),
+                pl.Series(node_bad_pi, dtype=PlConceptId),
                 f"All {definition.class_id} have valid PI",
                 f"{definition.get_abbreviation()}_Bad_PI",
                 f"{len(node_bad_pi):,} {definition.class_id} had bad "
@@ -2288,7 +2318,7 @@ class OMOPVocabulariesV5:
                 mismatched = node_attr_mismatch.get(p_def, {}).get(attr_def, [])
                 self.filter_out_bad_concepts(
                     len(node_concepts),
-                    pl.Series(mismatched, dtype=pl.UInt32),
+                    pl.Series(mismatched, dtype=PlConceptId),
                     f"All {definition.class_id} have matching "
                     f"{attr_def.class_id} with their {p_def.class_id}s",
                     definition.get_abbreviation()
@@ -2306,7 +2336,7 @@ class OMOPVocabulariesV5:
             mismatched = node_strength_mismatch.get(p_def, [])
             self.filter_out_bad_concepts(
                 len(node_concepts),
-                pl.Series(mismatched, dtype=pl.UInt32),
+                pl.Series(mismatched, dtype=PlConceptId),
                 f"All {definition.class_id} have matching I and S with their "
                 f"{p_def.class_id}s",
                 definition.get_abbreviation()
