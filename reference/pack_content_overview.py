@@ -102,3 +102,51 @@ allowed_classes = (
 print(allowed_classes)
 # Interesting: RxNorm allows Branded Drugs to be in a pack, RxE does not
 allowed_classes.write_csv("allowed_classes.csv")
+
+
+# Question 4: do pack content elements stay the same between parent and child?
+concept_ancestor = pathlib.Path(
+    "~/Downloads/RxNE/CONCEPT_ANCESTOR.csv"
+).expanduser()
+ca = pl.read_csv(concept_ancestor, separator="\t")
+
+packs_drugs_no_rxn_b = (
+    pc.select("pack_concept_id", "drug_concept_id", "amount")
+    .join(
+        # Exclude RxNorm Branded Pack: they use branded drugs, which we know
+        # Use branded counterparts of (Q)CDs
+        how="anti",
+        other=c.filter(
+            pl.col("vocabulary_id") == "RxNorm",
+            pl.col("concept_class_id") == "Branded Pack",
+        ),
+        left_on="pack_concept_id",
+        right_on="concept_id",
+    )
+    .sort(by="drug_concept_id")
+    .group_by("pack_concept_id")
+    .all()
+)
+
+mismatched = (
+    ca.join(
+        packs_drugs_no_rxn_b,
+        how="inner",
+        left_on="ancestor_concept_id",
+        right_on="pack_concept_id",
+    )
+    .join(
+        packs_drugs_no_rxn_b,
+        how="inner",
+        left_on="descendant_concept_id",
+        right_on="pack_concept_id",
+        suffix="_D",
+    )
+    .filter(
+        (pl.col("drug_concept_id") != pl.col("drug_concept_id_D"))
+        | (pl.col("amount") != pl.col("amount_D"))
+    )
+)
+
+# Good! Exactly 0.
+print(mismatched)

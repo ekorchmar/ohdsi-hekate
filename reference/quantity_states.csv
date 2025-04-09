@@ -1,10 +1,10 @@
 concept_class_id_pack,vocabulary_id,amount_states_in_pack,box_size_states_in_pack,count
-Clinical Pack,RxNorm Extension,1,1,1484
 Clinical Pack,RxNorm,1,1,839
+Marketed Product,RxNorm Extension,1,1,1657
+Clinical Pack Box,RxNorm Extension,1,1,600
 Branded Pack,RxNorm Extension,1,1,1804
+Clinical Pack,RxNorm Extension,2,1,2
+Clinical Pack,RxNorm Extension,1,1,1484
+Branded Pack Box,RxNorm Extension,1,1,812
 Clinical Pack Box,RxNorm Extension,2,1,1
 Branded Pack,RxNorm,1,1,927
-Clinical Pack Box,RxNorm Extension,1,1,600
-Branded Pack Box,RxNorm Extension,1,1,812
-Clinical Pack,RxNorm Extension,2,1,2
-Marketed Product,RxNorm Extension,1,1,1657
