@@ -30,8 +30,9 @@ PlString = pl.Utf8
 PlAthenaDate = pl.UInt32  # YYYYMMDD in Athena
 PlSmallInt = pl.UInt16
 
+# NOTE: Numbers that low are not normal. Those come from homeopathic products.
 PlRealNumber = pl.Decimal(
     precision=None,  # infer
-    scale=6,  # Down to 6 decimal places
+    scale=14,  # Down to 14 decimal places
 )
 PyRealNumber = decimal.Decimal

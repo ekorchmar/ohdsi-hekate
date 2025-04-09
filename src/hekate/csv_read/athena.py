@@ -1028,6 +1028,8 @@ class OMOPVocabulariesV5:
         self.pack_content: PackContentTable = PackContentTable(
             path=vocab_download_path / "pack_content.csv",
             reference_data=self.concept.collect()["concept_id"],
+            # NOTE: Pack content is distributed separately and uses comma
+            delimiter=",",
         )
         self.pack_content.materialize()
 
