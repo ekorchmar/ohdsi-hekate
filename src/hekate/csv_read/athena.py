@@ -5,7 +5,7 @@ Contains implementations to read CSV data from Athena OMOP CDM Vocabularies
 from itertools import zip_longest, chain  # For iteration
 import logging  # for typing
 from abc import ABC  # For shared table reading methods
-from collections.abc import Sequence, Mapping  # for typing
+from collections.abc import Sequence, Mapping, Iterator  # for typing
 from pathlib import Path  # To locate the CSV files
 from typing import Literal, NamedTuple, override, overload  # For typing
 
@@ -312,11 +312,6 @@ class OMOPVocabulariesV5:
         liquid_concentration: bool
         liquid_quantity: bool
         gas_concentration: bool
-
-    class _PackEntryProto(NamedTuple):
-        drug_concept_id: int
-        amount: int | None
-        box_size: int | None
 
     def get_class_relationships(
         self, class_id_1: str, class_id_2: str, relationship_id: str
@@ -2488,10 +2483,12 @@ class OMOPVocabulariesV5:
 
         for row in node_concepts.iter_rows():
             # Consume the row
-            listed = iter(row)
+            listed: Iterator[int | list[int] | None] = iter(row)
 
             # Own concept_id
-            concept_id: int = next(listed)
+            id = next(listed)
+            assert isinstance(id, int)
+            concept_id: int = id
 
             # Attribute data
             attr_data: dict[d.MonoAtributeDefiniton, _MonoAttribute] = {}
@@ -2500,7 +2497,10 @@ class OMOPVocabulariesV5:
                     attr_rel.target_definition,
                     d.MonoAtributeDefiniton,
                 )
-                attr_id: int = next(listed)
+
+                id = next(listed)
+                assert isinstance(id, int)
+                attr_id: int = id
 
                 # Lookup the atom
                 try:
@@ -2536,7 +2536,10 @@ class OMOPVocabulariesV5:
                     parent_def,
                     d.PackDefinition,
                 )
-                parent_id_or_ids: int | list[int] = next(listed)
+
+                parent_id_or_ids: int | list[int]
+                assert (ids := next(listed)) is not None
+                parent_id_or_ids = ids
 
                 # For simplicity, convert to iterable
                 parent_ids: list[int]
@@ -2596,6 +2599,42 @@ class OMOPVocabulariesV5:
                     break
             if parents_failed:
                 continue  # to next concept
+
+            # Content data
+            cr_content: dict[
+                d.ComplexDrugNodeDefinition,
+                list[dc.ConceptId],
+            ] = {}
+            for content_rel in definition.content_relations:
+                content_def = content_rel.target_definition
+                assert isinstance(content_def, d.ComplexDrugNodeDefinition)
+
+                content_id_or_ids: int | list[int]
+                ids = next(listed)
+                if ids is None:
+                    # No content of this class, just skip
+                    continue
+
+                content_id_or_ids = ids
+
+                # For simplicity, convert to iterable
+                content_ids: list[int]
+                if isinstance(content_id_or_ids, int):
+                    if not content_rel.cardinality == Cardinality.ONE:
+                        # Programming error
+                        raise ValueError(
+                            f"Expected single content ID for "
+                            f"{content_def.class_id}, "
+                            f"got {content_id_or_ids}"
+                        )
+                    content_ids = [content_id_or_ids]
+                else:
+                    content_ids = content_id_or_ids
+
+                cr_content[content_def] = list(map(dc.ConceptId, content_ids))
+
+            print(*listed)
+            raise ValueError("So far so good")
 
         del (
             out_nodes,
