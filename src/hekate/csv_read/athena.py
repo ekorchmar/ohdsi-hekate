@@ -284,7 +284,9 @@ class PackContentTable(OMOPTable[pl.Series]):
 
         # Only keep valid packs
         # This includes packs that are descendants of invalid drugs
-        return frame.filter(pl.col("pack_concept_id").is_in(valid_concepts))
+        return frame.filter(
+            pl.col("pack_concept_id").is_in(valid_concepts)
+        ).sort("drug_concept_id")  # Sort for predictable order
 
 
 class OMOPVocabulariesV5:
@@ -532,6 +534,7 @@ class OMOPVocabulariesV5:
                     multiple_ingredients, on="drug_concept_id", how="anti"
                 )
 
+        row: tuple[int, ...]
         for row in ing_df.iter_rows():
             drug_id: int = row[0]
             ingredient_id: int = row[1]
@@ -1005,7 +1008,8 @@ class OMOPVocabulariesV5:
         self.process_precise_ingredients()
 
         # Add drug nodes in order of declared inheritance
-        drug_complexity_order: list[d.ComplexDrugNodeDefinition] = (
+        drug_complexity_order: list[d.ComplexDrugNodeDefinition]
+        drug_complexity_order = (  # pyright: ignore[reportUnknownVariableType] # noqa: E501
             d.ClassHierarchy.resolve_from_definitions(  # pyright: ignore[reportUnknownMemberType] # noqa: E501
                 d.ComplexDrugNodeDefinition
             )
@@ -1028,7 +1032,7 @@ class OMOPVocabulariesV5:
         )
         self.pack_content.materialize()
 
-        pack_complexity_order: list[d.PackDefinition] = (
+        pack_complexity_order: list[d.PackDefinition] = (  # pyright: ignore[reportUnknownVariableType] # noqa: E501
             d.ClassHierarchy.resolve_from_definitions(  # pyright: ignore[reportUnknownMemberType] # noqa: E501
                 d.PackDefinition
             )
@@ -1097,10 +1101,15 @@ class OMOPVocabulariesV5:
         concept_id_target_idx = column_names.index("ingredient_concept_id")
         concept_id_idx = column_names.index("concept_id")
         concept_name_idx = column_names.index("concept_name")
+        row: tuple[int | str, ...]
         for row in ing_to_precise.iter_rows():
-            ingredient = self.atoms.ingredient[row[concept_id_target_idx]]
-            precise_identifier: int = row[concept_id_idx]
-            precise_name: str = row[concept_name_idx]
+            ingredient = self.atoms.ingredient[
+                dc.ConceptId(row[concept_id_target_idx])
+            ]
+            precise_identifier = row[concept_id_idx]
+            assert isinstance(precise_identifier, int)
+            precise_name = row[concept_name_idx]
+            assert isinstance(precise_name, str)
             self.atoms.add_precise_ingredient(
                 dc.PreciseIngredient(
                     identifier=dc.ConceptId(precise_identifier),
@@ -1507,10 +1516,10 @@ class OMOPVocabulariesV5:
                 f"by target:"
             )
             cls_counts = drug_strength_noning["concept_class_id"].value_counts()
-            cls: str
-            cnt: int
-            for cls, cnt in cls_counts.iter_rows():
-                msg += f"\n- {cnt:,} {cls} concepts"
+            cls_row: tuple[str, int]
+            for cls_row in cls_counts.iter_rows():
+                cls_, cnt = cls_row
+                msg += f"\n- {cnt:,} {cls_} concepts"
             self.strength.anti_join(
                 drug_strength_noning, on=["drug_concept_id"]
             )
@@ -1793,12 +1802,15 @@ class OMOPVocabulariesV5:
         # Fail on creation
         node_failed: list[int] = []
 
+        row: tuple[int | list[int] | None, ...]
         for row in node_concepts.iter_rows():
             # Consume the row
             listed = iter(row)
 
             # Own concept_id
-            concept_id: int = next(listed)
+            id_ = next(listed)
+            assert isinstance(id_, int)
+            concept_id: int = id_
 
             # Attribute data
             attr_data: dict[d.MonoAtributeDefiniton, _MonoAttribute] = {}
@@ -1807,7 +1819,9 @@ class OMOPVocabulariesV5:
                     attr_rel.target_definition,
                     d.MonoAtributeDefiniton,
                 )
-                attr_id: int = next(listed)
+                id_ = next(listed)
+                assert isinstance(id_, int)
+                attr_id: int = id_
 
                 # Lookup the atom
                 try:
@@ -1843,7 +1857,10 @@ class OMOPVocabulariesV5:
                     parent_def,
                     d.ComplexDrugNodeDefinition,
                 )
-                parent_id_or_ids: int | list[int] = next(listed)
+
+                id_or_ids = next(listed)
+                assert id_or_ids
+                parent_id_or_ids: int | list[int] = id_or_ids
 
                 # For simplicity, convert to iterable
                 parent_ids: list[int]
@@ -1906,7 +1923,8 @@ class OMOPVocabulariesV5:
 
             explicit_ingredients: list[dc.Ingredient[dc.ConceptId]] = []
             if definition.defines_explicit_ingredients:
-                ingred_id_or_ids: int | list[int] = next(listed)
+                ingred_id_or_ids = next(listed)
+                assert ingred_id_or_ids
 
                 # For simplicity, convert to iterable
                 ingred_ids: list[int]
@@ -2086,7 +2104,7 @@ class OMOPVocabulariesV5:
 
                             for parent_node in nodes:
                                 assert isinstance(a, d.MonoAtributeDefiniton)
-                                parent_atom: _MonoAttribute = getattr(
+                                parent_atom: _MonoAttribute = getattr(  # pyright: ignore[reportAny]  # noqa: E501
                                     parent_node, a.node_getter
                                 )()
                                 own_atom = attr_data[a]
@@ -2270,7 +2288,7 @@ class OMOPVocabulariesV5:
             # Instantiate the class node
             node: dc.DrugNode[dc.ConceptId, dc.Strength | None]
             try:
-                node = definition.constructor.from_definitions(  # pyright: ignore[reportUnknownMemberType] # noqa: E501
+                node = definition.constructor.from_definitions(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType] # noqa: E501
                     identifier=dc.ConceptId(concept_id),
                     parents={
                         p_def.omop_concept_class_id: nodes
@@ -2465,6 +2483,9 @@ class OMOPVocabulariesV5:
         # Bad entry shape
         node_bad_shape: list[int] = []
 
+        # Mismatch between PC and CR entries
+        node_cr_pc_mismatch: list[int] = []
+
         # Mismatch with parents
         node_attr_mismatch: dict[
             d.PackDefinition,  # Parent definition
@@ -2483,7 +2504,7 @@ class OMOPVocabulariesV5:
 
         for row in node_concepts.iter_rows():
             # Consume the row
-            listed: Iterator[int | list[int] | None] = iter(row)
+            listed: Iterator[int | list[int | None] | None] = iter(row)
 
             # Own concept_id
             id = next(listed)
@@ -2537,23 +2558,28 @@ class OMOPVocabulariesV5:
                     d.PackDefinition,
                 )
 
-                parent_id_or_ids: int | list[int]
                 assert (ids := next(listed)) is not None
-                parent_id_or_ids = ids
 
                 # For simplicity, convert to iterable
                 parent_ids: list[int]
-                if isinstance(parent_id_or_ids, int):
+                if isinstance(ids, int):
                     if not parent_rel.cardinality == Cardinality.ONE:
                         # Programming error
                         raise ValueError(
                             f"Expected single parent ID for "
                             f"{parent_def.class_id}, "
-                            f"got {parent_id_or_ids}"
+                            f"got {ids}"
                         )
-                    parent_ids = [parent_id_or_ids]
+                    parent_ids = [ids]
                 else:
-                    parent_ids = parent_id_or_ids
+                    parent_ids = []
+                    for id_ in ids:
+                        if id_ is None:
+                            raise ValueError(
+                                f"Expected concept identifiers for "
+                                f"{parent_def.class_id}, got {ids}"
+                            )
+                        parent_ids.append(id_)
 
                 # Lookup the nodes
                 parent_node_view = all_parent_nodes[parent_def]
@@ -2601,40 +2627,112 @@ class OMOPVocabulariesV5:
                 continue  # to next concept
 
             # Content data
-            cr_content: dict[
-                d.ComplexDrugNodeDefinition,
-                list[dc.ConceptId],
-            ] = {}
+            # From concept_relationship
+            cr_content: dict[int, d.ComplexDrugNodeDefinition] = {}
             for content_rel in definition.content_relations:
                 content_def = content_rel.target_definition
                 assert isinstance(content_def, d.ComplexDrugNodeDefinition)
 
-                content_id_or_ids: int | list[int]
                 ids = next(listed)
                 if ids is None:
                     # No content of this class, just skip
                     continue
 
-                content_id_or_ids = ids
-
                 # For simplicity, convert to iterable
                 content_ids: list[int]
-                if isinstance(content_id_or_ids, int):
+                if isinstance(ids, int):
                     if not content_rel.cardinality == Cardinality.ONE:
                         # Programming error
                         raise ValueError(
                             f"Expected single content ID for "
-                            f"{content_def.class_id}, "
-                            f"got {content_id_or_ids}"
+                            f"{content_def.class_id}, got {ids}"
                         )
-                    content_ids = [content_id_or_ids]
+                    content_ids = [ids]
                 else:
-                    content_ids = content_id_or_ids
+                    content_ids = []
+                    for id_ in ids:
+                        if id_ is None:
+                            raise ValueError(
+                                f"Expected concept identifiers for "
+                                f"{content_def.class_id}, got {ids}"
+                            )
+                        content_ids.append(id_)
 
-                cr_content[content_def] = list(map(dc.ConceptId, content_ids))
+                for content_id in content_ids:
+                    cr_content[content_id] = content_def
 
-            print(*listed)
-            raise ValueError("So far so good")
+            # From pack_content
+            pc_content: list[int]
+            pc_amount: list[int | None]
+            pc_box_size: list[int] | list[None]
+
+            # Unify shapes
+            maybe_ids, maybe_amount, maybe_box_size = [*listed]
+
+            # Ids can only be a list of int
+            assert isinstance(maybe_ids, list)
+            pc_content = []
+            for id_ in maybe_ids:
+                assert id_
+                pc_content.append(id_)
+
+            # Amount is list of int or None (implicit 1)
+            assert isinstance(maybe_amount, list)
+            pc_amount = maybe_amount
+
+            # Box size has to be present if defined, otherwise has to be absent
+            assert isinstance(maybe_box_size, list)
+            pc_box_size = []
+            box_size_def_mismatch = False
+            for size in maybe_box_size:
+                if (size is not None) != definition.defines_pack_size:
+                    self.logger.debug(
+                        f"Unexpected box size for {definition.class_id}: "
+                        f"{size} for {concept_id}"
+                    )
+                    node_bad_shape.append(concept_id)
+                    box_size_def_mismatch = True
+                    break
+                else:
+                    pc_box_size.append(size)  # pyright: ignore[reportArgumentType]  # noqa: E501
+            if box_size_def_mismatch:
+                continue  # to the next pack
+
+            # Check if content length matches
+            if len(pc_content) != len(cr_content):
+                self.logger.debug(
+                    f"Pack content length mismatch for {definition.class_id} "
+                    f"{concept_id}: {len(pc_content)} from PC and != "
+                    f"{len(cr_content)} from CR"
+                )
+                node_cr_pc_mismatch.append(concept_id)
+                continue
+
+            # Start constructing entries
+            shared_iter = zip(
+                sorted(cr_content),  # content from CR
+                pc_content,  # content from PC, already sorted
+                pc_amount,
+                pc_box_size,
+            )
+
+            any_entry_failed = False
+            for cr_content_id, pc_content_id, amount, box_size in shared_iter:
+                if cr_content_id != pc_content_id:
+                    self.logger.debug(
+                        f"Pack content mismatch for {definition.class_id} "
+                        f"{concept_id}: {cr_content} != {pc_content}"
+                    )
+                    node_cr_pc_mismatch.append(concept_id)
+                    any_entry_failed = True
+                    break
+
+                # TODO: obtain the drug node and verify it's class
+                raise ValueError("So far so good")
+                del amount, box_size
+
+            if any_entry_failed:
+                continue  # to the next pack
 
         del (
             out_nodes,

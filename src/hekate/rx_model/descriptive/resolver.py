@@ -31,7 +31,7 @@ class _BFSSorter[N: ComplexDrugNodeDefinition | PackDefinition](BFSVisitor):
 
     @override
     def discover_vertex(self, v: int) -> None:
-        payload: N = self.graph[v]
+        payload: N = self.graph[v]  # pyright: ignore[reportAny]
         if payload:  # Not _SENTINEL
             self.visited_node_data.append(payload)
 
