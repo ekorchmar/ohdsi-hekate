@@ -65,7 +65,7 @@ class ClinicalPack[Id: ConceptIdentifier](PackNode[Id]):
         identifier: Id,
         parents: dict[ConceptClassId, list[PackNode[Id]]],
         attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
-        entries: list[PackEntry[Id]],
+        entries: SortedTuple[PackEntry[Id]],
     ) -> NoReturn:
         raise NotImplementedError
 
@@ -109,6 +109,6 @@ class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
         identifier: Id,
         parents: dict[ConceptClassId, list[PackNode[Id]]],
         attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
-        entries: list[PackEntry[Id]],
+        entries: SortedTuple[PackEntry[Id]],
     ) -> NoReturn:
         raise NotImplementedError

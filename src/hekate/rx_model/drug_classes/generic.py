@@ -228,7 +228,7 @@ class PackNode[Id: ConceptIdentifier](HierarchyNode[Id], ABC):
         identifier: Id,
         parents: dict[ConceptClassId, list[PackNode[Id]]],
         attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
-        entries: list[PackEntry[Id]],
+        entries: SortedTuple[PackEntry[Id]],
     ) -> PackNode[Id]:
         """
         Create a pack node from the definitions.
