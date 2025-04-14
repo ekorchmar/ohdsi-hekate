@@ -289,8 +289,11 @@ class LiquidQuantity(_StrengthMeta):
             )
 
 
+# Shorthand for non-solid unquantified types
+type Concentration = LiquidConcentration | GasPercentage
+
 # Shorthand for unquantified strength types
-type UnquantifiedStrength = SolidStrength | LiquidConcentration | GasPercentage
+type UnquantifiedStrength = SolidStrength | Concentration
 
 # Exhaustive list of strength types
 type Strength = UnquantifiedStrength | LiquidQuantity

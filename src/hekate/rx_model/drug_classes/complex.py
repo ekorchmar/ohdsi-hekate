@@ -524,11 +524,7 @@ class ClinicalDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         cdcs: list[ClinicalDrugComponent[Id, S]] = []
         cdc: ClinicalDrugComponent[Id, S]
         for cdc_node in cdc_nodes:
-            if not isinstance(cdc_node, ClinicalDrugComponent):
-                raise RxConceptCreationError(
-                    f"{cls.__name__} {identifier} must have components of "
-                    f"type ClinicalDrugComponent, but has {cdc_node}."
-                )
+            assert isinstance(cdc_node, ClinicalDrugComponent)
             cdc = cdc_node
             cdcs.append(cdc)
         return cls(
@@ -633,12 +629,8 @@ class BrandedDrug[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
         )
 
 
-# Quantified liquid forms
-type Concentration = st.LiquidConcentration | st.GasPercentage
-
-
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: Concentration](
+class QuantifiedClinicalDrug[Id: ConceptIdentifier, C: st.Concentration](
     DrugNode[Id, st.LiquidQuantity]
 ):
     identifier: Id
@@ -786,7 +778,7 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
     DrugNode[Id, st.LiquidQuantity],
 ):
     identifier: Id
-    unbranded: QuantifiedClinicalDrug[Id, Concentration]
+    unbranded: QuantifiedClinicalDrug[Id, st.Concentration]
     brand_name: a.BrandName[Id]
     # Redundant, hierarchy builder should check for ancestor consistency
     # unquantified: BrandedDrug[Id, C]
@@ -843,7 +835,7 @@ class QuantifiedBrandedDrug[Id: ConceptIdentifier](
                 f"{cls.__name__} {identifier} must have a component of type "
                 f"QuantifiedClinicalDrug, but has {qcd_node}."
             )
-        qcd: QuantifiedClinicalDrug[Id, Concentration] = qcd_node
+        qcd: QuantifiedClinicalDrug[Id, st.Concentration] = qcd_node
         brand_name = attributes[ConceptClassId.BRAND_NAME]
         assert isinstance(brand_name, a.BrandName)
         return cls(
@@ -956,7 +948,7 @@ class ClinicalDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class QuantifiedClinicalBox[Id: ConceptIdentifier, C: Concentration](
+class QuantifiedClinicalBox[Id: ConceptIdentifier, C: st.Concentration](
     __Boxed[Id, st.LiquidQuantity],
 ):
     identifier: Id
@@ -1087,7 +1079,7 @@ class BrandedDrugBox[Id: ConceptIdentifier, S: st.UnquantifiedStrength](
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
-class QuantifiedBrandedBox[Id: ConceptIdentifier, C: Concentration](
+class QuantifiedBrandedBox[Id: ConceptIdentifier, C: st.Concentration](
     __Boxed[Id, st.LiquidQuantity],
 ):
     identifier: Id

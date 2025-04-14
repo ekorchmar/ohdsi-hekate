@@ -40,6 +40,7 @@ from rx_model.drug_classes.strength import (
     Strength,
     UnquantifiedStrength,
     BoundStrength,
+    Concentration,
 )
 
 from rx_model.drug_classes.complex import (
@@ -86,6 +87,7 @@ __all__ = [
     "ClinicalDrugComponent",
     "ClinicalDrugForm",
     "ClinicalPack",
+    "Concentration",
     "ConceptCodeVocab",
     "ConceptId",
     "ConceptIdentifier",

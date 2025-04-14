@@ -2413,6 +2413,15 @@ class OMOPVocabulariesV5:
                 f"I and S with their {p_def.class_id}s",
             )
 
+        # Failure of creation
+        self.filter_out_bad_concepts(
+            len(node_concepts),
+            pl.Series(node_failed, dtype=PlConceptId),
+            f"All {definition.class_id} have been created successfully",
+            definition.get_abbreviation() + "_Failed",
+            f"{len(node_failed):,} {definition.class_id} failed creation",
+        )
+
         return out_nodes
 
     def add_pack_nodes(
