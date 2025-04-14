@@ -2325,7 +2325,7 @@ class OMOPVocabulariesV5:
                     for ing, _ in predicate_strength_data
                 )
 
-            node_idx = self.hierarchy.add_drug_node(node, parent_indices)
+            node_idx = self.hierarchy.add_rxne_node(node, parent_indices)
             out_nodes[concept_id] = node_idx
 
         # Cleanup

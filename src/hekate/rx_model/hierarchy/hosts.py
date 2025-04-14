@@ -195,9 +195,9 @@ class RxHierarchy[Id: dc.ConceptIdentifier](
         """
         self.ingredients[root] = self.add_node(root)
 
-    def add_drug_node(
+    def add_rxne_node(
         self,
-        drug_node: dc.DrugNode[Id, dc.Strength | None],
+        drug_node: dc.HierarchyNode[Id],
         parent_indices: Iterable[NodeIndex],
     ) -> NodeIndex:
         """
