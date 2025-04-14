@@ -15,6 +15,7 @@ from rx_model import drug_classes as dc  # For concept classes
 from rx_model import hierarchy as h  # For hierarchy building
 from utils.exceptions import (
     InvalidConceptIdError,
+    PackCreationError,
     RxConceptCreationError,
 )  # For error handling
 
@@ -2707,50 +2708,258 @@ class OMOPVocabulariesV5:
             if box_size_def_mismatch:
                 continue  # to the next pack
 
-            # Check if content length matches
-            if len(pc_content) != len(cr_content):
+            # Check if content matches
+            if set(pc_content) != set(cr_content):
                 self.logger.debug(
                     f"Pack content length mismatch for {definition.class_id} "
-                    f"{concept_id}: {len(pc_content)} from PC and != "
-                    f"{len(cr_content)} from CR"
+                    f"{concept_id}: {set(pc_content)} from PC and != "
+                    f"{set(cr_content)} from CR"
                 )
                 node_cr_pc_mismatch.append(concept_id)
                 continue
 
             # Start constructing entries
+            entries: list[dc.PackEntry[dc.ConceptId]] = []
             shared_iter = zip(
-                sorted(cr_content),  # content from CR
-                pc_content,  # content from PC, already sorted
+                pc_content,  # content from PC, explicitly sorted
                 pc_amount,
                 pc_box_size,
             )
 
             any_entry_failed = False
-            for cr_content_id, pc_content_id, amount, box_size in shared_iter:
-                if cr_content_id != pc_content_id:
+            entry_indices: list[int] = []  # May be used to build hierarchy
+            for content_node_id, amount, box_size in shared_iter:
+                drug_node_definition = cr_content[content_node_id]
+                entry_nodes = all_component_nodes[drug_node_definition]
+                try:
+                    entry_node_idx = entry_nodes[content_node_id]
+                except KeyError:
                     self.logger.debug(
-                        f"Pack content mismatch for {definition.class_id} "
-                        f"{concept_id}: {cr_content} != {pc_content}"
+                        f"Content {content_node_id} not found for "
+                        f"{definition.class_id} {concept_id}"
                     )
-                    node_cr_pc_mismatch.append(concept_id)
+                    node_bad_content.setdefault(
+                        drug_node_definition, []
+                    ).append(concept_id)
                     any_entry_failed = True
                     break
 
-                # TODO: obtain the drug node and verify it's class
-                raise ValueError("So far so good")
-                del amount, box_size
+                drug_node = self.hierarchy[entry_node_idx]
+                assert isinstance(drug_node, drug_node_definition.constructor)  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
 
+                # HACK: Current modelling is ambiguous on if pack contents must
+                # share attributes (namely, Brand Name) with the pack. To
+                # converge here, we will convert all branded classes to
+                # clinical form.
+                accepted_node: (
+                    dc.ClinicalDrug[dc.ConceptId, dc.SolidStrength]
+                    | dc.QuantifiedClinicalDrug[dc.ConceptId, dc.Concentration]
+                )
+
+                # NOTE: This is not a cannonical rule yet, but we disallow
+                # unquantified strength for clinical drugs
+                node_strength = drug_node.get_strength_data()[0][1]  # pyright: ignore[reportUnknownVariableType]  # noqa: 501
+                if isinstance(
+                    node_strength, (dc.LiquidConcentration, dc.GasPercentage)
+                ):
+                    any_entry_failed = True
+                    self.logger.debug(
+                        f"Content {content_node_id} uses non-quantified non-"
+                        f"quantified strength type {node_strength} in "
+                        f"{definition.class_id} {concept_id}"
+                    )
+                    break
+
+                match drug_node:
+                    case dc.QuantifiedBrandedDrug():
+                        accepted_node = drug_node.unbranded
+                    case dc.BrandedDrug():
+                        accepted_node = drug_node.clinical_drug  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # noqa: E501
+                        # no-ops
+                    case dc.ClinicalDrug():
+                        accepted_node = drug_node  # pyright: ignore[reportUnknownVariableType]  # noqa: E501
+                    case dc.QuantifiedClinicalDrug():
+                        accepted_node = drug_node  # pyright: ignore[reportUnknownVariableType]  # noqa: E501
+                    # Anything else is programming error
+                    case _:  # pyright: ignore[reportUnknownVariableType]
+                        raise ValueError("Unexpected node class")
+
+                try:
+                    entry = dc.PackEntry(
+                        drug=accepted_node,  # pyright: ignore[reportArgumentType]
+                        amount=amount,
+                        box_size=box_size,
+                    )
+                except PackCreationError as e:
+                    any_entry_failed = True
+                    self.logger.debug(
+                        f"Malformed entry data for {definition.class_id} "
+                        f"{concept_id}: {e}"
+                    )
+                    break
+
+                entry_indices.append(entry_node_idx)
+                entries.append(entry)
             if any_entry_failed:
                 continue  # to the next pack
 
-        del (
-            out_nodes,
-            node_concepts,
-            all_component_nodes,
-            node_bad_content,
-            node_bad_shape,
-            node_attr_mismatch,
-            node_entry_mismatch,
-            node_failed,
+            sorted_entries = SortedTuple(entries)
+
+            # Test if parent node shares the entry list
+            any_mismatched = False
+            for p_def, p_nodes in parent_data.items():
+                for p_node in p_nodes:
+                    p_entries = p_node.get_entries()
+
+                    if len(p_entries) != len(sorted_entries) or any(
+                        (
+                            n_entry.drug.identifier != p_entry.drug.identifier
+                            or (n_entry.amount or 1) != (n_entry.amount or 1)
+                            or (
+                                p_def.defines_pack_size
+                                and p_entry.box_size != n_entry.box_size
+                            )
+                        )
+                        for n_entry, p_entry in zip(sorted_entries, p_entries)
+                    ):
+                        node_entry_mismatch.setdefault(p_def, []).append(
+                            concept_id
+                        )
+                        self.logger.debug(
+                            f"Entries of {definition.class_id} {concept_id} "
+                            f"do not match it's parent {p_def.class_id} "
+                            f"{concept_id} "
+                        )
+                        any_mismatched = True
+                        break
+                if any_mismatched:
+                    break
+            if any_mismatched:
+                continue  # to the next pack
+
+            # Instantiate
+            node: dc.PackNode[dc.ConceptId]
+            try:
+                node = definition.constructor.from_definitions(
+                    identifier=dc.ConceptId(concept_id),
+                    parents={
+                        p_def.omop_concept_class_id: nodes
+                        for p_def, nodes in parent_data.items()
+                    },
+                    attributes={  # pyright: ignore[reportArgumentType]
+                        a_def.omop_concept_class_id: a_atom
+                        for a_def, a_atom in attr_data.items()
+                    },
+                    entries=sorted_entries,
+                )
+            except PackCreationError as e:
+                self.logger.debug(
+                    f"Failed to create {definition.class_id} {concept_id}: {e}"
+                )
+                node_failed.append(concept_id)
+                continue
+
+            # If parent nodes are not given, attach to contents
+            if not parent_indices:
+                # Make sure this is not and error
+                if len(definition.parent_relations) > 0:
+                    raise ValueError(
+                        f"parent indices must not be empty for "
+                        f"{definition.class_id} {concept_id} "
+                        f"by this point."
+                    )
+                parent_indices.extend(entry_indices)
+
+            entry_node_idx = self.hierarchy.add_rxne_node(node, parent_indices)
+            out_nodes[concept_id] = entry_node_idx
+
+        # Cleanup
+        # Bad attributes and parents
+        for attr_def, lst_bad in chain(
+            node_bad_attr.items(), node_bad_parent.items()
+        ):
+            self.filter_out_bad_concepts(
+                len(node_concepts),
+                pl.Series(lst_bad, dtype=PlConceptId),
+                f"All {definition.class_id} have valid {attr_def.class_id}",
+                f"{definition.get_abbreviation()}_Bad_"
+                f"{attr_def.get_abbreviation()}",
+                f"{len(lst_bad):,} {definition.class_id} had bad "
+                f"{attr_def.class_id}",
+            )
+
+        # Bad drug content concepts
+        self.filter_out_bad_concepts(
+            len(node_concepts),
+            pl.Series(node_bad_content, dtype=PlConceptId),
+            f"All {definition.class_id} have valid content nodes",
+            f"{definition.get_abbreviation()}_Bad_Drug",
+            f"{len(node_bad_content):,} {definition.class_id} had bad "
+            f"Ingredients",
         )
-        raise NotImplementedError
+
+        # Malformed pack entries
+        self.filter_out_bad_concepts(
+            len(node_concepts),
+            pl.Series(node_bad_shape, dtype=PlConceptId),
+            f"All {definition.class_id} have expected pack content shape",
+            f"{definition.get_abbreviation()}_Bad_Entry",
+            f"{len(node_bad_shape):,} {definition.class_id} had malformed "
+            f"pack content entries",
+        )
+
+        # Mismatch in content between CONCEPT_RELATIONSHIP and PACK_CONTENT
+        self.filter_out_bad_concepts(
+            len(node_concepts),
+            pl.Series(node_cr_pc_mismatch, dtype=PlConceptId),
+            f"All {definition.class_id} match contents in PC and CR",
+            f"{definition.get_abbreviation()}_PC_CR_Mismatch",
+            f"{len(node_cr_pc_mismatch):,} {definition.class_id} had "
+            f"mismatched explicit content relations and pack_content entries",
+        )
+
+        # Mismatch with parents on attributes
+        for p_def, attr_list in p_def_a_def.items():
+            for attr_def in attr_list:
+                mismatched = node_attr_mismatch.get(p_def, {}).get(attr_def, [])
+                self.filter_out_bad_concepts(
+                    len(node_concepts),
+                    pl.Series(mismatched, dtype=PlConceptId),
+                    f"All {definition.class_id} have matching "
+                    f"{attr_def.class_id} with their {p_def.class_id}s",
+                    definition.get_abbreviation()
+                    + "_"
+                    + attr_def.get_abbreviation()
+                    + "_Mismatch",
+                    f"{len(mismatched):,} {definition.class_id} had mismatched "
+                    f"{attr_def.class_id} with their {p_def.class_id}s",
+                )
+
+        # Mismatch with parents on pack entries
+        for p_rel in definition.parent_relations:
+            p_def = p_rel.target_definition
+            assert isinstance(p_def, d.PackDefinition)
+            mismatched = node_entry_mismatch.get(p_def, [])
+            self.filter_out_bad_concepts(
+                len(node_concepts),
+                pl.Series(mismatched, dtype=PlConceptId),
+                f"All {definition.class_id} have matching pack content data "
+                f"with their {p_def.class_id}s",
+                definition.get_abbreviation()
+                + "_"
+                + p_def.get_abbreviation()
+                + "_Mismatch",
+                f"{len(mismatched):,} {definition.class_id} had mismatched "
+                f"pack content data with their {p_def.class_id}s",
+            )
+
+        # Failure of creation
+        self.filter_out_bad_concepts(
+            len(node_concepts),
+            pl.Series(node_failed, dtype=PlConceptId),
+            f"All {definition.class_id} have been created successfully",
+            definition.get_abbreviation() + "_Failed",
+            f"{len(node_failed):,} {definition.class_id} failed creation",
+        )
+
+        return out_nodes
