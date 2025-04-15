@@ -5,7 +5,7 @@ Implementation of the pack classes
 from __future__ import annotations
 
 from dataclasses import dataclass  # For classes
-from typing import NoReturn, override
+from typing import override
 
 import rx_model.drug_classes.atom as a
 from rx_model.drug_classes.base import (
@@ -92,9 +92,17 @@ class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
     unbranded: ClinicalPack[Id]
     brand_name: a.BrandName[Id]
 
-    def __post_init__(self) -> NoReturn:
-        # TODO: implement checks
-        raise NotImplementedError("Branded packs are not implemented yet.")
+    def __post_init__(self) -> None:
+        # NOTE: although current branded pack contents are automatically
+        # reduced to clinical counterparts, this may change in the future
+        for i, entry in enumerate(self.get_entries()):
+            if entry_brand_name := entry.drug.get_brand_name():
+                if not entry_brand_name == self.get_brand_name():
+                    raise PackCreationError(
+                        f"Entry #{i} in {self.__class__.__name__} "
+                        f"{self.identifier} specifies {entry_brand_name}, but "
+                        f"the pack has {self.get_brand_name()}"
+                    )
 
     @override
     def get_entries(self) -> SortedTuple[PackEntry[Id]]:
@@ -111,8 +119,17 @@ class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
     @override
     def is_superclass_of(
         self, other: HierarchyNode[Id], passed_hierarchy_checks: bool = True
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> bool:
+        # Only packs can be subsumed
+        if not isinstance(other, PackNode):
+            return False
+
+        if not passed_hierarchy_checks and not self.unbranded.is_superclass_of(
+            other
+        ):
+            return False
+
+        return self.get_brand_name() == other.get_brand_name()
 
     @override
     @classmethod
@@ -122,5 +139,15 @@ class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
         parents: dict[ConceptClassId, list[PackNode[Id]]],
         attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
         entries: SortedTuple[PackEntry[Id]],
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> BrandedPack[Id]:
+        (cp_node,) = parents[ConceptClassId.CP]
+        if not isinstance(cp_node, ClinicalPack):
+            raise PackCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalPack, but has {cp_node}."
+            )
+        brand_name = attributes[ConceptClassId.BRAND_NAME]
+        assert isinstance(brand_name, a.BrandName)
+        return cls(
+            identifier=identifier, unbranded=cp_node, brand_name=brand_name
+        )
