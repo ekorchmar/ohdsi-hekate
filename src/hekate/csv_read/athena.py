@@ -2812,14 +2812,7 @@ class OMOPVocabulariesV5:
                     p_entries = p_node.get_entries()
 
                     if len(p_entries) != len(sorted_entries) or any(
-                        (
-                            n_entry.drug.identifier != p_entry.drug.identifier
-                            or (n_entry.amount or 1) != (n_entry.amount or 1)
-                            or (
-                                p_def.defines_pack_size
-                                and p_entry.box_size != n_entry.box_size
-                            )
-                        )
+                        not p_entry.semantic_ancestor_of(n_entry)
                         for n_entry, p_entry in zip(sorted_entries, p_entries)
                     ):
                         node_entry_mismatch.setdefault(p_def, []).append(

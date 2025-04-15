@@ -192,6 +192,14 @@ class PackEntry[Id: ConceptIdentifier]:
                 f"0 and {BOX_SIZE_LIMIT}"
             )
 
+    def semantic_ancestor_of(self, other: PackEntry[Id]) -> bool:
+        return (
+            # Entries are expected to match drug on identifier
+            self.drug.identifier == other.drug.identifier
+            and (self.amount or 1) == (other.amount or 1)
+            and ((self.box_size is None) or self.box_size == other.box_size)
+        )
+
 
 class PackNode[Id: ConceptIdentifier](HierarchyNode[Id], ABC):
     """

@@ -55,8 +55,20 @@ class ClinicalPack[Id: ConceptIdentifier](PackNode[Id]):
     @override
     def is_superclass_of(
         self, other: HierarchyNode[Id], passed_hierarchy_checks: bool = True
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> bool:
+        # Only packs can be subsumed
+        if not isinstance(other, PackNode):
+            return False
+
+        if not passed_hierarchy_checks:
+            # Make sure that other node's pack entries match ours
+            if len(other.get_entries()) != len(self.entries) or any(
+                not p_entry.semantic_ancestor_of(n_entry)
+                for n_entry, p_entry in zip(self.entries, other.get_entries())
+            ):
+                return False
+
+        return True
 
     @override
     @classmethod
@@ -66,8 +78,8 @@ class ClinicalPack[Id: ConceptIdentifier](PackNode[Id]):
         parents: dict[ConceptClassId, list[PackNode[Id]]],
         attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
         entries: SortedTuple[PackEntry[Id]],
-    ) -> NoReturn:
-        raise NotImplementedError
+    ) -> ClinicalPack[Id]:
+        return cls(identifier=identifier, entries=entries)
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
