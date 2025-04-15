@@ -2889,13 +2889,16 @@ class OMOPVocabulariesV5:
             )
 
         # Bad drug content concepts
+        total_bad_content = pl.Series(
+            chain(node_bad_content.values()), dtype=PlConceptId
+        )
         self.filter_out_bad_concepts(
             len(node_concepts),
-            pl.Series(node_bad_content, dtype=PlConceptId),
+            total_bad_content,
             f"All {definition.class_id} have valid content nodes",
             f"{definition.get_abbreviation()}_Bad_Drug",
-            f"{len(node_bad_content):,} {definition.class_id} had bad "
-            f"Ingredients",
+            f"{len(total_bad_content):,} {definition.class_id} had unexpected "
+            f"pack content",
         )
 
         # Malformed pack entries
