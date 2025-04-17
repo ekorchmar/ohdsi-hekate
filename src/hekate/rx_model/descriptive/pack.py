@@ -126,3 +126,26 @@ _BP_DEFINITION = PackDefinition(
     ),
     defines_pack_size=False,
 )
+
+_CPB_DEFINITION = PackDefinition(
+    constructor=dc.ClinicalPackBox,
+    omop_concept_class_id=ConceptClassId.CPB,
+    content_relations=tuple(
+        RelationshipDescription(
+            relationship_id="Contains",
+            target_definition=ComplexDrugNodeDefinition.get(cd_class),
+            cardinality=Cardinality.ANY,
+        )
+        for cd_class in [ConceptClassId.CD, ConceptClassId.QCD]
+    ),
+    attribute_relations=(),
+    parent_relations=(
+        RelationshipDescription(
+            relationship_id="Box of",
+            target_definition=_CP_DEFINITION,
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    omop_vocabulary_ids=(VocabularyId.RXE,),
+    defines_pack_size=True,
+)

@@ -61,6 +61,8 @@ from rx_model.drug_classes.complex import (
 from rx_model.drug_classes.pack import (
     ClinicalPack,
     BrandedPack,
+    ClinicalPackBox,
+    # BrandedPackBox,
 )
 
 from rx_model.drug_classes.foreign import (
@@ -87,6 +89,7 @@ __all__ = [
     "ClinicalDrugComponent",
     "ClinicalDrugForm",
     "ClinicalPack",
+    "ClinicalPackBox",
     "Concentration",
     "ConceptCodeVocab",
     "ConceptId",

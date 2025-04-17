@@ -5,7 +5,8 @@ Implementation of the pack classes
 from __future__ import annotations
 
 from dataclasses import dataclass  # For classes
-from typing import override
+from abc import ABC  # For metaclasses
+from typing import ClassVar, override
 
 import rx_model.drug_classes.atom as a
 from rx_model.drug_classes.base import (
@@ -21,20 +22,29 @@ from utils.classes import SortedTuple  # For typing
 from utils.exceptions import PackCreationError  # For PackEntry
 
 
-@dataclass(frozen=True, order=True, eq=True, slots=True)
-class ClinicalPack[Id: ConceptIdentifier](PackNode[Id]):
+class __MetaClinicalPack[Id: ConceptIdentifier](PackNode[Id], ABC):
     """
-    Pack node for clinical packs.
+    Metaclass containing shared logic for Clinical Packs and Clinical Pack
+    Box
     """
 
     identifier: Id
     entries: SortedTuple[PackEntry[Id]]
+
+    defines_box_size: ClassVar[bool]
 
     def __post_init__(self) -> None:
         if len(self.entries) == 0:
             raise PackCreationError(f"Pack {self.identifier} has no entries.")
 
         for entry in self.entries:
+            if (entry.box_size is not None) != self.defines_box_size:
+                raise PackCreationError(
+                    f"{self.__class__.__name__} {self.identifier} has entries "
+                    + ("omitting" if self.defines_box_size else "specifying")
+                    + " box_size, which is not allowed for this class"
+                )
+
             if (msg := entry.validate_entry()) is not None:
                 raise PackCreationError(
                     f"Pack {self.identifier} has invalid entry: {msg}"
@@ -70,26 +80,14 @@ class ClinicalPack[Id: ConceptIdentifier](PackNode[Id]):
 
         return True
 
-    @override
-    @classmethod
-    def from_definitions(
-        cls,
-        identifier: Id,
-        parents: dict[ConceptClassId, list[PackNode[Id]]],
-        attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
-        entries: SortedTuple[PackEntry[Id]],
-    ) -> ClinicalPack[Id]:
-        return cls(identifier=identifier, entries=entries)
 
-
-@dataclass(frozen=True, order=True, eq=True, slots=True)
-class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
+class __MetaBrandedPack[Id: ConceptIdentifier](PackNode[Id], ABC):
     """
-    Pack node for clinical packs.
+    Metaclass containing shared logic for Branded Packs and Branded Pack Box
     """
 
     identifier: Id
-    unbranded: ClinicalPack[Id]
+    unbranded: __MetaClinicalPack[Id]
     brand_name: a.BrandName[Id]
 
     def __post_init__(self) -> None:
@@ -131,6 +129,42 @@ class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
 
         return self.get_brand_name() == other.get_brand_name()
 
+    # NOTE: from_definitions alternative constructor is not overriden
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class ClinicalPack[Id: ConceptIdentifier](__MetaClinicalPack[Id]):
+    """
+    Pack node for clinical packs.
+    """
+
+    identifier: Id
+    entries: SortedTuple[PackEntry[Id]]
+
+    defines_box_size: ClassVar[bool] = False
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[PackNode[Id]]],
+        attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
+        entries: SortedTuple[PackEntry[Id]],
+    ) -> __MetaClinicalPack[Id]:
+        return cls(identifier=identifier, entries=entries)
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BrandedPack[Id: ConceptIdentifier](__MetaBrandedPack[Id]):
+    """
+    Pack node for clinical packs.
+    """
+
+    identifier: Id
+    unbranded: ClinicalPack[Id]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
+    brand_name: a.BrandName[Id]
+
     @override
     @classmethod
     def from_definitions(
@@ -150,4 +184,38 @@ class BrandedPack[Id: ConceptIdentifier](PackNode[Id]):
         assert isinstance(brand_name, a.BrandName)
         return cls(
             identifier=identifier, unbranded=cp_node, brand_name=brand_name
+        )
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class ClinicalPackBox[Id: ConceptIdentifier](__MetaClinicalPack[Id]):
+    """
+    Pack node for clinical packs extended with box size.
+    """
+
+    identifier: Id
+    entries: SortedTuple[PackEntry[Id]]
+    unboxed: ClinicalPack[Id]
+
+    defines_box_size: ClassVar[bool] = True
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[PackNode[Id]]],
+        attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
+        entries: SortedTuple[PackEntry[Id]],
+    ) -> ClinicalPackBox[Id]:
+        (cp_node,) = parents[ConceptClassId.CP]
+        if not isinstance(cp_node, ClinicalPack):
+            raise PackCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalPack, but has {cp_node}."
+            )
+        return cls(
+            identifier=identifier,
+            entries=entries,
+            unboxed=cp_node,
         )
