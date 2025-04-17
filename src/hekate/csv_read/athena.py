@@ -2575,7 +2575,8 @@ class OMOPVocabulariesV5:
                     d.PackDefinition,
                 )
 
-                assert (ids := next(listed)) is not None
+                ids = next(listed)
+                assert ids is not None
 
                 # For simplicity, convert to iterable
                 parent_ids: list[int]
