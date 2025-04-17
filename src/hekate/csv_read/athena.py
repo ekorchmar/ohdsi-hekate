@@ -364,11 +364,17 @@ class OMOPVocabulariesV5:
         self.logger.info(f"Finding relationships for {source_class.value}")
 
         # Get expression from definition
+        # TODO: There should be a universal way to retrieve the definition
+        # from CCId, not only for nodes
         try:
             definition = d.ComplexDrugNodeDefinition.get(source_class)
         except KeyError:
-            # TODO: There should be a universal way to retrieve the definition
-            # from CCId, not only for nodes
+            try:
+                definition = d.PackDefinition.get(source_class)
+            except KeyError:
+                definition = None
+
+        if definition is None:
             filter_expr = (pl.col("concept_class_id") == source_class.value) & (
                 pl.col("invalid_reason").is_null()
             )
@@ -2471,8 +2477,8 @@ class OMOPVocabulariesV5:
 
         relationship_definitions = [
             *definition.attribute_relations,
-            *definition.content_relations,
             *definition.parent_relations,
+            *definition.content_relations,
         ]
 
         node_concepts = self.get_validated_relationships_view(
@@ -2514,6 +2520,7 @@ class OMOPVocabulariesV5:
 
         for row in node_concepts.iter_rows():
             # Consume the row
+            # NOTE: retrieval order must match the relationship_definitions list
             listed: Iterator[int | list[int | None] | None] = iter(row)
 
             # Own concept_id
