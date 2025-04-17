@@ -8,4 +8,9 @@ def _main():
 
 
 if __name__ == "__main__":
+    import sys
+
+    sys.argv = (
+        "hekate -a $ATHENA_DOWNLOAD_DIR -b $BUILD_RXE_DOWNLOAD_DIR".split()
+    )
     _main()
