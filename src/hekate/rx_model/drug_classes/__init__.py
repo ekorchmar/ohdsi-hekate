@@ -62,7 +62,7 @@ from rx_model.drug_classes.pack import (
     ClinicalPack,
     BrandedPack,
     ClinicalPackBox,
-    # BrandedPackBox,
+    BrandedPackBox,
 )
 
 from rx_model.drug_classes.foreign import (
@@ -83,6 +83,7 @@ __all__ = [
     "BrandedDrugComponent",
     "BrandedDrugForm",
     "BrandedPack",
+    "BrandedPackBox",
     "BrandName",
     "ClinicalDrug",
     "ClinicalDrugBox",

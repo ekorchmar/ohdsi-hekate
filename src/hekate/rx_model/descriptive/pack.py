@@ -149,3 +149,31 @@ _CPB_DEFINITION = PackDefinition(
     omop_vocabulary_ids=(VocabularyId.RXE,),
     defines_pack_size=True,
 )
+
+_BPB_DEFINITION = PackDefinition(
+    constructor=dc.BrandedPackBox,
+    omop_concept_class_id=ConceptClassId.BPB,
+    content_relations=tuple(
+        RelationshipDescription(
+            relationship_id="Contains",
+            target_definition=ComplexDrugNodeDefinition.get(cd_class),
+            cardinality=Cardinality.ANY,
+        )
+        for cd_class in [ConceptClassId.CD, ConceptClassId.QCD]
+    ),
+    attribute_relations=(MONO_ATTRIBUTE_RELATIONS[ConceptClassId.BRAND_NAME],),
+    parent_relations=(
+        RelationshipDescription(
+            relationship_id="Box of",
+            target_definition=_BP_DEFINITION,
+            cardinality=Cardinality.ONE,
+        ),
+        RelationshipDescription(
+            relationship_id="Tradename of",
+            target_definition=_CPB_DEFINITION,
+            cardinality=Cardinality.ONE,
+        ),
+    ),
+    omop_vocabulary_ids=(VocabularyId.RXE,),
+    defines_pack_size=True,
+)

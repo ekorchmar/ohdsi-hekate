@@ -88,7 +88,6 @@ class __MetaBrandedPack[Id: ConceptIdentifier](PackNode[Id], ABC):
 
     identifier: Id
     unbranded: __MetaClinicalPack[Id]
-    brand_name: a.BrandName[Id]
 
     def __post_init__(self) -> None:
         # NOTE: although current branded pack contents are automatically
@@ -105,10 +104,6 @@ class __MetaBrandedPack[Id: ConceptIdentifier](PackNode[Id], ABC):
     @override
     def get_entries(self) -> SortedTuple[PackEntry[Id]]:
         return self.unbranded.get_entries()
-
-    @override
-    def get_brand_name(self) -> a.BrandName[Id]:
-        return self.brand_name
 
     @override
     def get_supplier(self) -> None:
@@ -166,6 +161,10 @@ class BrandedPack[Id: ConceptIdentifier](__MetaBrandedPack[Id]):
     brand_name: a.BrandName[Id]
 
     @override
+    def get_brand_name(self) -> a.BrandName[Id]:
+        return self.brand_name
+
+    @override
     @classmethod
     def from_definitions(
         cls,
@@ -219,3 +218,42 @@ class ClinicalPackBox[Id: ConceptIdentifier](__MetaClinicalPack[Id]):
             entries=entries,
             unboxed=cp_node,
         )
+
+
+@dataclass(frozen=True, order=True, eq=True, slots=True)
+class BrandedPackBox[Id: ConceptIdentifier](__MetaBrandedPack[Id]):
+    """
+    Pack node for branded packs extended with the box size
+    """
+
+    identifier: Id
+    unbranded: ClinicalPackBox[Id]  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
+    unboxed: BrandedPack[Id]
+
+    @override
+    def get_brand_name(self) -> a.BrandName[Id]:
+        return self.unboxed.brand_name
+
+    @override
+    @classmethod
+    def from_definitions(
+        cls,
+        identifier: Id,
+        parents: dict[ConceptClassId, list[PackNode[Id]]],
+        attributes: dict[ConceptClassId, a.BrandName[Id] | a.Supplier[Id]],
+        entries: SortedTuple[PackEntry[Id]],
+    ) -> BrandedPackBox[Id]:
+        (cpb_node,) = parents[ConceptClassId.CPB]
+        if not isinstance(cpb_node, ClinicalPackBox):
+            raise PackCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"ClinicalPackBox, but has {cpb_node}."
+            )
+        (bp_node,) = parents[ConceptClassId.BP]
+        if not isinstance(bp_node, BrandedPack):
+            raise PackCreationError(
+                f"{cls.__name__} {identifier} must have a component of type "
+                f"BrandedPack, but has {bp_node}."
+            )
+
+        return cls(identifier=identifier, unbranded=cpb_node, unboxed=bp_node)
