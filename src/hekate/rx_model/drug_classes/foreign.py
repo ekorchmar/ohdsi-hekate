@@ -38,7 +38,7 @@ type _AnyComplex[Id: ConceptIdentifier] = (
     | c.BrandedDrugForm[Id]
     | c.ClinicalDrug[Id, st.UnquantifiedStrength]
     | c.BrandedDrug[Id, st.UnquantifiedStrength]
-    | c.QuantifiedClinicalDrug[Id, c.Concentration]
+    | c.QuantifiedClinicalDrug[Id, st.Concentration]
     | c.QuantifiedBrandedDrug[Id]
     | c.ClinicalDrugBox[Id, st.UnquantifiedStrength]
     | c.BrandedDrugBox[Id, st.UnquantifiedStrength]
@@ -49,11 +49,10 @@ type _AnyComplex[Id: ConceptIdentifier] = (
 )
 
 type _AnyPack[Id: ConceptIdentifier] = (
-    p.ClinicalPack[Id] | p.BrandedPack[Id]
-    # | p.QuantifiedClinicalPack[Id]
-    # | p.QuantifiedBrandedPack[Id]
-    # | p.ClinicalPackBox[Id]
-    # | p.BrandedPackBox[Id]
+    p.ClinicalPack[Id]
+    | p.BrandedPack[Id]
+    | p.ClinicalPackBox[Id]
+    | p.BrandedPackBox[Id]
 )
 
 # PseudoUnit is verbatim string representation of a unit in source data
@@ -129,13 +128,13 @@ class PrecedenceData(NamedTuple):
     supplier_diff: int = 0
 
     @override
-    def __add__(self, other: tuple[int, ...]) -> PrecedenceData:
+    def __add__(self, other: tuple[int, ...]) -> PrecedenceData:  # pyright: ignore[reportIncompatibleMethodOverride]  # noqa: E501
         """
         Adds precedence data of two different drug nodes element-wise. Use case
         for this is calculating cumulative precedence deviation for pack node
         from participating drug nodes.
         """
-        return PrecedenceData(*(s + o for s, o in zip(self, other)))
+        return PrecedenceData._make(s + o for s, o in zip(self, other))
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,7 +471,7 @@ class ForeignPackNode(PackNode[ConceptId]):
         attributes: dict[
             ConceptClassId, a.BrandName[ConceptId] | a.Supplier[ConceptId]
         ],
-        entries: list[PackEntry[ConceptId]],
+        entries: SortedTuple[PackEntry[ConceptId]],
     ) -> NoReturn:
         raise NotImplementedError(
             "Foreign nodes cannot be created from definitions."
