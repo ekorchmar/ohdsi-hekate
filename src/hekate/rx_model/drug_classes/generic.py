@@ -126,13 +126,13 @@ class DrugNode[
         match other:
             case DrugNode():
                 return self.is_superclass_of_drug_node(
-                    other,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                    other,  # pyright: ignore[reportUnknownArgumentType]
                     passed_hierarchy_checks,
                 )
             case PackNode():
-                raise NotImplementedError(
-                    "Testing if drug node is superclass of pack node is not "
-                    "yet implemented."
+                return any(
+                    self.is_superclass_of_drug_node(entry.drug)  # pyright: ignore[reportArgumentType]  # noqa: E501
+                    for entry in other.get_entries()
                 )
             case a.Ingredient():
                 # NOTE: A bit weird we did end up here. Raising an error is

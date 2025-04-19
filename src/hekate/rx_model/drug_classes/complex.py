@@ -2,6 +2,12 @@
 Implementations of complex drug classes
 """
 
+# NOTE: Pyright stopped trusting explicit type declarations somewhere along the
+# line of working on this project. Given that we only ever consume objects that
+# we construct in this file, this check is therefore disabled.
+
+# pyright: reportUnknownVariableType=false
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod  # For mixins
@@ -32,7 +38,7 @@ class __MulticomponentMixin[
 
     def check_multiple_components(
         self,
-        container: SortedTuple["ClinicalDrugComponent[Id, S]"],
+        container: SortedTuple[ClinicalDrugComponent[Id, S]],
         pi_are_i: bool = False,
     ) -> None:
         """
