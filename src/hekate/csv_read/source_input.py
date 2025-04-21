@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator, Sequence
 from pathlib import Path  # for CSV locations
-from typing import Annotated, override
+from typing import NamedTuple, override
 
 import polars as pl  # for tabular data manipulation
 from csv_read.generic import CSVReader, Schema  # Inheriting
@@ -30,6 +30,24 @@ from utils.classes import (
 from utils.logger import LOGGER
 
 type _SourceBoxSize = int | None
+
+
+class _DrugViewRow(NamedTuple):
+    concept_code: str
+    vocabulary_id: str
+    dose_form_code: str | None
+    brand_name_code: str | None
+    supplier_code: str | None
+
+
+class _PCSViewRow(NamedTuple):
+    concept_code: str
+    vocabulary_id: str
+    drug_concept_code: list[str]
+    amount: list[int]
+    box_size: list[int]
+    brand_name_code: str | None
+    supplier_code: str | None
 
 
 class DrugConceptStage(CSVReader[None]):
@@ -246,20 +264,9 @@ class BuildRxEInput:
             reference_data=self.dcs.collect().select("concept_code"),
         )
 
-        # WARN: temporarily cleaning up all pack_concepts
         self.pcs: PCSStage = PCSStage(
             data_path / "pc_stage.tsv",
             reference_data=self.dcs.collect().select("concept_code"),
-        )
-        if len(self.pcs.collect()) > 0:
-            self.logger.warning(
-                f"Found {len(self.pcs.collect())} pack_concepts. "
-                "These will be ignored for now."
-            )
-        self.dcs.anti_join(
-            self.pcs.collect(),
-            left_on="concept_code",
-            right_on="pack_concept_code",
         )
 
     def load_valid_concepts(self) -> None:
@@ -303,10 +310,10 @@ class BuildRxEInput:
 
     def prepare_drug_nodes(
         self, crash_on_error: bool = False
-    ) -> Generator[dc.ForeignNodePrototype, None, None]:
+    ) -> Generator[dc.ForeignNodePrototype]:
         """
-        Build Node prototypes using the DSStage and InternalRelationshipStage
-        data.
+        Build Drug node prototypes using the DSStage and
+        InternalRelationshipStage data.
         """
         ir = self.ir.collect()
         dcs = self.dcs.collect()
@@ -315,7 +322,15 @@ class BuildRxEInput:
         drug_products = (
             dcs.filter(pl.col("concept_class_id") == "Drug Product")
             .join(
+                # Exclude pack nodes
+                other=self.pcs.collect(),
+                left_on="concept_code",
+                right_on="pack_concept_code",
+                how="anti",
+            )
+            .join(
                 # Exclude Drug Products having explicit mappings in RTC
+                # TODO: Should rise a warning
                 other=self.rtcs.collect(),
                 left_on=["concept_code", "vocabulary_id"],
                 right_on=["concept_code_1", "vocabulary_id_1"],
@@ -334,19 +349,13 @@ class BuildRxEInput:
 
             field_name = attr_class.lower().replace(" ", "_")
             try:
-                drug_products = (
-                    drug_products.join(
-                        other=ir_of_attr,
-                        left_on="concept_code",
-                        right_on="concept_code_1",
-                        how="left",
-                        validate="1:1",  # TODO: Make this an external QA check
-                    )
-                    .with_columns(**{
-                        f"{field_name}_code": pl.col("concept_code_2"),
-                    })
-                    .drop("concept_code_2")
-                )
+                drug_products = drug_products.join(
+                    other=ir_of_attr,
+                    left_on="concept_code",
+                    right_on="concept_code_1",
+                    how="left",
+                    validate="1:1",  # TODO: Make this an external QA check
+                ).rename({"concept_code_2": field_name + "_code"})
             except pl.exceptions.ComputeError as e:
                 if crash_on_error:
                     raise e
@@ -355,17 +364,20 @@ class BuildRxEInput:
                     f"for Drug Products: {e}"
                 )
 
-        row: Annotated[tuple[str, ...], 5]
         for row in drug_products.iter_rows():
-            vocab = row[1]
-            drug_product_id = dc.ConceptCodeVocab(row[0], vocab)
+            drug_data = _DrugViewRow._make(row)
+            drug_product_id = dc.ConceptCodeVocab(
+                drug_data.concept_code,
+                drug_data.vocabulary_id,
+            )
             A = self.source_atoms
 
             try:
                 strength, box_size = self.get_concept_strength(drug_product_id)
-            except ForeignNodeCreationError:
+            except ForeignNodeCreationError as e:
                 self.logger.error(
-                    f"Failed creating strength data for node {drug_product_id}"
+                    f"Failed creating strength data for node {drug_product_id}:"
+                    f" {e}"
                 )
                 if crash_on_error:
                     raise
@@ -376,11 +388,112 @@ class BuildRxEInput:
             yield dc.ForeignNodePrototype(
                 identifier=drug_product_id,
                 strength_data=SortedTuple(strength),
-                dose_form=A.dose_form.get(dc.ConceptCodeVocab(row[2], vocab)),
-                brand_name=A.brand_name.get(dc.ConceptCodeVocab(row[3], vocab)),
-                supplier=A.supplier.get(dc.ConceptCodeVocab(row[4], vocab)),
+                dose_form=A.dose_form.get(
+                    dc.ConceptCodeVocab(
+                        drug_data.dose_form_code,
+                        drug_data.vocabulary_id,
+                    )
+                )
+                if drug_data.dose_form_code
+                else None,
+                brand_name=A.brand_name.get(
+                    dc.ConceptCodeVocab(
+                        drug_data.brand_name_code,
+                        drug_data.vocabulary_id,
+                    )
+                )
+                if drug_data.brand_name_code
+                else None,
+                supplier=A.supplier.get(
+                    dc.ConceptCodeVocab(
+                        drug_data.supplier_code,
+                        drug_data.vocabulary_id,
+                    )
+                )
+                if drug_data.supplier_code
+                else None,
                 box_size=box_size,
             )
+
+    def prepare_pack_nodes(
+        self,
+        drug_node_results: dict[
+            dc.ConceptCodeVocab,
+            dict[
+                dc.ForeignDrugNode[dc.Strength | None],
+                Sequence[dc.HierarchyNode[dc.ConceptId]],
+            ],
+        ],
+        crash_on_error: bool = False,
+    ) -> Generator[dc.ForeignPackNode]:
+        """
+        Generate ForeignPackNodes from PACK_CONTENT data and externally provided
+        drug content node translations
+        """
+        ir = self.ir.collect()
+        dcs = self.dcs.collect()
+
+        # First, get the unique attribute data
+        packs = (
+            dcs.filter(pl.col("concept_class_id") == "Drug Product")
+            .join(
+                # Pack nodes
+                other=self.pcs.collect(),
+                left_on="concept_code",
+                right_on="pack_concept_code",
+            )
+            .join(
+                # Exclude Drug Products having explicit mappings in RTC
+                # TODO: Should rise a warning
+                other=self.rtcs.collect(),
+                left_on=["concept_code", "vocabulary_id"],
+                right_on=["concept_code_1", "vocabulary_id_1"],
+                how="anti",
+            )
+            .select(
+                "concept_code",
+                "vocabulary_id",
+                "drug_concept_code",
+                "amount",
+                "box_size",
+            )
+            # Nest pack entry data into lists
+            .group_by("concept_code", "vocabulary_id")
+            .all()
+        )
+
+        for attr_class in ["Brand Name", "Supplier"]:
+            ir_of_attr = ir.join(
+                other=dcs.filter(pl.col("concept_class_id") == attr_class),
+                left_on="concept_code_2",
+                right_on="concept_code",
+                how="semi",
+            )
+
+            field_name = attr_class.lower().replace(" ", "_")
+            try:
+                packs = packs.join(
+                    other=ir_of_attr,
+                    left_on="concept_code",
+                    right_on="concept_code_1",
+                    how="left",
+                    validate="1:1",  # TODO: Make this an external QA check
+                ).rename({"concept_code_2": field_name + "_code"})
+
+            except pl.exceptions.ComputeError as e:
+                if crash_on_error:
+                    raise e
+                self.logger.error(
+                    f"Error while validating uniqueness of {attr_class} data "
+                    f"for Drug Products: {e}"
+                )
+
+        for row in packs.iter_rows():
+            pack_data = _PCSViewRow._make(row)
+            del pack_data
+
+        del drug_node_results
+        raise NotImplementedError
 
     def get_concept_strength(
         self, drug_id: dc.ConceptCodeVocab

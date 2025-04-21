@@ -72,6 +72,7 @@ from rx_model.drug_classes.foreign import (
     ForeignNodePrototype,
     PseudoUnit,
     ForeignStrength,
+    ForeignPackNode,
 )
 from rx_model.drug_classes.relations import DRUG_CLASS_PREFERENCE_ORDER
 
@@ -100,6 +101,7 @@ __all__ = [
     "DrugNode",
     "ForeignDrugNode",
     "ForeignNodePrototype",
+    "ForeignPackNode",
     "ForeignStrength",
     "GasPercentage",
     "HierarchyNode",

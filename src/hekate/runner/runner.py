@@ -23,7 +23,7 @@ With twig of fern and QA checks,
 Hekate starts another hex!
 """
 
-type _InterimResult = dict[
+type _InterimDrugResult = dict[
     dc.ForeignNodePrototype,
     dict[
         dc.ForeignDrugNode[dc.Strength | None],
@@ -52,7 +52,7 @@ class HekateRunner:
         self._args: argparse.Namespace = parser.parse_args(sys.argv[1:])
         LOGGER.info(_VERSE)
 
-        self.resulting_mappings: dict[
+        self.resulting_drug_mappings: dict[
             dc.ConceptCodeVocab, list[dc.ConceptId]
         ] = {}
 
@@ -93,8 +93,16 @@ class HekateRunner:
         )
         self.translator.read_translations(source=self.build_rxe_source)
 
-        terminals = self._find_terminals()
-        self.resulting_mappings = self._resolve(terminals)
+        drug_node_terminals = self._find_drug_terminals()
+        pack_node_terminals = self.build_rxe_source.prepare_pack_nodes({
+            prototype.identifier: mappings
+            for prototype, mappings in drug_node_terminals.items()
+        })
+        self.resulting_drug_mappings = self._resolve_drug_nodes(
+            drug_node_terminals
+        )
+
+        del pack_node_terminals
 
         LOGGER.info("Done")
 
@@ -127,7 +135,7 @@ class HekateRunner:
             "concept_id_2": [],
         }
 
-        for source, targets in self.resulting_mappings.items():
+        for source, targets in self.resulting_drug_mappings.items():
             columns["concept_code_1"].append(source.concept_code)
             columns["vocabulary_id_1"].append(source.vocabulary_id)
             columns["concept_id_2"].append(
@@ -182,12 +190,18 @@ class HekateRunner:
         print(data := mappings_df.collect())
         data.write_csv(self.run_dir / "hekate_results.csv")
 
-    def _find_terminals(self) -> _InterimResult:
+    def _find_drug_terminals(self) -> _InterimDrugResult:
         """
-        Map the generated nodes to RxNorm concepts.
+        Map the generated nodes to all possible RxNorm concepts.
+
+        Generates non-disambiguated mappings to all terminals, returning them as
+        a 2 level nested dictionary, where first level is indexed by the
+        source-native ForeignNodePrototype representation, second level is the
+        variation of translated ForeignNode, and final value is a list of
+        DrugNodes of different class.
         """
 
-        result: _InterimResult = {}
+        result: _InterimDrugResult = {}
 
         # 2 billion is conventionally used for local concept IDs
         def new_concept_id():
@@ -237,7 +251,7 @@ class HekateRunner:
                             / "graphs"
                             / (
                                 f"{prototype.identifier.vocabulary_id}_"
-                                + f"{prototype.identifier.concept_code}.svg"
+                                f"{prototype.identifier.concept_code}.svg"
                             ),
                             use_identifier=prototype.identifier,
                         )
@@ -246,8 +260,8 @@ class HekateRunner:
 
         return result
 
-    def _resolve(
-        self, terminals: _InterimResult
+    def _resolve_drug_nodes(
+        self, terminals: _InterimDrugResult
     ) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
         """
         Disambiguate the terminal nodes and return the final mappings.
