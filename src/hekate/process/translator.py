@@ -182,7 +182,7 @@ class NodeTranslator:
 
     def _translate_strength_measure(
         self, value: PyRealNumber, unit: dc.PseudoUnit
-    ) -> Generator[tuple[PyRealNumber, dc.Unit], None, None]:
+    ) -> Generator[tuple[PyRealNumber, dc.Unit]]:
         """
         Translate a single strength measure (a pair of value and dc.unit) to a
         sequence of possible value-dc.unit pairs in RxNorm-native units.
@@ -211,7 +211,7 @@ class NodeTranslator:
         self,
         node_prototype: dc.ForeignNodePrototype,
         concept_id_factory: Callable[[], dc.ConceptId],
-    ) -> Generator[dc.ForeignDrugNode[dc.Strength | None], None, None]:
+    ) -> Generator[dc.ForeignDrugNode[dc.Strength | None]]:
         """
         Translate a source drug node definitions int a sequence of RxNorm-native
         drug node definitions.
@@ -361,7 +361,7 @@ class NodeTranslator:
         self,
         strength_data: dc.ForeignStrength,
         expected_class: type[S],
-    ) -> Generator[S, None, None]:
+    ) -> Generator[S]:
         """
         Translate a slice of DS_STAGE dosage information into
         RxNorm-native strength data.
@@ -375,7 +375,7 @@ class NodeTranslator:
         match expected_class:
             case dc.SolidStrength:
                 assert strength_data.amount_value is not None
-                assert strength_data.amount_unit is not None
+                assert strength_data.amount_unit
                 for scaled_v, true_unit in self._translate_strength_measure(
                     strength_data.amount_value, strength_data.amount_unit
                 ):
@@ -443,7 +443,7 @@ class NodeTranslator:
 
     def _get_ingredient_permutations(
         self, ingredients: Sequence[dc.Ingredient[dc.ConceptCodeVocab]]
-    ) -> Generator[_PrecedentedStrengthData[None], None, None]:
+    ) -> Generator[_PrecedentedStrengthData[None]]:
         """
         Get all possible permutations of the node that has only ingredients and
         no strength data.
@@ -504,7 +504,7 @@ class NodeTranslator:
         ingredient: dc.Ingredient[dc.ConceptCodeVocab],
         strength: dc.ForeignStrength,
         expected_class: type[S],
-    ) -> Generator[_PrecedentedBoundStrength[S], None, None]:
+    ) -> Generator[_PrecedentedBoundStrength[S]]:
         """
         Translate a single strength row into a sequence of possible strength
         data variations in RxNorm-native units, including the ingredient and
@@ -527,7 +527,7 @@ class NodeTranslator:
         self,
         rows: Sequence[dc.BoundForeignStrength],
         expected_class: type[S],
-    ) -> Generator[_PrecedentedStrengthData[S], None, None]:
+    ) -> Generator[_PrecedentedStrengthData[S]]:
         """
         Get all possible permutations of the node's strength data in order of
         precedence of the contributing ingredient mappings.
@@ -556,7 +556,7 @@ class NodeTranslator:
     def _get_ingredient_only_permutations(
         self,
         ingredients: Sequence[dc.Ingredient[dc.ConceptCodeVocab]],
-    ) -> Generator[_PrecedentedStrengthData[None], None, None]:
+    ) -> Generator[_PrecedentedStrengthData[None]]:
         """
         Get all possible permutations of the node that has only ingredients and
         no strength data.
