@@ -98,5 +98,43 @@ modelling_intersection = rxnorm_mono_pack.join(
     right_on=["content_concept_id", "box_size"],
 ).rename({"drug_concept_id_right": "rxe_cdb_concept_id"})
 print(modelling_intersection)
+modelling_intersection.write_csv("modelling_intersection.csv")
 
-# TODO: Question 2: test redundancy of separating box_size from amount
+# Question 2: Does separating box_size from amount bring semantic duplicates?
+rxe_cpb = (
+    full_joined.filter(
+        pl.col("vocabulary_id_pack") == "RxNorm Extension",
+        pl.col("concept_class_id_pack") == "Clinical Pack Box",
+    )
+    .select(
+        cpb_concept_id="pack_concept_id",
+        drug_concept_id="drug_concept_id",
+        amount=pl.coalesce(pl.col("amount"), 1) * pl.col("box_size"),
+    )
+    .sort("drug_concept_id")
+    .group_by("cpb_concept_id")
+    .all()
+)
+
+rxn_cp = (
+    full_joined.filter(
+        pl.col("vocabulary_id_pack") == "RxNorm",
+        pl.col("concept_class_id_pack") == "Clinical Pack",
+    )
+    .select(
+        "pack_concept_id",
+        "drug_concept_id",
+        "amount",
+    )
+    .sort("drug_concept_id")
+    .group_by("pack_concept_id")
+    .all()
+)
+
+interlevel_intersection = (
+    rxn_cp.join(other=rxe_cpb, on=["drug_concept_id", "amount"])
+    .select("pack_concept_id", "cpb_concept_id", "drug_concept_id", "amount")
+    .explode("drug_concept_id", "amount")
+)
+print(interlevel_intersection)
+interlevel_intersection.write_csv("interlevel_intersection.csv")
