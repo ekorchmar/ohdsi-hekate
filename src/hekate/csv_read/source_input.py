@@ -6,17 +6,24 @@ into ForeignDrugNode objects for evaluation.
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator, Sequence
+from collections.abc import (
+    Generator,
+    Iterator,
+    Sequence,
+)  # for type annotations
+from itertools import product  # for pack entry permutations
 from pathlib import Path  # for CSV locations
 from typing import NamedTuple, override
 
 import polars as pl  # for tabular data manipulation
 from csv_read.generic import CSVReader, Schema  # Inheriting
+from hekate.rx_model.drug_classes.foreign import ForeignPackNodePrototype
 from rx_model import drug_classes as dc  # for drug atoms and identifiers
 from rx_model import hierarchy as h  # For hierarchy and atom containers
 from utils.exceptions import (
     ForeignDosageStrengthError,
     ForeignNodeCreationError,
+    ForeignPackCreationError,
 )
 from utils.classes import (
     # For type aliases
@@ -44,8 +51,8 @@ class _PCSViewRow(NamedTuple):
     concept_code: str
     vocabulary_id: str
     drug_concept_code: list[str]
-    amount: list[int]
-    box_size: list[int]
+    amount: list[int | None]
+    box_size: list[int] | list[None]
     brand_name_code: str | None
     supplier_code: str | None
 
@@ -370,7 +377,6 @@ class BuildRxEInput:
                 drug_data.concept_code,
                 drug_data.vocabulary_id,
             )
-            A = self.source_atoms
 
             try:
                 strength, box_size = self.get_concept_strength(drug_product_id)
@@ -388,7 +394,7 @@ class BuildRxEInput:
             yield dc.ForeignNodePrototype(
                 identifier=drug_product_id,
                 strength_data=SortedTuple(strength),
-                dose_form=A.dose_form.get(
+                dose_form=self.source_atoms.dose_form.get(
                     dc.ConceptCodeVocab(
                         drug_data.dose_form_code,
                         drug_data.vocabulary_id,
@@ -396,7 +402,7 @@ class BuildRxEInput:
                 )
                 if drug_data.dose_form_code
                 else None,
-                brand_name=A.brand_name.get(
+                brand_name=self.source_atoms.brand_name.get(
                     dc.ConceptCodeVocab(
                         drug_data.brand_name_code,
                         drug_data.vocabulary_id,
@@ -404,7 +410,7 @@ class BuildRxEInput:
                 )
                 if drug_data.brand_name_code
                 else None,
-                supplier=A.supplier.get(
+                supplier=self.source_atoms.supplier.get(
                     dc.ConceptCodeVocab(
                         drug_data.supplier_code,
                         drug_data.vocabulary_id,
@@ -418,16 +424,12 @@ class BuildRxEInput:
     def prepare_pack_nodes(
         self,
         drug_node_results: dict[
-            dc.ConceptCodeVocab,
-            dict[
-                dc.ForeignDrugNode[dc.Strength | None],
-                Sequence[dc.HierarchyNode[dc.ConceptId]],
-            ],
+            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
         ],
         crash_on_error: bool = False,
-    ) -> Generator[dc.ForeignPackNode]:
+    ) -> Generator[dc.ForeignPackNodePrototype]:
         """
-        Generate ForeignPackNodes from PACK_CONTENT data and externally provided
+        Generate ForeignPackNodePrototypes from PACK_CONTENT data and provided
         drug content node translations
         """
         ir = self.ir.collect()
@@ -490,10 +492,118 @@ class BuildRxEInput:
 
         for row in packs.iter_rows():
             pack_data = _PCSViewRow._make(row)
-            del pack_data
 
-        del drug_node_results
-        raise NotImplementedError
+            pack_id = dc.ConceptCodeVocab(
+                pack_data.concept_code,
+                pack_data.vocabulary_id,
+            )
+
+            source_entries: zip[
+                tuple[dc.ConceptCodeVocab, int | None, int | None]
+            ] = zip(
+                (
+                    dc.ConceptCodeVocab(drug_code, pack_data.vocabulary_id)
+                    for drug_code in pack_data.drug_concept_code
+                ),
+                pack_data.amount,
+                pack_data.box_size,
+            )
+
+            brand_name = (
+                self.source_atoms.brand_name.get(
+                    dc.ConceptCodeVocab(
+                        pack_data.brand_name_code,
+                        pack_data.vocabulary_id,
+                    )
+                )
+                if pack_data.brand_name_code
+                else None
+            )
+
+            supplier = (
+                self.source_atoms.supplier.get(
+                    dc.ConceptCodeVocab(
+                        pack_data.supplier_code,
+                        pack_data.vocabulary_id,
+                    )
+                )
+                if pack_data.supplier_code
+                else None
+            )
+
+            # Construct entries
+            mapped_entries_iter = self._get_entries_permutations_combinations(
+                source_entries=source_entries,
+                drug_node_results=drug_node_results,
+            )
+
+            any_prototype_succeeded = False
+            while True:
+                try:
+                    entry_permutation = next(mapped_entries_iter)
+                except ForeignPackCreationError as e:
+                    self.logger.debug(
+                        f"Entry construction failed for {pack_id}: {e}"
+                    )
+                    continue
+                except StopIteration:
+                    break
+                else:
+                    any_prototype_succeeded = True
+                    yield ForeignPackNodePrototype(
+                        identifier=pack_id,
+                        entries=entry_permutation,
+                        brand_name=brand_name,
+                        supplier=supplier,
+                    )
+
+            if not any_prototype_succeeded:
+                # Pack ends up unmapped!
+                message = (
+                    f"All attempts at creating Pack Prototype failed for "
+                    f"{pack_id}"
+                )
+                self.logger.debug(message)
+                if crash_on_error:
+                    raise ForeignPackCreationError(message)
+
+    def _get_entries_permutations_combinations(
+        self,
+        source_entries: Iterator[
+            tuple[dc.ConceptCodeVocab, int | None, int | None]
+        ],
+        drug_node_results: dict[
+            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
+        ],
+    ) -> Generator[SortedTuple[dc.PackEntry[dc.ConceptId]]]:
+        mapped_entry_groups: list[list[dc.PackEntry[dc.ConceptId]]] = []
+        for source_ccv, amount, box_size in source_entries:
+            mapped_entries: list[dc.PackEntry[dc.ConceptId]] = []
+            for mapped_node in drug_node_results[source_ccv]:
+                if not isinstance(mapped_node, dc.DrugNode):
+                    continue
+
+                entry = dc.PackEntry(
+                    mapped_node,  # pyright: ignore[reportUnknownArgumentType]
+                    amount,
+                    box_size,
+                )
+                if entry.validate_entry() is None:
+                    mapped_entries.append(entry)
+            if not mapped_entries:
+                # Drug component is not mapped by this point: pack is unmappable
+                e_msg = (
+                    f"Drug component entry "
+                    f"{(source_ccv.concept_code, amount, box_size)} with "
+                    f"identifier {source_ccv} is not mapped by this point, "
+                    f"rendering depending pack unmappable"
+                )
+                self.logger.debug(e_msg)
+                raise ForeignPackCreationError(e_msg)
+            mapped_entry_groups.append(mapped_entries)
+
+        for combination in product(*mapped_entry_groups):
+            yield SortedTuple(combination)
 
     def get_concept_strength(
         self, drug_id: dc.ConceptCodeVocab
@@ -510,7 +620,7 @@ class BuildRxEInput:
         bfs: dc.BoundForeignStrength
         if len(strength_data) == 0:
             # Return ingredient only
-            ing_ir = (
+            ing_ir: list[str] = (
                 self.ir.collect()
                 .filter(pl.col("concept_code_1") == drug_id.concept_code)
                 .join(
@@ -521,7 +631,7 @@ class BuildRxEInput:
                     right_on="concept_code",
                     how="semi",
                 )["concept_code_2"]
-            )
+            ).to_list()
 
             if len(ing_ir) == 0:
                 raise ForeignNodeCreationError(

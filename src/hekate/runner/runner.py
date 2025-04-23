@@ -3,6 +3,7 @@ import datetime  # for naming directories
 import logging  # for logging
 import sys  # To read command line arguments
 from collections.abc import Sequence  # for Typing
+from itertools import chain
 from pathlib import Path  # for file paths
 
 import polars as pl  # for resultss writing
@@ -12,7 +13,7 @@ from csv_read.source_input import BuildRxEInput  # for source data
 from runner.cli_args import HekateArgsParser  # for command line arguments
 from rx_model import drug_classes as dc  # for data classes
 from utils.constants import VALID_CONCEPT_END_DATE, VALID_CONCEPT_START_DATE
-from utils.exceptions import UnmappedSourceConceptError, ResolutionError
+from utils.exceptions import ResolutionError, UnmappedSourceConceptError
 from utils.logger import FORMATTER, LOGGER
 from utils.utils import int_date_to_str
 
@@ -95,7 +96,7 @@ class HekateRunner:
 
         drug_node_terminals = self._find_drug_terminals()
         pack_node_terminals = self.build_rxe_source.prepare_pack_nodes({
-            prototype.identifier: mappings
+            prototype.identifier: list(chain(mappings.values()))
             for prototype, mappings in drug_node_terminals.items()
         })
         self.resulting_drug_mappings = self._resolve_drug_nodes(

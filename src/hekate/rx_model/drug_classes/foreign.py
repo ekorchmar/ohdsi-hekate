@@ -112,6 +112,24 @@ class ForeignNodePrototype(NamedTuple):
     # WARN: precise_ingredients are not specifiable in the source for now
 
 
+class ForeignPackNodePrototype(NamedTuple):
+    """
+    Represents a data pack prototype of a foreign node, with all the information
+    required to create a ForeignPackNode instance.
+
+    The prototype contents are derived from the source data and use definitions
+    native to the source data. It is job of a translator to convert these
+    definitions to valid ForeignDrugNode instances.
+
+    Entries, however, are expected to be natively represented.
+    """
+
+    identifier: ConceptCodeVocab
+    entries: SortedTuple[PackEntry[ConceptId]]
+    brand_name: a.BrandName[ConceptCodeVocab] | None = None
+    supplier: a.Supplier[ConceptCodeVocab] | None = None
+
+
 class PrecedenceData(NamedTuple):
     """
     Metadata package that represents the precedence data for a foreign node,

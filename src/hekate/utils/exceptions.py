@@ -49,6 +49,12 @@ class ForeignNodeCreationError(RxConceptError):
     """
 
 
+class ForeignPackCreationError(PackCreationError, ForeignNodeCreationError):
+    """
+    Occurs when a source pack node can not be created
+    """
+
+
 class ForeignAttributeError(ForeignNodeCreationError):
     """
     Occurs when a foreign node specifies an invalid attribute.
