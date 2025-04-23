@@ -216,7 +216,7 @@ class HekateRunner:
             crash_on_error=False
         ):
             result[prototype] = {}
-            translated_nodes = self.translator.translate_node(
+            translated_nodes = self.translator.translate_drug_node(
                 prototype, lambda: next(cid_counter)
             )
             while True:

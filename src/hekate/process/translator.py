@@ -4,17 +4,15 @@ from source drug node definitions.
 """
 
 import logging
-from collections import OrderedDict
+from collections import OrderedDict  # for unit map preserving conversion factor
 from collections.abc import Generator, Mapping, Sequence
 from itertools import product
 from typing import Callable, NamedTuple
 
-import polars as pl
-from csv_read.source_input import BuildRxEInput
-from rx_model import drug_classes as dc
-from rx_model.hierarchy.generic import AtomicConcept
-from rx_model.hierarchy.hosts import Atoms
-import rx_model.descriptive as d
+import polars as pl  # for dataframes
+from csv_read.source_input import BuildRxEInput  # for type annotation
+from rx_model import drug_classes as dc  # for concept classes
+import rx_model.hierarchy as h  # For atom containers
 from utils.classes import SortedTuple, PyRealNumber
 from utils.exceptions import (
     ForeignNodeCreationError,
@@ -22,7 +20,9 @@ from utils.exceptions import (
     UnmappedSourceConceptError,
 )
 
-type _AtomLookupCallable = Callable[[dc.ConceptId], AtomicConcept[dc.ConceptId]]
+type _AtomLookupCallable = Callable[
+    [dc.ConceptId], h.AtomicConcept[dc.ConceptId]
+]
 type _Attribute[Id: dc.ConceptIdentifier] = (
     dc.DoseForm[Id] | dc.BrandName[Id] | dc.Supplier[Id] | dc.Ingredient[Id]
 )
@@ -57,16 +57,9 @@ class NodeTranslator:
     drug nodes.
     """
 
-    STRENGTH_CLASS: dict[d.StrengthConfiguration, type[dc.Strength]] = {
-        d.StrengthConfiguration.AMOUNT_ONLY: dc.SolidStrength,
-        d.StrengthConfiguration.LIQUID_CONCENTRATION: dc.LiquidConcentration,
-        d.StrengthConfiguration.LIQUID_QUANTITY: dc.LiquidQuantity,
-        d.StrengthConfiguration.GAS_PERCENTAGE: dc.GasPercentage,
-    }
-
     def __init__(
         self,
-        rx_atoms: Atoms[dc.ConceptId],
+        rx_atoms: h.Atoms[dc.ConceptId],
         logger: logging.Logger,
     ):
         self.logger: logging.Logger = logger.getChild(self.__class__.__name__)
@@ -112,7 +105,7 @@ class NodeTranslator:
         """
         Populate the mappings from a DataFrame.
         """
-        frame = (
+        rtcs_frame = (
             source.rtcs.collect()
             .select(
                 concept_code="concept_code_1",
@@ -130,7 +123,7 @@ class NodeTranslator:
         )
 
         atom_frame = (
-            frame.filter(
+            rtcs_frame.filter(
                 ~pl.col("concept_code").is_in(source.pseudo_units),
             )
             .select("concept_code", "vocabulary_id", "concept_id")
@@ -144,7 +137,7 @@ class NodeTranslator:
         )
 
         unit_frame = (
-            frame.filter(
+            rtcs_frame.filter(
                 pl.col("concept_code").is_in(source.pseudo_units),
             )
             .select("concept_code", "concept_id", "conversion_factor")
@@ -205,9 +198,9 @@ class NodeTranslator:
         if (foreign_strength := strength[1]) is None:
             return None
         expected = foreign_strength.derive_configuration()
-        return self.STRENGTH_CLASS[expected]
+        return expected.value
 
-    def translate_node(
+    def translate_drug_node(
         self,
         node_prototype: dc.ForeignNodePrototype,
         concept_id_factory: Callable[[], dc.ConceptId],
@@ -325,7 +318,7 @@ class NodeTranslator:
                 f"Invalid attribute: {identifier} for {expected_class.__name__}"
             ) from e
 
-        if value is not None and not isinstance(value, expected_class):
+        if not isinstance(value, expected_class):
             self.logger.error(
                 f"Expected {expected_class.__name__}, got {value}"
             )
