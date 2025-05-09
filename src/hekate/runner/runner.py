@@ -16,7 +16,11 @@ from utils.constants import (
     VALID_CONCEPT_START_DATE,  # ditto
     CUSTOM_CONCEPT_ID_START,  # To generate (temporary) ids
 )
-from utils.exceptions import ResolutionError, UnmappedSourceConceptError
+from utils.exceptions import (
+    ForeignPackCreationError,
+    ResolutionError,
+    UnmappedSourceConceptError,
+)
 from utils.logger import FORMATTER, LOGGER
 from utils.utils import int_date_to_str
 
@@ -249,7 +253,7 @@ class HekateRunner:
                     )
                     continue
 
-                visitor = p.NodeFinder(
+                visitor = p.DrugNodeFinder(
                     option,
                     self.athena_rxne.hierarchy,
                     self.logger,
@@ -306,11 +310,20 @@ class HekateRunner:
             translated_nodes = self.translator.translate_pack_node(
                 prototype, drug_node_results, self.new_concept_id()
             )
+
             while True:
                 try:
                     option = next(translated_nodes)
                 except StopIteration:
                     break
+
+                except ForeignPackCreationError as e:
+                    self.logger.error(
+                        f" Pakck Node {prototype.identifier} could not be mapped "
+                        f"to RxNorm hierarchy: {e}"
+                    )
+                    continue  # to the next prototype
+
                 except UnmappedSourceConceptError as e:
                     # This is expected for now
                     # TODO: skip all permutations of the node
@@ -318,7 +331,7 @@ class HekateRunner:
                         f"Node {prototype.identifier} could not be mapped to "
                         f"RxNorm: {e}"
                     )
-                    continue
+                    continue  # to the next prototype
 
                 visitor = p.PackNodeFinder(
                     option,

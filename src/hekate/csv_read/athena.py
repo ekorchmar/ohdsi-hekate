@@ -1022,13 +1022,12 @@ class OMOPVocabulariesV5:
             )
         )
 
-        drug_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView] = {}
+        self.drug_parent_nodes: dict[
+            d.ComplexDrugNodeDefinition, _TempNodeView
+        ] = {}
         for definition in drug_complexity_order:
-            class_nodes = self.add_drug_nodes(
-                definition=definition,
-                all_parent_nodes=drug_parent_nodes,
-            )
-            drug_parent_nodes[definition] = class_nodes
+            class_nodes = self.add_drug_nodes(definition=definition)
+            self.drug_parent_nodes[definition] = class_nodes
 
         # Add and process packs
         self.pack_content: PackContentTable = PackContentTable(
@@ -1050,7 +1049,6 @@ class OMOPVocabulariesV5:
             class_nodes = self.add_pack_nodes(
                 definition=definition,
                 all_parent_nodes=pack_parent_nodes,
-                all_component_nodes=drug_parent_nodes,
             )
             pack_parent_nodes[definition] = class_nodes
 
@@ -1689,15 +1687,11 @@ class OMOPVocabulariesV5:
     def add_drug_nodes(
         self,
         definition: d.ComplexDrugNodeDefinition,
-        all_parent_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
     ) -> _TempNodeView:
         """
         Process a set of drug class nodes and add them to the hierarchy.
         Args:
             definition: The definition of the class to be added.
-            all_parent_nodes: A dictionary of parent nodes indexed by their
-                class_id dictionary values are the node indices of the parent
-                nodes in the hierarchy.
 
         Returns:
             A dictionary of the node indices of the class nodes indexed by their
@@ -1884,7 +1878,7 @@ class OMOPVocabulariesV5:
                     parent_ids = parent_id_or_ids
 
                 # Lookup the nodes
-                parent_node_view = all_parent_nodes[parent_def]
+                parent_node_view = self.drug_parent_nodes[parent_def]
                 for parent_id in parent_ids:
                     try:
                         parent_node_idx = parent_node_view[parent_id]
@@ -2435,7 +2429,6 @@ class OMOPVocabulariesV5:
         self,
         definition: d.PackDefinition,
         all_parent_nodes: dict[d.PackDefinition, _TempNodeView],
-        all_component_nodes: dict[d.ComplexDrugNodeDefinition, _TempNodeView],
     ) -> _TempNodeView:
         """
         Process a set of pack nodes and add them to the hierarchy.
@@ -2444,9 +2437,6 @@ class OMOPVocabulariesV5:
             all_parent_nodes: A dictionary of parent nodes indexed by their
                 class_id dictionary values are the node indices of the parent
                 nodes in the hierarchy.
-            all_component_nodes: A dictionary of component nodes indexed by
-                their class_id dictionary values are the node indices of the
-                component nodes in the hierarchy.
 
         Returns:
             A dictionary of the node indices of the class nodes indexed by their
@@ -2738,7 +2728,7 @@ class OMOPVocabulariesV5:
             entry_indices: list[int] = []  # May be used to build hierarchy
             for content_node_id, amount, box_size in shared_iter:
                 drug_node_definition = cr_content[content_node_id]
-                entry_nodes = all_component_nodes[drug_node_definition]
+                entry_nodes = self.drug_parent_nodes[drug_node_definition]
                 try:
                     entry_node_idx = entry_nodes[content_node_id]
                 except KeyError:

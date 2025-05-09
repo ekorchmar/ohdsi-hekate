@@ -182,6 +182,12 @@ class RxHierarchy[Id: dc.ConceptIdentifier](
         # Cached indices of ingredients (roots)
         self.ingredients: dict[dc.Ingredient[Id], NodeIndex] = {}
 
+        # Container for packs:
+        self.complex: dict[
+            type[dc.DrugNode[Id, dc.LiquidQuantity | dc.SolidStrength]],
+            dict[Id, NodeIndex],
+        ] = {}
+
         # Placeholder logger: calling class should set a logger explicitly
         self.logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
@@ -197,14 +203,22 @@ class RxHierarchy[Id: dc.ConceptIdentifier](
 
     def add_rxne_node(
         self,
-        drug_node: dc.HierarchyNode[Id],
+        rxne_node: dc.HierarchyNode[Id],
         parent_indices: Iterable[NodeIndex],
     ) -> NodeIndex:
         """
         Add a drug node to the hierarchy. Returns the index of the added
         node in the graph.
         """
-        node_idx = self.add_node(drug_node)
+        node_idx = self.add_node(rxne_node)
+        if isinstance(rxne_node, dc.DrugNode):
+            # if isinstance(
+            #     rxne_node.get_strength_data()[0],
+            #     (dc.SolidStrength | dc.LiquidConcentration),
+            # ):
+            self.complex.setdefault(type(rxne_node), {})[  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                rxne_node.identifier
+            ] = node_idx
         for idx in parent_indices:
             _ = self.add_edge(  # Discard edge index
                 idx, node_idx, None

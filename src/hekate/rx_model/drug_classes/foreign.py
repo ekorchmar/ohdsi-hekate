@@ -131,7 +131,7 @@ class ForeignPackNodePrototype(NamedTuple):
     """
 
     identifier: ConceptCodeVocab
-    entries: list[ForeignPackEntryPrototype]
+    entries: tuple[ForeignPackEntryPrototype, ...]
     brand_name: a.BrandName[ConceptCodeVocab] | None = None
     supplier: a.Supplier[ConceptCodeVocab] | None = None
 
@@ -517,3 +517,22 @@ class ForeignPackNode(PackNode[ConceptId]):
         raise NotImplementedError(
             "Foreign nodes cannot be created from definitions."
         )
+
+    def best_case_class(self) -> type[_AnyPack[ConceptId]]:
+        """
+        Tries to infer the target class of this foreign node based on the
+        presence of attributes and shape of the strength data.
+        """
+
+        branded = self.brand_name is not None
+        marketed = self.supplier is not None
+        has_box_size = self.entries[0].box_size is not None
+
+        # TODO: Marketed Product checks
+        del marketed
+
+        if has_box_size:
+            # PackBox
+            return p.BrandedPackBox if branded else p.ClinicalPackBox
+        # Pack
+        return p.BrandedPack if branded else p.ClinicalPack

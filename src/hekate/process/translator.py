@@ -5,7 +5,7 @@ from source drug node definitions.
 
 import logging
 from collections import OrderedDict  # for unit map preserving conversion factor
-from collections.abc import Generator, Mapping, Sequence, Iterator
+from collections.abc import Generator, Iterable, Mapping, Sequence, Iterator
 from itertools import product  # For permutations of precedented translations
 from typing import Callable, NamedTuple
 
@@ -307,7 +307,7 @@ class NodeTranslator:
 
     def _get_entries_permutations_combinations(
         self,
-        source_entries: list[dc.ForeignPackEntryPrototype],
+        source_entries: Iterable[dc.ForeignPackEntryPrototype],
         drug_node_results: dict[
             dc.ConceptCodeVocab,
             dict[

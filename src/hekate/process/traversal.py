@@ -25,7 +25,8 @@ from rx_model.drug_classes import (
     HierarchyNode,  # Operand
     ForeignDrugNode,  # Operand
     ForeignPackNode,  # Operand
-    Ingredient,  # Entry point, special case
+    Ingredient,  # Entry point for drugs
+    DrugNode,  # Entry point for packs
     Strength,  # Typing
 )
 from rx_model.hierarchy.hosts import NodeIndex, RxHierarchy
@@ -266,7 +267,7 @@ class DrugNodeFinder(NodeFinder):
         # The class of nodes to prune the search at. All descendants will be
         # redundant.
         self.node: ForeignDrugNode[Strength | None] = node  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
-        self.aim_for: type[HierarchyNode] = (  # pyright: ignore[reportMissingTypeArgument]  # noqa: E501
+        self.aim_for: type[HierarchyNode[ConceptId]] = (
             self.node.best_case_class()
         )
 
@@ -285,4 +286,43 @@ class DrugNodeFinder(NodeFinder):
         for ing, _ in self.node.get_strength_data():
             ing_idx = self.hierarchy.ingredients[ing]
             _ = self.hierarchy.add_edge(temporary_root_idx, ing_idx, None)
+        return temporary_root_idx
+
+
+class PackNodeFinder(NodeFinder):
+    AUTOACCEPT: type[HierarchyNode[ConceptId]] = DrugNode
+
+    def __init__(
+        self,
+        node: ForeignDrugNode[Strength | None] | ForeignPackNode,
+        hierarchy: RxHierarchy[ConceptId],
+        logger: logging.Logger,
+        save_subplot: bool = False,
+    ):
+        super().__init__(node, hierarchy, logger, save_subplot)
+
+        assert isinstance(node, ForeignPackNode)
+
+        # The class of nodes to prune the search at. All descendants will be
+        # redundant.
+        self.node: ForeignPackNode = node  # pyright: ignore[reportIncompatibleVariableOverride]  # noqa: E501
+        self.aim_for: type[HierarchyNode[ConceptId]] = (
+            self.node.best_case_class()
+        )
+
+    @override
+    def create_temporary_root(self) -> NodeIndex:
+        """
+        Creates a temporary root node for the search.
+        """
+        # Create a temporary root node
+        temporary_root_idx = self.hierarchy.add_node(self.SENTINEL)
+
+        # Components of the pack node are known entry points
+        for entry in self.node.entries:
+            node_class = type(entry.drug)
+            class_container = self.hierarchy.complex[node_class]
+            entry_index = class_container[entry.drug.identifier]
+            _ = self.hierarchy.add_edge(temporary_root_idx, entry_index, None)
+
         return temporary_root_idx

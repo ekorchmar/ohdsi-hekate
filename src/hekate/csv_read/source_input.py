@@ -531,7 +531,7 @@ class BuildRxEInput:
 
             yield dc.ForeignPackNodePrototype(
                 identifier=pack_id,
-                entries=entries_prototype,
+                entries=tuple(entries_prototype),
                 brand_name=brand_name,
                 supplier=supplier,
             )
