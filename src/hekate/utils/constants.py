@@ -6,6 +6,7 @@ from typing import Final, Literal
 
 VALID_CONCEPT_START_DATE: Literal[1970_01_01] = 1970_01_01
 VALID_CONCEPT_END_DATE: Literal[2099_12_31] = 2099_12_31
+CUSTOM_CONCEPT_ID_START: Literal[2_000_000_000] = 2 * 10**9
 
 # List of all concept_relationship_ids that are relevant to the project.
 # See `reference/distinct_concept_relationship.*` for the source.

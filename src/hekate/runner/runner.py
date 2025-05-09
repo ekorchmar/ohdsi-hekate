@@ -2,17 +2,20 @@ import argparse  # for Typing
 import datetime  # for naming directories
 import logging  # for logging
 import sys  # To read command line arguments
-from collections.abc import Sequence  # for Typing
-from itertools import chain
+from collections.abc import Sequence, Generator  # for annotations
 from pathlib import Path  # for file paths
 
-import polars as pl  # for resultss writing
+import polars as pl  # for results writing
 import process as p  # for translator and resolver
 from csv_read.athena import OMOPVocabulariesV5  # for Athena data
 from csv_read.source_input import BuildRxEInput  # for source data
 from runner.cli_args import HekateArgsParser  # for command line arguments
 from rx_model import drug_classes as dc  # for data classes
-from utils.constants import VALID_CONCEPT_END_DATE, VALID_CONCEPT_START_DATE
+from utils.constants import (
+    VALID_CONCEPT_END_DATE,  # For valid relations formatting
+    VALID_CONCEPT_START_DATE,  # ditto
+    CUSTOM_CONCEPT_ID_START,  # To generate (temporary) ids
+)
 from utils.exceptions import ResolutionError, UnmappedSourceConceptError
 from utils.logger import FORMATTER, LOGGER
 from utils.utils import int_date_to_str
@@ -28,6 +31,14 @@ type _InterimDrugResult = dict[
     dc.ForeignNodePrototype,
     dict[
         dc.ForeignDrugNode[dc.Strength | None],
+        Sequence[dc.HierarchyNode[dc.ConceptId]],
+    ],
+]
+
+type _InterimPackResult = dict[
+    dc.ForeignPackNodePrototype,
+    dict[
+        dc.ForeignPackNode,
         Sequence[dc.HierarchyNode[dc.ConceptId]],
     ],
 ]
@@ -57,10 +68,17 @@ class HekateRunner:
             dc.ConceptCodeVocab, list[dc.ConceptId]
         ] = {}
 
+        self.__id_count = CUSTOM_CONCEPT_ID_START
+
         self.athena_rxne: OMOPVocabulariesV5
         self.build_rxe_source: BuildRxEInput
 
         self.concepts_to_graph: list[dc.ConceptCodeVocab] = []
+
+    def new_concept_id(self) -> Generator[dc.ConceptId]:
+        while True:
+            yield dc.ConceptId(self.__id_count)
+            self.__id_count += 1
 
     def run(self):
         self.logger: logging.Logger = LOGGER.getChild(self.__class__.__name__)
@@ -94,16 +112,22 @@ class HekateRunner:
         )
         self.translator.read_translations(source=self.build_rxe_source)
 
-        drug_node_terminals = self._find_drug_terminals()
-        pack_node_terminals = self.build_rxe_source.prepare_pack_nodes({
-            prototype.identifier: list(chain(mappings.values()))
-            for prototype, mappings in drug_node_terminals.items()
-        })
-        self.resulting_drug_mappings = self._resolve_drug_nodes(
-            drug_node_terminals
-        )
+        drug_node_options = self._find_drug_node_mappings()
 
-        del pack_node_terminals
+        # Reshape the options to provide translation from source code & vocab
+        drug_translations = {
+            drug_prototype.identifier: translations
+            for drug_prototype, translations in drug_node_options.items()
+        }
+        pack_node_options = self._find_pack_options(drug_translations)
+
+        self.resulting_drug_mappings = self._resolve_drug_nodes(
+            drug_node_options
+        )
+        print(pack_node_options)
+        raise NotImplementedError("Pack node resolution not implemented yet")
+
+        del pack_node_options
 
         LOGGER.info("Done")
 
@@ -191,7 +215,7 @@ class HekateRunner:
         print(data := mappings_df.collect())
         data.write_csv(self.run_dir / "hekate_results.csv")
 
-    def _find_drug_terminals(self) -> _InterimDrugResult:
+    def _find_drug_node_mappings(self) -> _InterimDrugResult:
         """
         Map the generated nodes to all possible RxNorm concepts.
 
@@ -204,20 +228,12 @@ class HekateRunner:
 
         result: _InterimDrugResult = {}
 
-        # 2 billion is conventionally used for local concept IDs
-        def new_concept_id():
-            two_bill = 2_000_000_000
-            while True:
-                yield dc.ConceptId(two_bill)
-                two_bill += 1
-
-        cid_counter = new_concept_id()
         for prototype in self.build_rxe_source.prepare_drug_nodes(
             crash_on_error=False
         ):
             result[prototype] = {}
             translated_nodes = self.translator.translate_drug_node(
-                prototype, lambda: next(cid_counter)
+                prototype, self.new_concept_id()
             )
             while True:
                 try:
@@ -234,6 +250,77 @@ class HekateRunner:
                     continue
 
                 visitor = p.NodeFinder(
+                    option,
+                    self.athena_rxne.hierarchy,
+                    self.logger,
+                    save_subplot=prototype.identifier in self.concepts_to_graph,
+                )
+                visitor.start_search()
+
+                node_result = visitor.get_search_results()
+
+                # If the node has no results yet and is supposed to be graphed,
+                # do it now -- we only graph the first option
+                if prototype.identifier in self.concepts_to_graph:
+                    if not result[prototype]:
+                        visitor.draw_subgraph(
+                            self.run_dir
+                            / "graphs"
+                            / (
+                                f"{prototype.identifier.vocabulary_id}_"
+                                f"{prototype.identifier.concept_code}.svg"
+                            ),
+                            use_identifier=prototype.identifier,
+                        )
+
+                result[prototype][option] = list(node_result.values())
+
+        return result
+
+    def _find_pack_options(
+        self,
+        drug_node_results: dict[
+            dc.ConceptCodeVocab,
+            dict[
+                dc.ForeignDrugNode[dc.Strength | None],
+                Sequence[dc.HierarchyNode[dc.ConceptId]],
+            ],
+        ],
+    ) -> _InterimPackResult:
+        """
+        Map the generated nodes to all possible RxNorm concepts.
+
+        Generates non-disambiguated mappings to all terminals, returning them as
+        a 2 level nested dictionary, where first level is indexed by the
+        source-native ForeignNodePrototype representation, second level is the
+        variation of translated ForeignPackNode, and final value is a list of
+        PackNodes of different class.
+        """
+
+        result: _InterimPackResult = {}
+
+        for prototype in self.build_rxe_source.prepare_pack_nodes(
+            crash_on_error=False
+        ):
+            result[prototype] = {}
+            translated_nodes = self.translator.translate_pack_node(
+                prototype, drug_node_results, self.new_concept_id()
+            )
+            while True:
+                try:
+                    option = next(translated_nodes)
+                except StopIteration:
+                    break
+                except UnmappedSourceConceptError as e:
+                    # This is expected for now
+                    # TODO: skip all permutations of the node
+                    self.logger.error(
+                        f"Node {prototype.identifier} could not be mapped to "
+                        f"RxNorm: {e}"
+                    )
+                    continue
+
+                visitor = p.PackNodeFinder(
                     option,
                     self.athena_rxne.hierarchy,
                     self.logger,

@@ -8,22 +8,18 @@ from __future__ import annotations
 import logging
 from collections.abc import (
     Generator,
-    Iterator,
     Sequence,
 )  # for type annotations
-from itertools import product  # for pack entry permutations
 from pathlib import Path  # for CSV locations
 from typing import NamedTuple, override
 
 import polars as pl  # for tabular data manipulation
 from csv_read.generic import CSVReader, Schema  # Inheriting
-from hekate.rx_model.drug_classes.foreign import ForeignPackNodePrototype
 from rx_model import drug_classes as dc  # for drug atoms and identifiers
 from rx_model import hierarchy as h  # For hierarchy and atom containers
 from utils.exceptions import (
     ForeignDosageStrengthError,
     ForeignNodeCreationError,
-    ForeignPackCreationError,
 )
 from utils.classes import (
     # For type aliases
@@ -423,9 +419,6 @@ class BuildRxEInput:
 
     def prepare_pack_nodes(
         self,
-        drug_node_results: dict[
-            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
-        ],
         crash_on_error: bool = False,
     ) -> Generator[dc.ForeignPackNodePrototype]:
         """
@@ -531,79 +524,17 @@ class BuildRxEInput:
                 else None
             )
 
-            # Construct entries
-            mapped_entries_iter = self._get_entries_permutations_combinations(
-                source_entries=source_entries,
-                drug_node_results=drug_node_results,
+            entries_prototype = [
+                dc.ForeignPackEntryPrototype._make(entry_tuple)
+                for entry_tuple in source_entries
+            ]
+
+            yield dc.ForeignPackNodePrototype(
+                identifier=pack_id,
+                entries=entries_prototype,
+                brand_name=brand_name,
+                supplier=supplier,
             )
-
-            any_prototype_succeeded = False
-            while True:
-                try:
-                    entry_permutation = next(mapped_entries_iter)
-                except ForeignPackCreationError as e:
-                    self.logger.debug(
-                        f"Entry construction failed for {pack_id}: {e}"
-                    )
-                    continue
-                except StopIteration:
-                    break
-                else:
-                    any_prototype_succeeded = True
-                    yield ForeignPackNodePrototype(
-                        identifier=pack_id,
-                        entries=entry_permutation,
-                        brand_name=brand_name,
-                        supplier=supplier,
-                    )
-
-            if not any_prototype_succeeded:
-                # Pack ends up unmapped!
-                message = (
-                    f"All attempts at creating Pack Prototype failed for "
-                    f"{pack_id}"
-                )
-                self.logger.debug(message)
-                if crash_on_error:
-                    raise ForeignPackCreationError(message)
-
-    def _get_entries_permutations_combinations(
-        self,
-        source_entries: Iterator[
-            tuple[dc.ConceptCodeVocab, int | None, int | None]
-        ],
-        drug_node_results: dict[
-            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
-        ],
-    ) -> Generator[SortedTuple[dc.PackEntry[dc.ConceptId]]]:
-        mapped_entry_groups: list[list[dc.PackEntry[dc.ConceptId]]] = []
-        for source_ccv, amount, box_size in source_entries:
-            mapped_entries: list[dc.PackEntry[dc.ConceptId]] = []
-            for mapped_node in drug_node_results[source_ccv]:
-                if not isinstance(mapped_node, dc.DrugNode):
-                    continue
-
-                entry = dc.PackEntry(
-                    mapped_node,  # pyright: ignore[reportUnknownArgumentType]
-                    amount,
-                    box_size,
-                )
-                if entry.validate_entry() is None:
-                    mapped_entries.append(entry)
-            if not mapped_entries:
-                # Drug component is not mapped by this point: pack is unmappable
-                e_msg = (
-                    f"Drug component entry "
-                    f"{(source_ccv.concept_code, amount, box_size)} with "
-                    f"identifier {source_ccv} is not mapped by this point, "
-                    f"rendering depending pack unmappable"
-                )
-                self.logger.debug(e_msg)
-                raise ForeignPackCreationError(e_msg)
-            mapped_entry_groups.append(mapped_entries)
-
-        for combination in product(*mapped_entry_groups):
-            yield SortedTuple(combination)
 
     def get_concept_strength(
         self, drug_id: dc.ConceptCodeVocab

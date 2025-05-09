@@ -5,13 +5,13 @@ drug concept hierarchy.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass  # For compact data representation
 from typing import NoReturn, override, NamedTuple
 from rx_model.drug_classes.base import (
     ConceptCodeVocab,  # Source identifier
     ConceptId,  # RxNorm identifier
-    ConceptIdentifier,
-    HierarchyNode,  # Generic identifier
+    ConceptIdentifier,  # Generic identifier
+    HierarchyNode,  # For generic hierarchy node interface
 )
 from rx_model.drug_classes.generic import (
     DrugNode,  # Generic supertype for FDN
@@ -112,6 +112,12 @@ class ForeignNodePrototype(NamedTuple):
     # WARN: precise_ingredients are not specifiable in the source for now
 
 
+class ForeignPackEntryPrototype(NamedTuple):
+    drug_identifier: ConceptCodeVocab
+    amount: int | None
+    box_size: int | None
+
+
 class ForeignPackNodePrototype(NamedTuple):
     """
     Represents a data pack prototype of a foreign node, with all the information
@@ -125,9 +131,26 @@ class ForeignPackNodePrototype(NamedTuple):
     """
 
     identifier: ConceptCodeVocab
-    entries: SortedTuple[PackEntry[ConceptId]]
+    entries: list[ForeignPackEntryPrototype]
     brand_name: a.BrandName[ConceptCodeVocab] | None = None
     supplier: a.Supplier[ConceptCodeVocab] | None = None
+
+    def validate_entries(self) -> None | str:
+        """
+        Validates state of entry data. Returns None or error message text.
+        """
+
+        if any(proto.amount == 1 for proto in self.entries):
+            return f"Pack prototype {self.identifier} has redundant 1 as amount"
+
+        if sum(proto.box_size is None for proto in self.entries) not in (
+            0,  # No box_size at all
+            len(self.entries),  # Specified for all entries
+        ):
+            return (
+                f"Pack prototype {self.identifier} should specify box_size "
+                f"either for all of the entries, or none of them"
+            )
 
 
 class PrecedenceData(NamedTuple):

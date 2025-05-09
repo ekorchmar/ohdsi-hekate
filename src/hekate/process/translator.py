@@ -5,8 +5,8 @@ from source drug node definitions.
 
 import logging
 from collections import OrderedDict  # for unit map preserving conversion factor
-from collections.abc import Generator, Mapping, Sequence
-from itertools import product
+from collections.abc import Generator, Mapping, Sequence, Iterator
+from itertools import product  # For permutations of precedented translations
 from typing import Callable, NamedTuple
 
 import polars as pl  # for dataframes
@@ -16,6 +16,7 @@ import rx_model.hierarchy as h  # For atom containers
 from utils.classes import SortedTuple, PyRealNumber
 from utils.exceptions import (
     ForeignNodeCreationError,
+    ForeignPackCreationError,
     InvalidConceptIdError,
     UnmappedSourceConceptError,
 )
@@ -31,6 +32,11 @@ type _PrecedentedIngredient = tuple[int, dc.Ingredient[dc.ConceptId]]
 type _PrecedentedDoseForm = _PrecedentedTarget[dc.DoseForm[dc.ConceptId]]
 type _PrecedentedBrandName = _PrecedentedTarget[dc.BrandName[dc.ConceptId]]
 type _PrecedentedSupplier = _PrecedentedTarget[dc.Supplier[dc.ConceptId]]
+
+type _PrecedentedEntry = tuple[dc.PrecedenceData, dc.PackEntry[dc.ConceptId]]
+type _PrecedentedEntryCombination = tuple[
+    dc.PrecedenceData, SortedTuple[dc.PackEntry[dc.ConceptId]]
+]
 
 # NOTE: Precedence of bound strength is determined only by the ingredient. Unit
 # mapping precedence is meaningless for disambiguation.
@@ -203,7 +209,7 @@ class NodeTranslator:
     def translate_drug_node(
         self,
         node_prototype: dc.ForeignNodePrototype,
-        concept_id_factory: Callable[[], dc.ConceptId],
+        concept_id_factory: Iterator[dc.ConceptId],
     ) -> Generator[dc.ForeignDrugNode[dc.Strength | None]]:
         """
         Translate a source drug node definitions int a sequence of RxNorm-native
@@ -218,7 +224,7 @@ class NodeTranslator:
             f"Getting permutations for node {node_prototype.identifier}"
         )
         # Share the identifier across all permutations
-        shared_concept_id = concept_id_factory()
+        shared_concept_id = next(concept_id_factory)
 
         dfs, bns, supps = self.get_attribute_permutations(
             node_prototype.dose_form,
@@ -297,6 +303,161 @@ class NodeTranslator:
                 f"No successful node created from permutations. for "
                 f"{node_prototype.identifier}. Check the ingredient precedence "
                 f"mappings."
+            )
+
+    def _get_entries_permutations_combinations(
+        self,
+        source_entries: list[dc.ForeignPackEntryPrototype],
+        drug_node_results: dict[
+            dc.ConceptCodeVocab,
+            dict[
+                dc.ForeignDrugNode[dc.Strength | None],
+                Sequence[dc.HierarchyNode[dc.ConceptId]],
+            ],
+        ],
+    ) -> Generator[_PrecedentedEntryCombination]:
+        mapped_entries_groups: list[list[_PrecedentedEntry]] = []
+        for source_ccv, amount, box_size in source_entries:
+            mapped_entries_group: list[_PrecedentedEntry] = []
+            mapped_view = drug_node_results[source_ccv].items()
+            for mapped_node, mapped_targets in mapped_view:
+                # NOTE: we can only accept mapping results that are QCD or
+                # Clinical Drugs with SolidStrength strength component
+                match strength := mapped_node.get_strength_data()[0][1]:
+                    case dc.SolidStrength():
+                        # NOTE: All matched nodes will unavoidably also have
+                        # strengths of type SolidStrength
+                        aim_for_class = dc.ClinicalDrug
+                    case dc.LiquidQuantity():
+                        aim_for_class = dc.QuantifiedClinicalDrug
+                    case _:
+                        # NOTE: Any unquantified type of strength (or None) is
+                        # Error, the node is unmappable
+                        e_msg = (
+                            f"Drug component entry "
+                            f"{(source_ccv.concept_code, amount, box_size)} "
+                            f"has strength of type {type(strength)}, which is "
+                            f"not allowed for pack participation"
+                        )
+                        self.logger.debug(e_msg)
+                        raise ForeignPackCreationError(e_msg)
+
+                filtered_targets = filter(
+                    lambda node: isinstance(node, aim_for_class), mapped_targets
+                )
+                for possible_content in filtered_targets:
+                    assert isinstance(possible_content, dc.DrugNode)
+
+                    entry = dc.PackEntry(
+                        possible_content,  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
+                        amount,
+                        box_size,
+                    )
+                    if entry.validate_entry() is None:
+                        mapped_entries_group.append((
+                            mapped_node.precedence_data,
+                            entry,
+                        ))
+
+            if not mapped_entries_group:
+                # Drug component is not mapped by this point: pack is unmappable
+                e_msg = (
+                    f"Drug component entry "
+                    f"{(source_ccv.concept_code, amount, box_size)} is not "
+                    f"mapped by this point, rendering depending pack unmappable"
+                )
+                self.logger.debug(e_msg)
+                raise ForeignPackCreationError(e_msg)
+            mapped_entries_groups.append(mapped_entries_group)
+
+        for combination in product(*mapped_entries_groups):
+            # Combine precedence data
+            entries_list: list[dc.PackEntry[dc.ConceptId]] = []
+            combo_precedence = dc.PrecedenceData(0)
+            for prec, entry in combination:
+                entries_list.append(entry)
+                combo_precedence += prec
+            yield (combo_precedence, SortedTuple(entries_list))
+
+    def translate_pack_node(
+        self,
+        node_prototype: dc.ForeignPackNodePrototype,
+        drug_node_results: dict[
+            dc.ConceptCodeVocab,
+            dict[
+                dc.ForeignDrugNode[dc.Strength | None],
+                Sequence[dc.HierarchyNode[dc.ConceptId]],
+            ],
+        ],
+        concept_id_factory: Iterator[dc.ConceptId],
+    ) -> Generator[dc.ForeignPackNode]:
+        """
+        Translate a source drug node definitions int a sequence of RxNorm-native
+        drug node definitions.
+
+        This produces all possible node variations in order of precedence. These
+        nodes are known as "virtual nodes", and should only exist until
+        evaluated. They must be then disambiguated by heuristic comparison of
+        mapping results.
+        """
+        self.logger.debug(
+            f"Getting permutations for node {node_prototype.identifier}"
+        )
+        # Share the identifier across all permutations
+        shared_concept_id = next(concept_id_factory)
+
+        _, bns, supps = self.get_attribute_permutations(
+            None,  # Dose Form can not exist for pack
+            node_prototype.brand_name,
+            node_prototype.supplier,
+        )
+
+        # Obtain all valid pack entry states
+        valid_entry_states: list[_PrecedentedEntryCombination] = []
+        entry_states_generator = self._get_entries_permutations_combinations(
+            node_prototype.entries,
+            drug_node_results,
+        )
+        while True:
+            try:
+                new_state = next(entry_states_generator)
+            except StopIteration:
+                # Raise if no valid states were recorded
+                if not valid_entry_states:
+                    raise ForeignPackCreationError(
+                        f"No valid entry combination states could be created for "
+                        f"pack node {node_prototype.identifier}"
+                    )
+                break
+            except ForeignPackCreationError as e:
+                self.logger.debug(
+                    f"Failed creating a combination for pack "
+                    f"{node_prototype.identifier}: {e}"
+                )
+                continue
+            else:
+                valid_entry_states.append(new_state)
+
+        combinations = product(
+            valid_entry_states,
+            bns,
+            supps,
+        )
+
+        for (p_entr, entries), (p_bn, bn), (p_sup, sup) in combinations:
+            precedence_data: dc.PrecedenceData = dc.PrecedenceData(
+                p_entr.ingredient_diff,  # Only comes from entries
+                p_entr.dose_form_diff,  # Only comes from entries
+                brand_name_diff=p_bn,
+                supplier_diff=p_sup,
+            )
+
+            yield dc.ForeignPackNode(
+                precedence_data,
+                identifier=shared_concept_id,
+                entries=entries,
+                brand_name=bn,
+                supplier=sup,
             )
 
     def _try_get_atom[
