@@ -17,14 +17,15 @@ from rx_model import drug_classes as dc
 from utils import exceptions
 from utils.classes import PyRealNumber, SortedTuple
 
-type _VirtualNode = dc.ForeignDrugNode[dc.Strength | None]
+type _VirtualDrugNode = dc.ForeignDrugNode[dc.Strength | None]
 type _Terminal = dc.HierarchyNode[dc.ConceptId]
 
 type _CDC = dc.ClinicalDrugComponent[dc.ConceptId, dc.UnquantifiedStrength]
-type _StrengthDefinition = SortedTuple[
+type _StrengthData = SortedTuple[
     dc.BoundStrength[dc.ConceptId, dc.Strength | None]
 ]
 
+# Type-agnostic
 _ZERO = PyRealNumber(0)
 
 
@@ -33,7 +34,7 @@ _ZERO = PyRealNumber(0)
 class ResultCharacteristics(NamedTuple):
     """
     Tuple of numeric grades that quantify the degree of similarity between
-    the ForeignDrugNode and the target DrugNode.
+    the ForeignDrugNode and the target HierarchyNode.
 
     The order of disambiguation is as follows:
     1. Lowest precedence Ingredient match. Drugs with multiple
@@ -79,8 +80,8 @@ class ResultCharacteristics(NamedTuple):
         @classmethod
         def from_strength_pair(
             cls,
-            source_strength: _StrengthDefinition,
-            target_strength: _StrengthDefinition,
+            source_strength: _StrengthData,
+            target_strength: _StrengthData,
         ) -> ResultCharacteristics.StrengthDiff:
             n_diff: PyRealNumber
             d_diff: PyRealNumber
@@ -134,9 +135,9 @@ class ResultCharacteristics(NamedTuple):
             return cls(numerator_score=n_diff, denominator_score=d_diff)
 
     @classmethod
-    def from_pair(
+    def from_drug_pair(
         cls,
-        source: _VirtualNode,
+        source: _VirtualDrugNode,
         target: _Terminal,
         concept_metadata: pl.DataFrame,
     ) -> ResultCharacteristics:
@@ -175,36 +176,39 @@ class ResultCharacteristics(NamedTuple):
                     concept_id=target.identifier,
                 )
             case dc.DrugNode():
-                target_node: dc.DrugNode[dc.ConceptId, dc.Strength] = target
                 n_diff, d_diff = cls.StrengthDiff.from_strength_pair(
                     source_strength=source.get_strength_data(),
-                    target_strength=target_node.get_strength_data(),
+                    target_strength=target.get_strength_data(),  # pyright: ignore[reportUnknownArgumentType]  # noqa: E501
                 )
+                return cls(
+                    ingredient_diff=source.precedence_data.ingredient_diff,
+                    denominator_diff=d_diff,
+                    dose_form_diff=source.precedence_data.dose_form_diff,
+                    brand_name_diff=source.precedence_data.brand_name_diff,
+                    supplier_diff=source.precedence_data.supplier_diff,
+                    strength_diff=n_diff,
+                    is_extension=metadata[0, "vocabulary_id"]
+                    == "RxNorm Extension",
+                    valid_start_date=metadata[0, "valid_start_date"],
+                    concept_id=target.identifier,
+                )
+
             case dc.PackNode():
-                raise NotImplementedError(
-                    "PackNode not implemented for this resolver yet."
+                # Programming error: PackNode should never become a target for
+                # a ForeignDrugNode
+                raise ValueError(
+                    f"PackNode {target.identifier} should never be a target "
+                    f"for a ForeignDrugNode {source.identifier}."
                 )
             case _:
                 raise NotImplementedError(
                     f"Unknown target type {target.__class__.__name__}."
                 )
 
-        return cls(
-            ingredient_diff=source.precedence_data.ingredient_diff,
-            denominator_diff=d_diff,
-            dose_form_diff=source.precedence_data.dose_form_diff,
-            brand_name_diff=source.precedence_data.brand_name_diff,
-            supplier_diff=source.precedence_data.supplier_diff,
-            strength_diff=n_diff,
-            is_extension=metadata[0, "vocabulary_id"] == "RxNorm Extension",
-            valid_start_date=metadata[0, "valid_start_date"],
-            concept_id=target.identifier,
-        )
-
     @classmethod
     def from_component_combo(
         cls,
-        source: _VirtualNode,
+        source: _VirtualDrugNode,
         targets: Sequence[_CDC],
         concept_metadata: pl.DataFrame,
     ) -> "ResultCharacteristics":
@@ -257,7 +261,7 @@ class ResultCharacteristics(NamedTuple):
         )
 
 
-class Resolver:
+class DrugResolver:
     """
     Resolver class is used to disambiguate between the available mapping results
     of virtual nodes to RxNorm/RxNorm-Extension concepts, and to choose a single
@@ -269,7 +273,7 @@ class Resolver:
 
     def __init__(
         self,
-        source_definition: dc.ForeignNodePrototype,
+        source_prototype: dc.ForeignNodePrototype,
         mapping_results: Mapping[
             dc.ForeignDrugNode[dc.Strength | None], Sequence[_Terminal]
         ],
@@ -278,10 +282,10 @@ class Resolver:
     ):
         self.logger: logging.Logger = logger.getChild(
             self.__class__.__name__
-        ).getChild(str(source_definition.identifier))
+        ).getChild(str(source_prototype.identifier))
 
         # Operands
-        self.source_definition: dc.ForeignNodePrototype = source_definition
+        self.source_definition: dc.ForeignNodePrototype = source_prototype
         self.mapping_results: Mapping[
             dc.ForeignDrugNode[dc.Strength | None], Sequence[_Terminal]
         ] = mapping_results
@@ -327,7 +331,7 @@ class Resolver:
 
             # 2. Find nodes with no terminal ingredients (meaning all
             # components exist)
-            cdc_nodes: list[_VirtualNode] = []
+            cdc_nodes: list[_VirtualDrugNode] = []
             for node in nodes_by_ingredient:
                 if not any(
                     isinstance(terminal, dc.Ingredient)
@@ -369,7 +373,7 @@ class Resolver:
                 # Returns best scored combination of components
                 return list(min(scored)[1])
         else:  # All multi-ingredient classes
-            all_pairs: list[tuple[_VirtualNode, _Terminal]] = list(
+            all_pairs: list[tuple[_VirtualDrugNode, _Terminal]] = list(
                 (source, target)
                 for source, targets in self.mapping_results.items()
                 for target in targets
@@ -380,7 +384,7 @@ class Resolver:
             ])
             best_node: _Terminal = min(
                 all_pairs,
-                key=lambda pair: ResultCharacteristics.from_pair(
+                key=lambda pair: ResultCharacteristics.from_drug_pair(
                     *pair, metadata
                 ),
             )[1]
