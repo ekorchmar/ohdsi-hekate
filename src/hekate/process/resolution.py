@@ -502,7 +502,7 @@ class PackResolver(
         # Keep only the nodes that contain best result by class
         best_class = type(
             min(
-                chain(nodes_with_pack.values()),
+                chain(*nodes_with_pack.values()),
                 key=lambda node: dc.PACK_CLASS_PREFERENCE_ORDER.index(
                     # TODO: use CCId enum
                     type(node)  # pyright: ignore[reportArgumentType]
@@ -513,7 +513,7 @@ class PackResolver(
 
         all_pairs: Sequence[
             tuple[dc.ForeignPackNode, dc.PackNode[dc.ConceptId]]
-        ] = list(  # pyright: ignore[reportAssignmentType]  # explicit isisinstance check  # noqa: E501
+        ] = list(
             (source, target)
             for source, targets in nodes_with_pack.items()
             for target in targets
