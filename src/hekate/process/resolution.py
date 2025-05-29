@@ -7,15 +7,19 @@ choose a single virtual node to represent the concept.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
-from itertools import chain, groupby, product
-from typing import NamedTuple
+from collections.abc import Mapping, Sequence  # for type annotations
+from abc import abstractmethod, ABC  # for resolver protocol
+from itertools import chain, groupby, product  # for concise iterations
+from typing import NamedTuple, override  # for ResultCharacteristics
 
-import polars as pl
-from csv_read import athena
-from rx_model import drug_classes as dc
+import polars as pl  # for metadata table manipulation
+from csv_read import athena  # for concept metadata
+from rx_model import drug_classes as dc  # For generic interfaces and CDC
 from utils import exceptions
-from utils.classes import PyRealNumber, SortedTuple
+from utils.classes import (
+    PyRealNumber,  # For type agnostic numeric values
+    SortedTuple,  # Constructing strength combinations from multiple CDCs
+)
 
 type _VirtualDrugNode = dc.ForeignDrugNode[dc.Strength | None]
 type _Terminal = dc.HierarchyNode[dc.ConceptId]
@@ -41,10 +45,11 @@ class ResultCharacteristics(NamedTuple):
     ingredients can simply sum the precedence difference for this
     matter – precedence collision between multi-ingredient drugs
     is an extremely rare edge case, not warranting a more complex
-    logic.
+    logic. Precedence for packs is also summed.
     2. Lowest relative difference with strength denominator value, if
     present. This is usually not something that depends on ingredient
-    salt, and usually is just the integer count of milliliters.
+    salt, and usually is just the integer count of milliliters. Ignored for
+    packs, as precedence logic is unclear.
     3. Lowest precedence Dose Form match.
     4. Lowest precedence Brand Name match.
     5. Lowest precedence Supplier match.
@@ -53,7 +58,7 @@ class ResultCharacteristics(NamedTuple):
      average of relative component difference.
     7. RxNorm over RxNorm Extension target.
     8. Lower valid_start_date of target.
-    9. Lower concept_id if we're desperate.
+    9. Lower concept_id as a final tie-breaker.
     """
 
     # NOTE: The order of the fields is important.
@@ -211,11 +216,11 @@ class ResultCharacteristics(NamedTuple):
         source: _VirtualDrugNode,
         targets: Sequence[_CDC],
         concept_metadata: pl.DataFrame,
-    ) -> "ResultCharacteristics":
+    ) -> ResultCharacteristics:
         """
         Calculate the numeric grades for the similarity between the source
-        node and a list of components that correspond to one of its strength
-        entries.
+        node and a list of components that each correspond to one of its
+        strength entries.
 
         This is intended for deduplication of Clinical Drug Component targets
         grouped by the same ingredient.
@@ -260,8 +265,49 @@ class ResultCharacteristics(NamedTuple):
             concept_id=dc.ConceptId(max_concept_id),
         )
 
+    @classmethod
+    def from_pack_pair(
+        cls,
+        source: dc.ForeignPackNode,
+        target: dc.PackNode[dc.ConceptId],
+        concept_metadata: pl.DataFrame,
+    ) -> ResultCharacteristics:
+        """
+        Calculate the numeric grades for the similarity between the source
+        and target nodes.
+        """
+        try:
+            metadata = concept_metadata.filter(
+                pl.col("concept_id") == target.identifier
+            )
+        except pl.exceptions.ColumnNotFoundError as e:
+            raise exceptions.ResolutionError(
+                "Unexpected metadata structure"
+            ) from e
 
-class DrugResolver:
+        if len(metadata) != 1:
+            raise exceptions.ResolutionError(
+                f"Unique concept ID {target.identifier} not found in the "
+                f"metadata."
+            )
+
+        return cls(
+            ingredient_diff=source.precedence_data.ingredient_diff,
+            denominator_diff=_ZERO,  # No strength data in packs
+            dose_form_diff=source.precedence_data.dose_form_diff,
+            brand_name_diff=source.precedence_data.brand_name_diff,
+            supplier_diff=source.precedence_data.supplier_diff,
+            strength_diff=_ZERO,  # No strength data in packs
+            is_extension=metadata[0, "vocabulary_id"] == "RxNorm Extension",
+            valid_start_date=metadata[0, "valid_start_date"],
+            concept_id=target.identifier,
+        )
+
+
+class _Resolver[
+    PrototypeClass: dc.ForeignNodePrototype | dc.ForeignPackNodePrototype,
+    ForeignClass: dc.ForeignDrugNode[dc.Strength | None] | dc.ForeignPackNode,
+](ABC):
     """
     Resolver class is used to disambiguate between the available mapping results
     of virtual nodes to RxNorm/RxNorm-Extension concepts, and to choose a single
@@ -273,10 +319,8 @@ class DrugResolver:
 
     def __init__(
         self,
-        source_prototype: dc.ForeignNodePrototype,
-        mapping_results: Mapping[
-            dc.ForeignDrugNode[dc.Strength | None], Sequence[_Terminal]
-        ],
+        source_prototype: PrototypeClass,
+        mapping_results: Mapping[ForeignClass, Sequence[_Terminal]],
         logger: logging.Logger,
         concept_handle: athena.ConceptTable,
     ):
@@ -285,14 +329,34 @@ class DrugResolver:
         ).getChild(str(source_prototype.identifier))
 
         # Operands
-        self.source_definition: dc.ForeignNodePrototype = source_prototype
-        self.mapping_results: Mapping[
-            dc.ForeignDrugNode[dc.Strength | None], Sequence[_Terminal]
-        ] = mapping_results
+        self.source_prototype: PrototypeClass = source_prototype
+        self.mapping_results: Mapping[ForeignClass, Sequence[_Terminal]] = (
+            mapping_results
+        )
 
         # Concept data lookup
         self.concept_handle: athena.ConceptTable = concept_handle
 
+    @abstractmethod
+    def pick_omop_mapping(
+        self,
+    ) -> Sequence[dc.HierarchyNode[dc.ConceptId]]:
+        """
+        Pick the mapping result that has the highest priority and is ready for
+        inclusion.
+
+        Will discard mapping options according to conventional class preference
+        order.
+        """
+
+
+class DrugResolver(
+    _Resolver[
+        dc.ForeignNodePrototype,
+        dc.ForeignDrugNode[dc.Strength | None],
+    ]
+):
+    @override
     def pick_omop_mapping(self) -> list[dc.HierarchyNode[dc.ConceptId]]:
         """
         Pick the mapping result that has the highest priority and is ready for
@@ -306,16 +370,20 @@ class DrugResolver:
         """
         # First, keep only the nodes that contain best result by class
         # preference order.
-        best_class = min(
-            chain(*self.mapping_results.values()),
-            key=lambda node: dc.DRUG_CLASS_PREFERENCE_ORDER.index(
-                # TODO: use CCId enum
-                node.__class__  # pyright: ignore[reportArgumentType]
-            ),
-        ).__class__
+        best_class = type(
+            min(
+                chain(*self.mapping_results.values()),
+                key=lambda node: dc.DRUG_CLASS_PREFERENCE_ORDER.index(
+                    # TODO: use CCId enum
+                    type(node)  # pyright: ignore[reportArgumentType]
+                ),
+            )
+        )
 
         if best_class == dc.Ingredient:
             # Sort nodes by ingredient precedence and return the best one
+            # NOTE: It is expected to be mapped to one or more ingredients,
+            # number matching the source node.
             best_node = min(
                 self.mapping_results,
                 key=lambda foreign: foreign.precedence_data.ingredient_diff,
@@ -329,8 +397,8 @@ class DrugResolver:
                 key=lambda foreign: foreign.precedence_data.ingredient_diff,
             )
 
-            # 2. Find nodes with no terminal ingredients (meaning all
-            # components exist)
+            # 2. Find nodes with no terminal ingredients (meaning all components
+            # exist)
             cdc_nodes: list[_VirtualDrugNode] = []
             for node in nodes_by_ingredient:
                 if not any(
@@ -390,3 +458,75 @@ class DrugResolver:
             )[1]
 
             return [best_node]
+
+
+class PackResolver(
+    _Resolver[
+        dc.ForeignPackNodePrototype,
+        dc.ForeignPackNode,
+    ]
+):
+    @override
+    def pick_omop_mapping(self) -> Sequence[dc.HierarchyNode[dc.ConceptId]]:
+        """
+        Pick the mapping result that has the highest priority and is ready for
+        inclusion.
+
+        Will discard mapping options according to conventional class preference
+        order.
+
+        If no mapping options are given, will return component drug targets.
+        """
+
+        # Find nodes which have at least one pack result
+        nodes_with_pack: dict[dc.ForeignPackNode, Sequence[_Terminal]] = {
+            node: targets
+            for node, targets in self.mapping_results.items()
+            if any(isinstance(t, dc.PackNode) for t in targets)
+        }
+
+        if not nodes_with_pack:
+            # No pack nodes found, return component drug targets
+            best_case_node: dc.ForeignPackNode = min(
+                self.mapping_results,
+                key=lambda fpn: (
+                    # 1. Lowest precedence of cumulative attribute precedence
+                    fpn.precedence_data,
+                    # 2. Lowest value of pack entry identifier (concept_id)
+                    fpn.entries[0].drug.identifier,  # already in SortedTuple
+                ),
+            )
+
+            return [entry.drug for entry in best_case_node.entries]
+
+        # Keep only the nodes that contain best result by class
+        best_class = type(
+            min(
+                chain(nodes_with_pack.values()),
+                key=lambda node: dc.PACK_CLASS_PREFERENCE_ORDER.index(
+                    # TODO: use CCId enum
+                    type(node)  # pyright: ignore[reportArgumentType]
+                ),
+            )
+        )
+        assert best_class in dc.PACK_CLASS_PREFERENCE_ORDER
+
+        all_pairs: Sequence[
+            tuple[dc.ForeignPackNode, dc.PackNode[dc.ConceptId]]
+        ] = list(  # pyright: ignore[reportAssignmentType]  # explicit isisinstance check  # noqa: E501
+            (source, target)
+            for source, targets in nodes_with_pack.items()
+            for target in targets
+            if isinstance(target, best_class)
+        )
+        metadata = self.concept_handle.get_metadata([
+            target.identifier for _, target in all_pairs
+        ])
+        best_node: dc.PackNode[dc.ConceptId] = min(
+            all_pairs,
+            key=lambda pair: ResultCharacteristics.from_pack_pair(
+                *pair, metadata
+            ),
+        )[1]
+
+        return [best_node]

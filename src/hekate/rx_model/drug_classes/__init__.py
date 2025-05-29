@@ -76,7 +76,10 @@ from rx_model.drug_classes.foreign import (
     ForeignStrength,
     ForeignPackNode,
 )
-from rx_model.drug_classes.relations import DRUG_CLASS_PREFERENCE_ORDER
+from rx_model.drug_classes.relations import (
+    DRUG_CLASS_PREFERENCE_ORDER,
+    PACK_CLASS_PREFERENCE_ORDER,
+)
 
 __all__ = [
     "BoundForeignStrength",
@@ -112,6 +115,7 @@ __all__ = [
     "Ingredient",
     "LiquidConcentration",
     "LiquidQuantity",
+    "PACK_CLASS_PREFERENCE_ORDER",
     "PackEntry",
     "PackNode",
     "PrecedenceData",
