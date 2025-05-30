@@ -4,6 +4,7 @@ import logging  # for logging
 import sys  # To read command line arguments
 from collections.abc import Sequence, Generator  # for annotations
 from pathlib import Path  # for file paths
+from itertools import chain  # for flattening results
 
 import polars as pl  # for results writing
 import process as p  # for translator and resolver
@@ -31,20 +32,16 @@ With twig of fern and QA checks,
 Hekate starts another hex!
 """
 
-type _InterimDrugResult = dict[
-    dc.ForeignNodePrototype,
-    dict[
-        dc.ForeignDrugNode[dc.Strength | None],
-        Sequence[dc.HierarchyNode[dc.ConceptId]],
-    ],
+type _InterimResult[T, U] = dict[
+    T, dict[U, Sequence[dc.HierarchyNode[dc.ConceptId]]]
 ]
 
-type _InterimPackResult = dict[
-    dc.ForeignPackNodePrototype,
-    dict[
-        dc.ForeignPackNode,
-        Sequence[dc.HierarchyNode[dc.ConceptId]],
-    ],
+type _InterimDrugResult = _InterimResult[
+    dc.ForeignNodePrototype, dc.ForeignDrugNode[dc.Strength | None]
+]
+
+type _InterimPackResult = _InterimResult[
+    dc.ForeignPackNodePrototype, dc.ForeignPackNode
 ]
 
 
@@ -69,7 +66,10 @@ class HekateRunner:
         LOGGER.info(_VERSE)
 
         self.resulting_drug_mappings: dict[
-            dc.ConceptCodeVocab, list[dc.ConceptId]
+            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
+        ] = {}
+        self.resulting_pack_mappings: dict[
+            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
         ] = {}
 
         self.__id_count = CUSTOM_CONCEPT_ID_START
@@ -118,6 +118,10 @@ class HekateRunner:
 
         drug_node_options = self._find_drug_node_mappings()
 
+        self.resulting_drug_mappings = self._resolve_nodes(
+            drug_node_options,
+            p.DrugResolver,
+        )
         # Reshape the options to provide translation from source code & vocab
         drug_translations = {
             drug_prototype.identifier: translations
@@ -125,13 +129,10 @@ class HekateRunner:
         }
         pack_node_options = self._find_pack_options(drug_translations)
 
-        self.resulting_drug_mappings = self._resolve_drug_nodes(
-            drug_node_options
+        self.resulting_pack_mappings = self._resolve_nodes(
+            pack_node_options,
+            p.PackResolver,
         )
-        print(pack_node_options)
-        raise NotImplementedError("Pack node resolution not implemented yet")
-
-        del pack_node_options
 
         LOGGER.info("Done")
 
@@ -164,11 +165,17 @@ class HekateRunner:
             "concept_id_2": [],
         }
 
-        for source, targets in self.resulting_drug_mappings.items():
+        for source, targets in chain(
+            self.resulting_drug_mappings.items(),
+            self.resulting_pack_mappings.items(),
+        ):
             columns["concept_code_1"].append(source.concept_code)
             columns["vocabulary_id_1"].append(source.vocabulary_id)
             columns["concept_id_2"].append(
-                pl.Series(targets, dtype=self.RESULTS_SCHEMA["concept_id_2"])
+                pl.Series(
+                    [target.identifier for target in targets],
+                    dtype=self.RESULTS_SCHEMA["concept_id_2"],
+                )
             )
 
         starting_schema = {
@@ -319,7 +326,7 @@ class HekateRunner:
 
                 except ForeignPackCreationError as e:
                     self.logger.error(
-                        f" Pakck Node {prototype.identifier} could not be mapped "
+                        f"Pack Node {prototype.identifier} could not be mapped "
                         f"to RxNorm hierarchy: {e}"
                     )
                     continue  # to the next prototype
@@ -361,13 +368,18 @@ class HekateRunner:
 
         return result
 
-    def _resolve_drug_nodes(
-        self, terminals: _InterimDrugResult
-    ) -> dict[dc.ConceptCodeVocab, list[dc.ConceptId]]:
+    def _resolve_nodes(
+        self,
+        terminals: _InterimDrugResult | _InterimPackResult,
+        resolver_class: type[p.DrugResolver | p.PackResolver],
+    ) -> dict[dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]]:
         """
-        Disambiguate the terminal nodes and return the final mappings.
+        Disambiguate the terminal drug node options and return the final
+        mappings.
         """
-        out: dict[dc.ConceptCodeVocab, list[dc.ConceptId]] = {}
+        out: dict[
+            dc.ConceptCodeVocab, list[dc.HierarchyNode[dc.ConceptId]]
+        ] = {}
         for prototype, node_mappings in terminals.items():
             if not node_mappings:
                 self.logger.error(
@@ -375,9 +387,9 @@ class HekateRunner:
                 )
                 continue
 
-            resolver = p.Resolver(
-                source_definition=prototype,
-                mapping_results=node_mappings,
+            resolver = resolver_class(
+                source_prototype=prototype,  # pyright: ignore[reportArgumentType]  # noqa: E501
+                mapping_results=node_mappings,  # pyright: ignore[reportArgumentType]  # noqa: E501
                 logger=self.logger,
                 concept_handle=self.athena_rxne.concept,
             )
@@ -396,6 +408,6 @@ class HekateRunner:
                     f"{prototype.identifier}"
                 )
                 out[prototype.identifier] = [
-                    node.identifier for node in resulting_mappings
+                    node for node in resulting_mappings
                 ]
         return out
