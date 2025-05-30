@@ -148,7 +148,7 @@ class ConceptTable(OMOPTable[None]):
 
         return frame.filter(filter_expression)
 
-    def get_metadata(self, ids: Sequence[dc.ConceptId]):
+    def get_metadata(self, ids: Sequence[dc.ConceptId]) -> pl.DataFrame:
         """
         Get metadata for a sequence of concept_ids
         """
