@@ -480,7 +480,7 @@ class PackResolver(
 
         # Find nodes which have at least one pack result
         nodes_with_pack: dict[dc.ForeignPackNode, Sequence[_Terminal]] = {
-            node: targets
+            node: list(filter(lambda t: isinstance(t, dc.PackNode), targets))
             for node, targets in self.mapping_results.items()
             if any(isinstance(t, dc.PackNode) for t in targets)
         }
