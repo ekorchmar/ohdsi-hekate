@@ -57,10 +57,10 @@ marketed_product_to_parent_dirty = (
 def print_descendant_count(dataframe: pl.DataFrame) -> None:
     print(
         dataframe.group_by("concept_id_1")
-        .count()
-        .rename({"count": "descendant_count"})
+        .len()
+        .rename({"len": "descendant_count"})
         .group_by("descendant_count")
-        .count()
+        .len()
         .sort("descendant_count", descending=True)
     )
 
