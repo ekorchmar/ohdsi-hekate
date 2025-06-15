@@ -94,3 +94,22 @@ marketed_product_to_parent = marketed_product_to_parent_dirty.join(
 
 print_descendant_count(marketed_product_to_parent)
 # 3144 have 2 immediate ancestors, and 44 have 3. So cleanup is needed.
+
+# Count classes
+print(
+    marketed_product_to_parent.group_by("concept_class_id")
+    .len()
+    .sort("len", descending=True)
+    .rename({"len": "count"})
+)
+
+#  Branded Drug Box    153487
+#  Branded Drug        72517
+#  Clinical Drug       72101
+#  Clinical Drug Box   71329
+#  Quant Branded Box   68725
+#  Quant Branded Drug  56684
+#  Quant Clinical Drug 42343
+#  Quant Clinical Box  19459
+#  Branded Pack        1536
+#  Clinical Pack       121
