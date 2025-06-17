@@ -37,9 +37,9 @@ class ConceptClassId(Enum):
     QCD = "Quant Clinical Drug"
     QBD = "Quant Branded Drug"
     CP = "Clinical Pack"
+    BP = "Branded Pack"
 
     # RxNorm Extension concept classes
-    BP = "Branded Pack"
     CDB = "Clinical Drug Box"
     BDB = "Branded Drug Box"
     QCB = "Quant Clinical Box"

@@ -81,6 +81,12 @@ from rx_model.drug_classes.relations import (
     PACK_CLASS_PREFERENCE_ORDER,
 )
 
+from rx_model.drug_classes.marketed import (
+    MarketedProductTerminalParent,
+    MarketedProductNode,
+)
+
+
 __all__ = [
     "BoundForeignStrength",
     "BoundStrength",
@@ -115,6 +121,8 @@ __all__ = [
     "Ingredient",
     "LiquidConcentration",
     "LiquidQuantity",
+    "MarketedProductNode",
+    "MarketedProductTerminalParent",
     "PACK_CLASS_PREFERENCE_ORDER",
     "PackEntry",
     "PackNode",
