@@ -39,6 +39,7 @@ class ComplexDrugNodeDefinition(ConceptDefinition):
     defines_explicit_ingredients: bool = False
     defines_explicit_precise_ingredients: bool = False  # Usually
     defines_box_size: bool = False  # Usually
+    extends_to_marketed_product: bool = False  # Usually
 
     omop_domain_id: DomainId = DomainId.DRUG
     omop_vocabulary_ids: tuple[VocabularyId, ...] = RX_VOCAB  # RxE for some
@@ -152,6 +153,7 @@ _CD_DEFINITION = ComplexDrugNodeDefinition(
     ingredient_cardinality=Cardinality.NONZERO,
     defines_explicit_ingredients=False,
     defines_box_size=False,
+    extends_to_marketed_product=True,
 )
 
 _BDF_DEFINITION = ComplexDrugNodeDefinition(
@@ -202,6 +204,7 @@ _BD_DEFINITION = ComplexDrugNodeDefinition(
     ingredient_cardinality=Cardinality.NONZERO,
     defines_explicit_ingredients=False,
     defines_box_size=False,
+    extends_to_marketed_product=True,
 )
 
 _QCD_DEFINITION = ComplexDrugNodeDefinition(
@@ -219,6 +222,7 @@ _QCD_DEFINITION = ComplexDrugNodeDefinition(
     ingredient_cardinality=Cardinality.NONZERO,
     defines_explicit_ingredients=False,
     defines_box_size=False,
+    extends_to_marketed_product=True,
 )
 
 _QBD_DEFINITION = ComplexDrugNodeDefinition(
@@ -244,6 +248,7 @@ _QBD_DEFINITION = ComplexDrugNodeDefinition(
     ingredient_cardinality=Cardinality.NONZERO,
     defines_explicit_ingredients=False,
     defines_box_size=False,
+    extends_to_marketed_product=True,
 )
 
 _CDB_DEFINITION = ComplexDrugNodeDefinition(
@@ -262,6 +267,7 @@ _CDB_DEFINITION = ComplexDrugNodeDefinition(
     defines_explicit_ingredients=False,
     defines_box_size=True,
     omop_vocabulary_ids=(VocabularyId.RXE,),  # NOTE: Boxes are RxE-only
+    extends_to_marketed_product=True,
 )
 
 _BDB_DEFINITION = ComplexDrugNodeDefinition(
@@ -288,6 +294,7 @@ _BDB_DEFINITION = ComplexDrugNodeDefinition(
     defines_explicit_ingredients=False,
     defines_box_size=True,
     omop_vocabulary_ids=(VocabularyId.RXE,),
+    extends_to_marketed_product=True,
 )
 
 _QCB_DEFINITION = ComplexDrugNodeDefinition(
@@ -311,6 +318,7 @@ _QCB_DEFINITION = ComplexDrugNodeDefinition(
     defines_explicit_ingredients=False,
     defines_box_size=True,
     omop_vocabulary_ids=(VocabularyId.RXE,),
+    extends_to_marketed_product=True,
 )
 
 _QBB_DEFINITION = ComplexDrugNodeDefinition(
@@ -342,4 +350,5 @@ _QBB_DEFINITION = ComplexDrugNodeDefinition(
     defines_explicit_ingredients=False,
     defines_box_size=True,
     omop_vocabulary_ids=(VocabularyId.RXE,),
+    extends_to_marketed_product=True,
 )

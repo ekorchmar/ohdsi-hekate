@@ -228,9 +228,6 @@ class BuildRxEInput:
         # Initiate containers
         self.source_atoms: h.Atoms[dc.ConceptCodeVocab] = h.Atoms(self.logger)
         self.pseudo_units: list[dc.PseudoUnit] = []
-        self.drug_nodes: list[
-            dc.DrugNode[dc.ConceptCodeVocab, dc.Strength | None]
-        ] = []
 
         # Read and prepare data
         self.logger.info(

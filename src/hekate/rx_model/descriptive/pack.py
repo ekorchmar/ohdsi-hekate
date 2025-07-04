@@ -42,6 +42,7 @@ class PackDefinition(ConceptDefinition):
     parent_relations: tuple[RelationshipDescription, ...] = ()
 
     defines_pack_size: bool = False
+    extends_to_marketed_product: bool = True  # Currently true for all packs
 
     omop_domain_id: DomainId = DomainId.DRUG
     omop_vocabulary_ids: tuple[VocabularyId, ...] = RX_VOCAB  # RxE only for Box
