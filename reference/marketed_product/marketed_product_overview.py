@@ -6,15 +6,20 @@ pc = pl.read_csv(pack_content)
 
 concept = pathlib.Path("~/Downloads/RxNE/CONCEPT.csv").expanduser()
 c = pl.read_csv(concept, separator="\t").filter(
-    pl.col("standard_concept") == "S",
+    (pl.col("standard_concept") == "S")
+    | pl.col("concept_class_id").is_in(["Supplier", "Dose Form"])
 )
+
+mp = c.filter(pl.col("concept_class_id") == "Marketed Product")
 
 relationship = pathlib.Path(
     "~/Downloads/RxNE/CONCEPT_RELATIONSHIP.csv"
 ).expanduser()
+
 r = pl.read_csv(relationship, separator="\t").filter(
-    pl.col("relationship_id") == "Marketed form of",
     pl.col("invalid_reason").is_null(),
+    pl.col("concept_id_1").is_in(mp["concept_id"])
+    | pl.col("concept_id_2").is_in(mp["concept_id"]),
 )
 
 ancestor = pathlib.Path("~/Downloads/RxNE/CONCEPT_ANCESTOR.csv").expanduser()
@@ -37,7 +42,8 @@ a = (
 
 
 marketed_product_to_parent_dirty = (
-    r.join(
+    r.filter(pl.col("relationship_id") == "Marketed form of")
+    .join(
         other=c.filter(pl.col("concept_class_id") == "Marketed Product"),
         right_on="concept_id",
         left_on="concept_id_1",
@@ -113,3 +119,20 @@ print(
 #  Quant Clinical Box  19459
 #  Branded Pack        1536
 #  Clinical Pack       121
+
+# Why so many Marketed Products have Dose Forms?
+marketed_dose_forms = (
+    r.join(
+        other=c.filter(pl.col("concept_class_id") == "Dose Form"),
+        right_on="concept_id",
+        left_on="concept_id_2",
+        how="inner",
+    )
+    .join(mp, right_on="concept_id", left_on="concept_id_1", how="semi")
+    # 0 for packs
+    # .join(pc, right_on="pack_concept_id", left_on="concept_id_1", how="semi")
+    .select("concept_name")
+    .group_by("concept_name")
+    .len()
+)
+print(marketed_dose_forms)
