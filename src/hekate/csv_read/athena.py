@@ -47,6 +47,8 @@ type _TempNodeView = dict[int, NodeIndex]
 
 type _BoxSizeDict = dict[int, int]
 
+type _MarketedParentSupplierDict = dict[int, int]
+
 type _MonoAttribute = (
     dc.DoseForm[dc.ConceptId]
     | dc.Supplier[dc.ConceptId]
@@ -145,6 +147,13 @@ class ConceptTable(OMOPTable[None]):
             filter_expression |= definition.get_concept_expression(
                 allow_invalid=True
             )
+
+        # Add Marketed Product definition
+        filter_expression |= (
+            d.MARKETED_PRODUCT_DEFINITION.get_concept_expression(
+                allow_invalid=False
+            )
+        )
 
         return frame.filter(filter_expression)
 
@@ -998,6 +1007,11 @@ class OMOPVocabulariesV5:
         # Remove explicitly deprecated concepts and their relations
         self.filter_explicitly_deprecated_concepts()
 
+        # Get clean map of marketed products to immediate parents
+        self.marketed_parent: _MarketedParentSupplierDict = (
+            self.resolve_marketed_products()
+        )
+
         # Now there are much less concepts to process
         self.strength: StrengthTable = StrengthTable(
             path=vocab_download_path / "DRUG_STRENGTH.csv",
@@ -1348,6 +1362,85 @@ class OMOPVocabulariesV5:
             left_on=["pack_concept_id"],
             right_on=["concept_id"],
         )
+
+    def resolve_marketed_products(self) -> _MarketedParentSupplierDict:
+        """
+        Remove redundant links from lower order concepts to their Marketed
+        Product descendants; then, remove Marketed Products that define more
+        than one parent.
+        """
+        marketed_to_nodes = (
+            self.relationship.collect()
+            .join(
+                self.concept.collect().filter(
+                    pl.col("concept_class_id") == "Marketed Product"
+                ),
+                left_on="concept_id_1",
+                right_on="concept_id",
+                how="semi",
+            )
+            .filter(pl.col("relationship_id") == "Marketed form of")
+            .select(
+                mp_concept_id="concept_id_1",
+                node_concept_id="concept_id_2",
+            )
+        )
+
+        node_ancestors = (
+            self.ancestor.collect()
+            .filter(
+                pl.col("descendant_concept_id") != pl.col("ancestor_concept_id")
+            )
+            .join(
+                other=marketed_to_nodes.unique("node_concept_id"),
+                left_on="descendant_concept_id",
+                right_on="node_concept_id",
+                how="semi",
+            )
+            .group_by(descendant_concept_id="descendant_concept_id")
+            .all()
+        )
+
+        marketed_to_redundant_ancestors = (
+            marketed_to_nodes.join(
+                other=node_ancestors,
+                left_on="node_concept_id",
+                right_on="descendant_concept_id",
+                how="inner",
+            )
+            .select("mp_concept_id", "ancestor_concept_id")
+            .explode("ancestor_concept_id")
+            .unique()
+        )
+
+        marketed_to_true_parents = marketed_to_nodes.join(
+            other=marketed_to_redundant_ancestors,
+            left_on=marketed_to_nodes.columns,
+            right_on=marketed_to_redundant_ancestors.columns,
+            how="anti",
+        )
+
+        ambiguous_marketed_products = (
+            marketed_to_true_parents.group_by("mp_concept_id")
+            .len()
+            .sort("len", descending=True)
+            .filter(pl.col("len") > 1)
+        )
+
+        self.filter_out_bad_concepts(
+            len(marketed_to_nodes),
+            ambiguous_marketed_products["mp_concept_id"],
+            message_ok="No marketed products descend from multiple "
+            "hierarchically unrelated concepts",
+            reason_short="Ambiguous_MP_parent",
+            reason_full=f"Found {len(ambiguous_marketed_products)} marketed "
+            "products with hierarchically unrelated concepts",
+        )
+
+        out: _MarketedParentSupplierDict = dict(
+            marketed_to_true_parents.iter_rows()
+        )
+        return out
 
     def filter_explicitly_deprecated_concepts(self):
         """
