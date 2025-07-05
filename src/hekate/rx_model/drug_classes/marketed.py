@@ -3,11 +3,8 @@ Implementations of the Marketed Product pseudo-class.
 """
 
 from dataclasses import dataclass
-from enum import Enum  # For defining terminal parent types
 from typing import override  # for HierarchyNode interface
 
-from rx_model.drug_classes import complex as c  # For content type verification
-from rx_model.drug_classes import pack as p  # For content type verification
 from rx_model.drug_classes.atom import (
     Ingredient,  # For superclass checks
     Supplier,  # For defining attribute
@@ -22,24 +19,6 @@ from rx_model.drug_classes.generic import (
 )
 from rx_model.drug_classes import strength as st  # For strength data
 from utils.exceptions import RxConceptCreationError
-
-
-class MarketedProductTerminalParent(Enum):
-    """
-    Enum to define the type of marketed product.
-    This is a subset of ConceptClassId that represents marketed products.
-    """
-
-    CD = c.ClinicalDrug
-    QCD = c.QuantifiedClinicalDrug
-    BD = c.BrandedDrug
-    QBD = c.QuantifiedBrandedDrug
-    CDB = c.ClinicalDrugBox
-    BDB = c.BrandedDrugBox
-    QCB = c.QuantifiedClinicalBox
-    QBB = c.QuantifiedBrandedBox
-    BP = p.BrandedPack
-    CP = p.ClinicalPack
 
 
 @dataclass(frozen=True, order=True, eq=True, slots=True)
@@ -93,13 +72,6 @@ class MarketedProductNode[Id: ConceptIdentifier](HierarchyNode[Id]):
         Post-initialization to ensure the terminal parent is a valid DrugNode or
         PackNode.
         """
-        # Make sure that the terminal parent belongs to allowed types
-        if not isinstance(
-            self, tuple(MarketedProductTerminalParent._value2member_map_)
-        ):
-            raise RxConceptCreationError(
-                f"Invalid terminal parent type: {type(self.terminal_parent)}"
-            )
 
         # For DrugNode, make sure the strength is not a concentration
         if isinstance(self.terminal_parent, DrugNode):

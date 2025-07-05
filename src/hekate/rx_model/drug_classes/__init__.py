@@ -82,7 +82,6 @@ from rx_model.drug_classes.relations import (
 )
 
 from rx_model.drug_classes.marketed import (
-    MarketedProductTerminalParent,
     MarketedProductNode,
 )
 
@@ -122,7 +121,6 @@ __all__ = [
     "LiquidConcentration",
     "LiquidQuantity",
     "MarketedProductNode",
-    "MarketedProductTerminalParent",
     "PACK_CLASS_PREFERENCE_ORDER",
     "PackEntry",
     "PackNode",

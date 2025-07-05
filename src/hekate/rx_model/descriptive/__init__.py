@@ -25,6 +25,8 @@ from rx_model.descriptive.complex import ComplexDrugNodeDefinition
 
 from rx_model.descriptive.pack import PackDefinition
 
+from rx_model.descriptive.marketed import MARKETED_PRODUCT_DEFINITION
+
 from rx_model.descriptive.resolver import ClassHierarchy
 
 __all__ = [
@@ -45,5 +47,6 @@ __all__ = [
     "StrengthConfiguration",
     "ComplexDrugNodeDefinition",
     "PackDefinition",
+    "MARKETED_PRODUCT_DEFINITION",
     "ClassHierarchy",
 ]
