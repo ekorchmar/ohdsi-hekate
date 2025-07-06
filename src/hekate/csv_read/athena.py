@@ -2656,6 +2656,9 @@ class OMOPVocabulariesV5:
             list[int],  # Concept IDs
         ] = {}
 
+        # Failure of marketed product creation
+        node_mp_failure: dict[int, list[int]] = {}
+
         # Fail on creation
         node_failed: list[int] = []
 
@@ -2881,7 +2884,7 @@ class OMOPVocabulariesV5:
                 drug_node_definition = cr_content[content_node_id]
                 entry_nodes = self.drug_parent_nodes[drug_node_definition]
                 try:
-                    entry_node_idx = entry_nodes[content_node_id]
+                    pack_node_idx = entry_nodes[content_node_id]
                 except KeyError:
                     self.logger.debug(
                         f"Content {content_node_id} not found for "
@@ -2893,7 +2896,7 @@ class OMOPVocabulariesV5:
                     any_entry_failed = True
                     break
 
-                drug_node = self.hierarchy[entry_node_idx]
+                drug_node = self.hierarchy[pack_node_idx]
                 assert isinstance(drug_node, drug_node_definition.constructor)  # pyright: ignore[reportUnknownMemberType]  # noqa: E501
 
                 # HACK: Current modelling is ambiguous on if pack contents must
@@ -2947,7 +2950,7 @@ class OMOPVocabulariesV5:
                     )
                     break
 
-                entry_indices.append(entry_node_idx)
+                entry_indices.append(pack_node_idx)
                 entries.append(entry)
             if any_entry_failed:
                 continue  # to the next pack
@@ -3012,8 +3015,54 @@ class OMOPVocabulariesV5:
                     )
                 parent_indices.extend(entry_indices)
 
-            entry_node_idx = self.hierarchy.add_rxne_node(node, parent_indices)
-            out_nodes[concept_id] = entry_node_idx
+            pack_node_idx = self.hierarchy.add_rxne_node(node, parent_indices)
+            out_nodes[concept_id] = pack_node_idx
+
+            marketed_product_ids: list[int] = self.marketed_parent.get(
+                concept_id, []
+            )
+
+            for mp_id in marketed_product_ids:
+                try:
+                    supplier_id = self.marketed_suppliers[mp_id]
+                except KeyError:
+                    self.logger.debug(
+                        f"Supplier not found for marketed product "
+                        f"{mp_id} of {definition.class_id} {concept_id}"
+                    )
+                    node_mp_failure.setdefault(concept_id, []).append(mp_id)
+                    continue
+
+                # Get supplier atom
+                try:
+                    supplier = self.atoms.supplier[dc.ConceptId(supplier_id)]
+                except KeyError:
+                    self.logger.debug(
+                        f"Supplier {supplier_id} not found for "
+                        f"marketed product {mp_id} of "
+                        f"{definition.class_id} {concept_id}"
+                    )
+                    node_mp_failure.setdefault(concept_id, []).append(mp_id)
+                    continue
+
+                # Build the node
+                try:
+                    mp = dc.MarketedProductNode(
+                        identifier=dc.ConceptId(mp_id),
+                        terminal_parent=node,
+                        supplier=supplier,
+                    )
+                except RxConceptCreationError as e:
+                    self.logger.debug(
+                        f"Failed to create marketed product "
+                        f"{mp_id} for {definition.class_id} "
+                        f"{concept_id}: {e}"
+                    )
+                    node_mp_failure.setdefault(concept_id, []).append(mp_id)
+                    continue
+
+                # No need to remember the index
+                _ = self.hierarchy.add_rxne_node(mp, [pack_node_idx])
 
         # Cleanup
         # Bad attributes and parents

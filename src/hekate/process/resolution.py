@@ -165,6 +165,10 @@ class ResultCharacteristics(NamedTuple):
                 f"metadata."
             )
 
+        if isinstance(target, dc.MarketedProductNode):
+            # Unpack
+            target = target.terminal_parent
+
         match target:
             case dc.Ingredient():
                 # No strength data
