@@ -27,23 +27,20 @@ Hekate uses the following libraries:
 >   * Not all of the described functionality is implemented yet.
 
 To efficiently build an extension of the existing hierarchy, Hekate performs the following steps:
-1. Reading the input tables and Athena vocabulary files. Integrity checks are performed on input concepts, discarding the concepts that should not be included in the hierarchy as targets for mapping. This logic is implemented in [src/hekate/athena.py] module.
-2. Building a graph representation of the RxNorm and RxNorm Extension as data is being done as data is read. This is implemented in [src/hekate/rx_model/hierarchy/hosts.py] module.
-3. Reading the input tables from the input CSV files. This is implemented in [src/hekate/csv_read/source_input.py] module.
-4. Translating source data into native RxNorm representation respecting the precedence of mappings. This is implemented in [src/hekate/rx_model/hierarchy/translator.py] module.
-5. Traversing the existing hierarchy to find the terminal nodes matching the native definition. This is implemented in [src/hekate/rx_model/hierarchy/traversal.py] module.
-6. Exporting the output tables to CSV files. This is implemented in [src/hekate/runner/runners.py] module. Format of the output is stage tables for the `GenericUpdate()` script.
+1. Reading the Athena vocabulary files. Integrity checks are performed on input concepts, discarding the concepts that should not be included in the hierarchy as targets for mapping. This logic is implemented in [src/hekate/csv_read/athena.py] module.
+2. Reading the source data tables. The source data is expected to be in CSV format. This logic is implemented in [src/hekate/csv_read/source_input.csv] module. Source concepts get represented as a flat set of ForeignNodePrototype instances.
+3. Translating source data into native RxNorm representation respecting the precedence of mappings. This is implemented in [src/hekate/rx_model/hierarchy/translator.py] module. For each source ForeignNodePrototype, multiple ForeignNodes are instantiated, from precedence mappings.
+4. Traversing the existing hierarchy to find the terminal nodes matching the native definition. This is implemented in [src/hekate/rx_model/hierarchy/traversal.py] module.
+5. Picking the best match for each ForeignNodePrototype, ranking the matches by quality of the match and lowest precedence. This is implemented in [src/hekate/process/resolve.py] module.
 
 Currently not implemented, but is being actively worked on:
  * Robust reporting of errors both in RxNorm hierarchy and source data.
- * Support for Marketed Products, Clinical and Branded Packs and Drug Box classes.
  * Shaping output for integration with `GenericUpdate()` script.
  * Automated hierarchy extension to accommodate new concepts as implemented by `BuildRxE.sql`
 
 Currently not implemented, as design decisions are subject of active discussion:
- * Order of disambiguation of multiple target mappings.
  * Precise Ingredient logic for source data.
- * Handling of `possible_excipient`
+ * Handling of currently unused `possible_excipient` field.
 
 ## Installation
 Hekate can be installed using `pip`. Virtual environment is recommended. The package is not yet available on PyPI, so
@@ -67,8 +64,5 @@ After installing with `pip`, you can run the tool with the following command:
 hekate --help
 ```
 
-
 ## License
-Source code is available under MIT License. This means that you can use it for any purpose, including commercial
-purposes.
-
+Source code is available under MIT License. This means that you can use it for any purpose, including commercial purposes.
