@@ -52,7 +52,11 @@ class PackDefinition(ConceptDefinition):
     registry: ClassVar[dict[ConceptClassId, PackDefinition]] = {}
 
     @classmethod
-    def get(cls, key: ConceptClassId) -> PackDefinition:
+    def get(cls, key: ConceptClassId) -> PackDefinition | None:
+        return cls.registry.get(key)
+
+    @classmethod
+    def get_certain(cls, key: ConceptClassId) -> PackDefinition:
         return cls.registry[key]
 
     def __post_init__(self):
@@ -89,7 +93,7 @@ _CP_DEFINITION = PackDefinition(
     content_relations=tuple(
         RelationshipDescription(
             relationship_id="Contains",
-            target_definition=ComplexDrugNodeDefinition.get(cd_class),
+            target_definition=ComplexDrugNodeDefinition.get_certain(cd_class),
             cardinality=Cardinality.ANY,
         )
         for cd_class in [ConceptClassId.CD, ConceptClassId.QCD]
@@ -105,7 +109,7 @@ _BP_DEFINITION = PackDefinition(
     content_relations=tuple(
         RelationshipDescription(
             relationship_id="Contains",
-            target_definition=ComplexDrugNodeDefinition.get(cd_class),
+            target_definition=ComplexDrugNodeDefinition.get_certain(cd_class),
             cardinality=Cardinality.ANY,
         )
         for cd_class in [
@@ -134,7 +138,7 @@ _CPB_DEFINITION = PackDefinition(
     content_relations=tuple(
         RelationshipDescription(
             relationship_id="Contains",
-            target_definition=ComplexDrugNodeDefinition.get(cd_class),
+            target_definition=ComplexDrugNodeDefinition.get_certain(cd_class),
             cardinality=Cardinality.ANY,
         )
         for cd_class in [ConceptClassId.CD, ConceptClassId.QCD]
@@ -157,7 +161,7 @@ _BPB_DEFINITION = PackDefinition(
     content_relations=tuple(
         RelationshipDescription(
             relationship_id="Contains",
-            target_definition=ComplexDrugNodeDefinition.get(cd_class),
+            target_definition=ComplexDrugNodeDefinition.get_certain(cd_class),
             cardinality=Cardinality.ANY,
         )
         for cd_class in [ConceptClassId.CD, ConceptClassId.QCD]

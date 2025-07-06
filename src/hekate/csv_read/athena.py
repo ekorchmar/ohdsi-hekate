@@ -47,7 +47,9 @@ type _TempNodeView = dict[int, NodeIndex]
 
 type _BoxSizeDict = dict[int, int]
 
-type _MarketedParentSupplierDict = dict[int, int]
+type _MarketedProductSupplierId = int
+type _MarketedProductParentId = int
+type _MarketedProductParents = dict[_MarketedProductParentId, list[int]]
 
 type _MonoAttribute = (
     dc.DoseForm[dc.ConceptId]
@@ -128,32 +130,17 @@ class ConceptTable(OMOPTable[None]):
                 allow_invalid=True
             )
 
-        # Add complex drug node definitions
+        # Add complex drug & pack node definitions
         for ccid in CCId:
-            try:
-                definition = d.ComplexDrugNodeDefinition.get(ccid)
-            except KeyError:
-                continue
-            filter_expression |= definition.get_concept_expression(
-                allow_invalid=True
+            definition = (
+                d.ComplexDrugNodeDefinition.get(ccid)
+                or d.PackDefinition.get(ccid)
+                or (ccid is CCId.MP and d.MARKETED_PRODUCT_DEFINITION)
             )
-
-        # Add complex pack node definitions
-        for ccid in CCId:
-            try:
-                definition = d.PackDefinition.get(ccid)
-            except KeyError:
-                continue
-            filter_expression |= definition.get_concept_expression(
-                allow_invalid=True
-            )
-
-        # Add Marketed Product definition
-        filter_expression |= (
-            d.MARKETED_PRODUCT_DEFINITION.get_concept_expression(
-                allow_invalid=False
-            )
-        )
+            if definition:
+                filter_expression |= definition.get_concept_expression(
+                    allow_invalid=True
+                )
 
         return frame.filter(filter_expression)
 
@@ -373,17 +360,13 @@ class OMOPVocabulariesV5:
         self.logger.info(f"Finding relationships for {source_class.value}")
 
         # Get expression from definition
-        # TODO: There should be a universal way to retrieve the definition
-        # from CCId, not only for nodes
-        try:
-            definition = d.ComplexDrugNodeDefinition.get(source_class)
-        except KeyError:
-            try:
-                definition = d.PackDefinition.get(source_class)
-            except KeyError:
-                definition = None
+        definition = (
+            d.ComplexDrugNodeDefinition.get(source_class)
+            or d.PackDefinition.get(source_class)
+            or (source_class is CCId.MP and d.MARKETED_PRODUCT_DEFINITION)
+        )
 
-        if definition is None:
+        if not definition:
             filter_expr = (pl.col("concept_class_id") == source_class.value) & (
                 pl.col("invalid_reason").is_null()
             )
@@ -1007,10 +990,10 @@ class OMOPVocabulariesV5:
         # Remove explicitly deprecated concepts and their relations
         self.filter_explicitly_deprecated_concepts()
 
-        # Get clean map of marketed products to immediate parents
-        self.marketed_parent: _MarketedParentSupplierDict = (
-            self.resolve_marketed_products()
-        )
+        # Get clean map of parents to marketed products and suppliers
+        self.marketed_parent: _MarketedProductParents = {}
+        self.marketed_suppliers: dict[int, _MarketedProductSupplierId]
+        self.resolve_marketed_products()
 
         # Now there are much less concepts to process
         self.strength: StrengthTable = StrengthTable(
@@ -1363,7 +1346,7 @@ class OMOPVocabulariesV5:
             right_on=["concept_id"],
         )
 
-    def resolve_marketed_products(self) -> _MarketedParentSupplierDict:
+    def resolve_marketed_products(self) -> None:
         """
         Remove redundant links from lower order concepts to their Marketed
         Product descendants; then, remove Marketed Products that define more
@@ -1423,7 +1406,6 @@ class OMOPVocabulariesV5:
         ambiguous_marketed_products = (
             marketed_to_true_parents.group_by("mp_concept_id")
             .len()
-            .sort("len", descending=True)
             .filter(pl.col("len") > 1)
         )
 
@@ -1437,10 +1419,29 @@ class OMOPVocabulariesV5:
             "products with hierarchically unrelated concepts",
         )
 
-        out: _MarketedParentSupplierDict = dict(
-            marketed_to_true_parents.iter_rows()
+        marketed_to_only_parent = marketed_to_true_parents.join(
+            other=ambiguous_marketed_products,
+            on="mp_concept_id",
+            how="anti",
         )
-        return out
+
+        supplier_relations = self.get_validated_relationships_view(
+            source_class=CCId.MP,
+            relationships=[d.MONO_ATTRIBUTE_RELATIONS[CCId.SUPPLIER]],
+        )
+
+        self.marketed_suppliers = dict(supplier_relations.iter_rows())
+        self.logger.info(
+            f"Found {len(marketed_to_only_parent):,} marketed products with "
+            f"hierarchically valid parents and "
+            f"{len(self.marketed_suppliers):,} with suppliers"
+        )
+
+        parent_to_marketed = marketed_to_only_parent.group_by(
+            "node_concept_id"
+        ).all()
+
+        self.marketed_parent = dict(parent_to_marketed.iter_rows())
 
     def filter_explicitly_deprecated_concepts(self):
         """
@@ -1762,6 +1763,10 @@ class OMOPVocabulariesV5:
                     d.StrengthConfiguration.LIQUID_QUANTITY
                 ]
             )
+            |
+            # Allow Marketed Products to have any configuration, as it is always
+            # inherited from the immediate parent
+            (pl.col("concept_class_id") == "Marketed Product")
         )
 
         invalid_strength = strength_with_class.filter(~valid_strength)
@@ -1877,6 +1882,9 @@ class OMOPVocabulariesV5:
         node_bad_ingred: list[int] = []
         node_bad_pi: list[int] = []
         node_ingred_ds_mismatch: list[int] = []
+
+        # Failure of creating Marketed Products, if any
+        node_mp_failure: dict[int, list[int]] = {}
 
         # Mismatch with parents on attributes
         node_attr_mismatch: dict[
@@ -2421,6 +2429,56 @@ class OMOPVocabulariesV5:
 
             node_idx = self.hierarchy.add_rxne_node(node, parent_indices)
             out_nodes[concept_id] = node_idx
+
+            # Add marketed products leaves
+            if not definition.extends_to_marketed_product:
+                continue
+
+            marketed_product_ids: list[int] = self.marketed_parent.get(
+                concept_id, []
+            )
+
+            for mp_id in marketed_product_ids:
+                try:
+                    supplier_id = self.marketed_suppliers[mp_id]
+                except KeyError:
+                    self.logger.debug(
+                        f"Supplier not found for marketed product "
+                        f"{mp_id} of {definition.class_id} {concept_id}"
+                    )
+                    node_mp_failure.setdefault(concept_id, []).append(mp_id)
+                    continue
+
+                # Get supplier atom
+                try:
+                    supplier = self.atoms.supplier[dc.ConceptId(supplier_id)]
+                except KeyError:
+                    self.logger.debug(
+                        f"Supplier {supplier_id} not found for "
+                        f"marketed product {mp_id} of "
+                        f"{definition.class_id} {concept_id}"
+                    )
+                    node_mp_failure.setdefault(concept_id, []).append(mp_id)
+                    continue
+
+                # Build the node
+                try:
+                    mp = dc.MarketedProductNode(
+                        identifier=dc.ConceptId(mp_id),
+                        terminal_parent=node,  # pyright: ignore[reportArgumentType]  # noqa: E501
+                        supplier=supplier,
+                    )
+                except RxConceptCreationError as e:
+                    self.logger.debug(
+                        f"Failed to create marketed product "
+                        f"{mp_id} for {definition.class_id} "
+                        f"{concept_id}: {e}"
+                    )
+                    node_mp_failure.setdefault(concept_id, []).append(mp_id)
+                    continue
+
+                # No need to remember the index
+                _ = self.hierarchy.add_rxne_node(mp, [node_idx])
 
         # Cleanup
         # Bad attributes and parents
