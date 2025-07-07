@@ -31,8 +31,16 @@ dependencies = ["polars", "rustworkx"]
 
 [project.optional-dependencies]
 graph = ["graphviz", "pillow"]
-dev = ["uv", "scalene", "snakeviz", "pyright", "pre-commit"]
+dev = ["uv", "pyright", "pre-commit"]
 database = ["sqlalchemy", "pandas"]
+profile = ["scalene", "snakeviz"]
+
+[dependency-groups]
+dev-full = [
+  {include-group = "dev"},
+  {include-group = "graph"},
+  {include-group = "profile"},
+]
 
 [project.scripts]
 hekate = "main:_main"
@@ -80,3 +88,6 @@ preview = true
 
 [tool.sqlfluff.core]
 dialect = "postgres"
+
+[tool.uv.sources]
+ohdsi-hekate = { workspace = true }
