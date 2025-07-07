@@ -27,15 +27,17 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
 ]
 
-dependencies = ["polars", "rustworkx"]
+dependencies = [
+    "polars",
+ "pytest>=8.4.1",
+ "rustworkx",
+]
 
-[project.optional-dependencies]
+[dependency-groups]
 graph = ["graphviz", "pillow"]
 dev = ["uv", "pyright", "pre-commit"]
 database = ["sqlalchemy", "pandas"]
 profile = ["scalene", "snakeviz"]
-
-[dependency-groups]
 dev-full = [
   {include-group = "dev"},
   {include-group = "graph"},

@@ -6,8 +6,7 @@ test args="-v":
   PYTHONPATH=src/hekate pytest {{args}}
 
 run args="":
-  pip install -e .
-  hekate {{args}} {{default_opts}} {{graph_args}}
+  pip run -- hekate {{args}} {{default_opts}} {{graph_args}}
 
 scalene args="":
   scalene src/hekate/main.py {{args}} {{default_opts}} {{graph_args}}
