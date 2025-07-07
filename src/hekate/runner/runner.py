@@ -134,6 +134,9 @@ class HekateRunner:
             p.PackResolver,
         )
 
+        self.write_results()
+        self.write_report()
+
         LOGGER.info("Done")
 
     def _create_run_dir(self):
@@ -225,6 +228,151 @@ class HekateRunner:
 
         print(data := mappings_df.collect())
         data.write_csv(self.run_dir / "hekate_results.csv")
+
+    def write_report(self):
+        """
+        Write simple stats describing the source concepts and their resulting mapping
+
+        Columns:
+            - Source concept class: coalesce of drug_concept_stage source_concept_class and concept_class columns
+            - Target concept class: concept_class_id of the resulting mapping
+            - Target Vocab: vocabulary_id of the resulting mapping
+            - Count: number of mappings for each source concept class
+        """
+        # Collect all mappings from both drug and pack results
+        all_mappings: list[dict[str, int | str | None]] = []
+
+        for source_concept, target_nodes in chain(
+            self.resulting_drug_mappings.items(),
+            self.resulting_pack_mappings.items(),
+        ):
+            for target_node in target_nodes:
+                all_mappings.append({
+                    "source_concept_code": source_concept.concept_code,
+                    "source_vocabulary_id": source_concept.vocabulary_id,
+                    "target_concept_id": target_node.identifier,
+                })
+
+        # Get all source concepts from build_rxe_source
+        all_source_concepts = self.build_rxe_source.dcs.collect().select(
+            "concept_code",
+            "vocabulary_id",
+            "concept_class_id",
+            "source_concept_class_id",
+        )
+
+        # Find unmapped source concepts
+        if all_mappings:
+            mapped_concepts = (
+                pl.DataFrame(all_mappings)
+                .select("source_concept_code", "source_vocabulary_id")
+                .unique()
+            )
+
+            unmapped_concepts = all_source_concepts.join(
+                mapped_concepts,
+                left_on=["concept_code", "vocabulary_id"],
+                right_on=["source_concept_code", "source_vocabulary_id"],
+                how="anti",
+            )
+
+            # Add unmapped concepts to all_mappings with special markers
+            for row in unmapped_concepts.iter_rows(named=True):
+                all_mappings.append({
+                    "source_concept_code": row["concept_code"],
+                    "source_vocabulary_id": row["vocabulary_id"],
+                    "target_concept_id": None,  # Will be handled as unmapped
+                })
+
+        if not all_mappings:
+            self.logger.warning("No mappings found for report generation")
+            return
+
+        # Create DataFrame from mappings
+        mappings_df = pl.DataFrame(all_mappings)
+
+        # Join with target concept data to get target concept classes
+        target_concepts = self.athena_rxne.concept.collect().select(
+            pl.col("concept_id").alias("target_concept_id"),
+            pl.col("concept_class_id").alias("target_concept_class_id"),
+            pl.col("vocabulary_id").alias("target_vocabulary_id"),
+        )
+
+        # Create the report by joining all data
+        report_df = (
+            mappings_df.join(
+                all_source_concepts,
+                left_on=["source_concept_code", "source_vocabulary_id"],
+                right_on=["concept_code", "vocabulary_id"],
+                how="left",
+            )
+            .join(
+                target_concepts,
+                left_on="target_concept_id",
+                right_on="target_concept_id",
+                how="left",
+            )
+            .with_columns(
+                source_concept_class=pl.coalesce(
+                    pl.col("source_concept_class_id"),
+                    pl.col("concept_class_id"),
+                ),
+                target_concept_class=pl.coalesce(
+                    pl.col("target_concept_class_id"),
+                    pl.lit("UNMAPPED"),
+                ),
+                target_vocabulary=pl.coalesce(
+                    pl.col("target_vocabulary_id"),
+                    pl.lit("UNMAPPED"),
+                ),
+            )
+            .group_by(
+                "source_concept_class",
+                "target_concept_class",
+                "target_vocabulary",
+            )
+            .len("count")
+            .sort(
+                "source_concept_class",
+                "target_concept_class",
+                "target_vocabulary",
+            )
+            .select(
+                source_concept_class=pl.col("source_concept_class"),
+                target_concept_class=pl.col("target_concept_class"),
+                target_vocabulary=pl.col("target_vocabulary"),
+                count=pl.col("count"),
+            )
+        )
+
+        # Write the report
+        report_path = self.run_dir / "hekate_mapping_report.csv"
+        report_df.write_csv(report_path)
+
+        # Log summary statistics
+        total_concepts = report_df.select(pl.sum("count")).item()
+        total_mapped = (
+            report_df.filter(pl.col("target_concept_class") != "UNMAPPED")
+            .select(pl.sum("count"))
+            .item()
+        )
+        total_unmapped = (
+            report_df.filter(pl.col("target_concept_class") == "UNMAPPED")
+            .select(pl.sum("count"))
+            .item()
+        )
+        unique_source_classes = report_df.select(
+            pl.n_unique("source_concept_class")
+        ).item()
+
+        self.logger.info(f"Mapping report written to {report_path}")
+        self.logger.info(f"""Brief:
+ - Total source concepts: {total_concepts:,}")
+ - Mapped concepts: {total_mapped:,}
+ - Unmapped concepts: {total_unmapped:,}
+ - Unique source concept classes: {unique_source_classes}
+ """)
+        print(report_df)
 
     def _find_drug_node_mappings(self) -> _InterimDrugResult:
         """
