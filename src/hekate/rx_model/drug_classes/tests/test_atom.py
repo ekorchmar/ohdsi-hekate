@@ -1,6 +1,6 @@
 import pytest
 import rx_model.drug_classes.atom as a
-import rx_model.drug_classes.generic as g
+import rx_model.drug_classes.base as b
 from utils.classes import SortedTuple
 
 
@@ -12,24 +12,24 @@ permafixture = pytest.fixture(scope="package")
 ## Ingredients
 @permafixture
 def acetaminophen():
-    return a.Ingredient(g.ConceptId(1125315), "acetaminophen")
+    return a.Ingredient(b.ConceptId(1125315), "acetaminophen")
 
 
 @permafixture
 def paracetamol():
-    return a.Ingredient(g.ConceptId(1125315), "paracetamol")
+    return a.Ingredient(b.ConceptId(1125315), "paracetamol")
 
 
 @permafixture
 def haloperidol():
-    return a.Ingredient(g.ConceptId(766529), "haloperidol")
+    return a.Ingredient(b.ConceptId(766529), "haloperidol")
 
 
 ## Precise Ingredients
 @permafixture
 def haloperidol_decanoate(haloperidol):
     return a.PreciseIngredient(
-        g.ConceptId(19068898),
+        b.ConceptId(19068898),
         "haloperidol decanoate",
         haloperidol,
     )
@@ -38,7 +38,7 @@ def haloperidol_decanoate(haloperidol):
 @permafixture
 def haloperidol_etherate(haloperidol):
     return a.PreciseIngredient(
-        g.ConceptId(19068899),
+        b.ConceptId(19068899),
         "haloperidol fake pi",
         haloperidol,
     )
@@ -47,38 +47,38 @@ def haloperidol_etherate(haloperidol):
 ## Brand Names
 @permafixture
 def _tylenol():
-    return a.BrandName(g.ConceptId(1125315), "Tylenol")
+    return a.BrandName(b.ConceptId(1125315), "Tylenol")
 
 
 @permafixture
 def advicor():
-    return a.BrandName(g.ConceptId(19082896), "Advicor")
+    return a.BrandName(b.ConceptId(19082896), "Advicor")
 
 
 @permafixture
 def bupap():
-    return a.BrandName(g.ConceptId(19057227), "Bupap")
+    return a.BrandName(b.ConceptId(19057227), "Bupap")
 
 
 @permafixture
 def oral_tablet():
-    return a.DoseForm(g.ConceptId(19082573), "Oral Tablet")
+    return a.DoseForm(b.ConceptId(19082573), "Oral Tablet")
 
 
 @permafixture
 def oral_solution():
-    return a.DoseForm(g.ConceptId(19082170), "Oral Solution")
+    return a.DoseForm(b.ConceptId(19082170), "Oral Solution")
 
 
 # Unit
 @permafixture
 def mg():
-    return a.Unit(g.ConceptId(8576), "mg")
+    return a.Unit(b.ConceptId(8576), "mg")
 
 
 @permafixture
 def ml():
-    return a.Unit(g.ConceptId(8587), "ml")
+    return a.Unit(b.ConceptId(8587), "ml")
 
 
 # ConceptCodeVocab
@@ -86,7 +86,7 @@ def ml():
 @permafixture
 def omop_haloperidol():
     return a.Ingredient(
-        g.ConceptCodeVocab("OMOP41", "RxNorm Extension"),
+        b.ConceptCodeVocab("OMOP41", "RxNorm Extension"),
         "Haloperydol Kharkivdrug",
     )
 
@@ -94,7 +94,7 @@ def omop_haloperidol():
 @permafixture
 def omop_apap_1():
     return a.Ingredient(
-        g.ConceptCodeVocab("OMOP42", "RxNorm Extension"),
+        b.ConceptCodeVocab("OMOP42", "RxNorm Extension"),
         "Paracetamol Darnytsia",
     )
 
@@ -102,7 +102,7 @@ def omop_apap_1():
 @permafixture
 def omop_apap_2():
     return a.Ingredient(
-        g.ConceptCodeVocab("OMOP42", "RxNorm Extension"),
+        b.ConceptCodeVocab("OMOP42", "RxNorm Extension"),
         "Paracetamol Kharkivdrug",
     )
 

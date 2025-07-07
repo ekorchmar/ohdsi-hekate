@@ -1,7 +1,7 @@
 import pytest
 import rx_model.drug_classes.atom as a
 import rx_model.drug_classes.complex as c
-import rx_model.drug_classes.generic as g
+import rx_model.drug_classes.base as b
 import rx_model.drug_classes.strength as st
 from utils.classes import SortedTuple
 
@@ -31,7 +31,7 @@ from .test_atom import (
 @permafixture
 def apap_500mg(acetaminophen, mg):
     return c.ClinicalDrugComponent(
-        g.ConceptId(1),
+        b.ConceptId(1),
         acetaminophen,
         None,
         st.SolidStrength(500, mg),
@@ -41,7 +41,7 @@ def apap_500mg(acetaminophen, mg):
 @permafixture
 def apap_40mg_ml(acetaminophen, mg):
     return c.ClinicalDrugComponent(
-        g.ConceptId(1),
+        b.ConceptId(1),
         acetaminophen,
         None,
         st.LiquidConcentration(40, mg, ml),
@@ -51,7 +51,7 @@ def apap_40mg_ml(acetaminophen, mg):
 @permafixture
 def haloperidol_40mg_ml(haloperidol, mg, ml):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         None,
         st.LiquidConcentration(40, mg, ml),
@@ -61,7 +61,7 @@ def haloperidol_40mg_ml(haloperidol, mg, ml):
 @permafixture
 def haloperidol_40mg_ml(haloperidol, mg, ml):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         None,
         st.LiquidConcentration(40, mg, ml),
@@ -71,7 +71,7 @@ def haloperidol_40mg_ml(haloperidol, mg, ml):
 @permafixture
 def haloperidol_decanoate_40mg_ml(haloperidol, mg, ml, haloperidol_decanoate):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         haloperidol_decanoate,
         st.LiquidConcentration(40, mg, ml),
@@ -81,7 +81,7 @@ def haloperidol_decanoate_40mg_ml(haloperidol, mg, ml, haloperidol_decanoate):
 @permafixture
 def haloperidol_etherate_40mg_ml(haloperidol, mg, ml, haloperidol_etherate):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         haloperidol_etherate,
         st.LiquidConcentration(40, mg, ml),
@@ -91,7 +91,7 @@ def haloperidol_etherate_40mg_ml(haloperidol, mg, ml, haloperidol_etherate):
 @permafixture
 def _haloperidol_39mg_ml(haloperidol, mg, ml):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         None,
         st.LiquidConcentration(39, mg, ml),
@@ -101,7 +101,7 @@ def _haloperidol_39mg_ml(haloperidol, mg, ml):
 @permafixture
 def _haloperidol_41mg_ml(haloperidol, mg, ml):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         None,
         st.LiquidConcentration(41, mg, ml),
@@ -111,7 +111,7 @@ def _haloperidol_41mg_ml(haloperidol, mg, ml):
 @permafixture
 def _haloperidol_45mg_ml(haloperidol, mg, ml):
     return c.ClinicalDrugComponent(
-        g.ConceptId(2),
+        b.ConceptId(2),
         haloperidol,
         None,
         st.LiquidConcentration(45, mg, ml),
